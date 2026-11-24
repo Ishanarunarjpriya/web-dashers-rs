@@ -213,6 +213,12 @@ impl Ui {
     }
 
     // ---- shared pieces ----
+    /// the green back arrow of the search menu and the play menu (`GJ_arrow_01_001`, flipped both ways and turned half round)
+    fn on_back_arrow(&mut self, action: Action, depth: f64, tag: &'static str) {
+        let b = self.image("GJ_GameSheet03", "GJ_arrow_01_001.png", 50.0, 48.0, depth, 1.0);
+        { let n = self.node(b); n.flip_x = true; n.flip_y = true; n.rot = std::f64::consts::PI; n.tag = tag; }
+        self.make_bouncy(b, 1.0, Cond::Always, action);
+    }
     fn on_corners(&mut self, depth: f64, tag: &'static str) {
         let (sw, sh) = (self.screen_width, 640.0);
         let br = self.image("GJ_GameSheet03", "GJ_sideArt_001.png", sw, sh, depth, 1.0); { let n = self.node(br); n.ox = 1.0; n.oy = 1.0; n.flip_x = true; n.tag = tag; }
@@ -244,7 +250,7 @@ impl Ui {
         self.em_fade_in(200.0, 300.0, tag);
         self.em_gradient(100.0, tag);
         self.em_blocker(101.0, tag);
-        self.em_back_arrow(Action::Pop("OnBack", 0), 104.0, tag);
+        self.on_back_arrow(Action::Pop("OnBack", 0), 104.0, tag);
         self.on_corners(152.0, tag);
         let panel_left = sw * 0.18; let panel_right = sw - sw * 0.18; let panel_w = panel_right - panel_left;
         let rr = |ui: &mut Ui, x: f64, y: f64, w: f64, h: f64, color: i64| { let p = ui.shape(Kind::RoundRect, x, y, w, h, color, 0.7, 104.0, tag); ui.node(p).radius = 10.0; p };
@@ -500,7 +506,7 @@ impl Ui {
         self.em_gradient(500.0, tag);
         self.em_blocker(501.0, tag);
         self.on_corners(502.0, tag);
-        self.em_back_arrow(Action::Pop("OnMenuBack", 0), 504.0, tag);
+        self.on_back_arrow(Action::Pop("OnMenuBack", 0), 504.0, tag);
         let name = self.on_txt(None, "bigFont", 50.0, if l.name.is_empty() { "Unknown" } else { &l.name }, cx, sh * 0.11 - 30.0, 0.5, 0.5, 503.0, tag);
         self.on_fit(name, sw * 0.7, 0.3);
         let ny = self.node(name).y;
