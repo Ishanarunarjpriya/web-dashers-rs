@@ -166,7 +166,7 @@ async function main() {
 
   // ---- drawing helpers ----
   let tintCache = new WeakMap(), tintPixels = 0;
-  let bgTile = null;
+  let bgTile = null, cpuCv = null, cpuCtx = null;
   const tinted = (fr, tint) => {
     // keyed by image object, then by frame rectangle, then by tint: nothing is built per call (the callers make a fresh `fr` object every time)
     let byFrame = tintCache.get(fr.img); if (!byFrame) tintCache.set(fr.img, byFrame = new Map());
@@ -175,15 +175,17 @@ async function main() {
     let c = per.get(tint);
     if (c) return c;
     const { x, y, w: fw, h: fh } = fr.d.frame;
-    const paint = (cv) => {
+    const paint = (cv) => { // a Phaser tint multiplies the colour and keeps the alpha: do the same per pixel (a canvas "multiply" would tint the transparent edges, e.g. the soft black shadow of the fonts)
+      if (!cpuCv) { cpuCv = document.createElement("canvas"); cpuCtx = cpuCv.getContext("2d", { willReadFrequently: true }); }
+      if (cpuCv.width < fw || cpuCv.height < fh) { cpuCv.width = Math.max(cpuCv.width, fw); cpuCv.height = Math.max(cpuCv.height, fh); }
+      cpuCtx.clearRect(0, 0, fw, fh);
+      cpuCtx.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
+      const im = cpuCtx.getImageData(0, 0, fw, fh), px = im.data;
+      const tr = ((tint >> 16) & 255) / 255, tg = ((tint >> 8) & 255) / 255, tb = (tint & 255) / 255;
+      for (let k = 0; k < px.length; k += 4) { px[k] *= tr; px[k + 1] *= tg; px[k + 2] *= tb; }
       const g = cv.getContext("2d");
       g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, fw, fh);
-      g.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
-      g.globalCompositeOperation = "multiply";
-      g.fillStyle = "#" + (tint & 0xffffff).toString(16).padStart(6, "0");
-      g.fillRect(0, 0, fw, fh);
-      g.globalCompositeOperation = "destination-in";
-      g.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
+      g.putImageData(im, 0, 0);
     };
     if (per.size >= 12) { // a colour that fades (or the menu's rainbow): repaint one canvas instead of making a new one every frame
       let sc = per.scratch;
