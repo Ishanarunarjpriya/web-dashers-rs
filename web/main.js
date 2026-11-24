@@ -16,6 +16,15 @@ let GL = null;
 try { if (new URLSearchParams(location.search).get("gl") !== "0") GL = createGL(gcanvas); } catch (e) { console.warn("WebGL unavailable, drawing everything with canvas 2D", e); }
 const hud = document.getElementById("hud");
 const W = 1138, H = 640;
+// Phaser's Scale.FIT: the canvas is stretched to the largest whole-pixel size with the game's aspect ratio that fits the window, and centred.
+const fitStyle = () => {
+  const iw = innerWidth || W, ih = innerHeight || H, aspect = W / H;
+  let w, h;
+  if (iw / ih > aspect) { h = ih; w = Math.round(h * aspect); } else { w = iw; h = Math.round(w / aspect); }
+  const left = Math.floor((iw - w) / 2), top = Math.floor((ih - h) / 2);
+  for (const c of [document.getElementById("g"), canvas]) if (c) { c.style.width = w + "px"; c.style.height = h + "px"; c.style.left = left + "px"; c.style.top = top + "px"; }
+};
+fitStyle(); addEventListener("resize", fitStyle);
 
 const fail = (e) => { document.body.insertAdjacentHTML("beforeend", `<pre style="position:fixed;left:8px;bottom:8px;color:#f66;font:12px monospace">${String(e && e.stack || e)}</pre>`); console.error(e); window.__error = String(e); };
 window.addEventListener("error", (e) => fail(e.error || e.message));
@@ -203,7 +212,7 @@ async function main() {
     per.set(tint, c);
     return c;
   };
-  let snapOn = false;
+  let snapOn = false; // (edge snapping was for the hi-res canvas; the 1138x640 canvas draws exactly like Phaser)
   const snapPx = (v) => Math.round(v * pxScale) / pxScale;
   // Phaser's ColorMatrix grayscale(1) is saturate(-1): every channel becomes the average of r, g and b; then the tint multiplies
   const grayCache = new WeakMap();
@@ -246,9 +255,10 @@ async function main() {
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
     ctx.globalCompositeOperation = blend === 1 ? "lighter" : "source-over";
     const ox = -src.w / 2 + ss.x, oy = -src.h / 2 + ss.y;
-    if (tint >= 0 && tint !== 0xffffff) { const c = tinted(fr, tint); ctx.drawImage(c, ox, oy); }
+    const ins = (fw < fr.img.width || fh < fr.img.height) ? 0.5 : 0; // Phaser frames here sample half a texel inside (core/main.js `insetFrameUVs`)
+    if (tint >= 0 && tint !== 0xffffff) { const c = tinted(fr, tint); ctx.drawImage(c, ins, ins, fw - 2 * ins, fh - 2 * ins, ox, oy, fw, fh); }
     else if (d.rotated) { ctx.rotate(-Math.PI / 2); ctx.drawImage(fr.img, f.x, f.y, fh, fw, -oy - fh, ox, fh, fw); }
-    else ctx.drawImage(fr.img, f.x, f.y, fw, fh, ox, oy, fw, fh);
+    else ctx.drawImage(fr.img, f.x + ins, f.y + ins, fw - 2 * ins, fh - 2 * ins, ox, oy, fw, fh);
     ctx.restore();
   };
 
@@ -356,9 +366,13 @@ async function main() {
           const tint = ub[o + 7], crop = ub[o + 12];
           const cw = crop > 0 ? Math.min(crop, d.frame.w) : d.frame.w;
           if (crop > d.frame.w && a === "") { for (let tx2 = 0; tx2 < crop; tx2 += d.frame.w) { const pw = Math.min(d.frame.w, crop - tx2); ctx.drawImage(img, 0, 0, pw, d.frame.h, dx + tx2, dy, pw, d.frame.h); } }
-          else if (fl & 16) { const tc = grayTinted(fr, tint); ctx.drawImage(tc, 0, 0, cw, d.frame.h, dx, dy, cw, d.frame.h); }
-          else if (tint >= 0 && tint !== 0xffffff) { const tc = tinted(fr, tint); ctx.drawImage(tc, 0, 0, cw, d.frame.h, dx, dy, cw, d.frame.h); }
-          else ctx.drawImage(img, d.frame.x, d.frame.y, cw, d.frame.h, dx, dy, cw, d.frame.h);
+          else {
+            const ins = a !== "" && cw === d.frame.w && (d.frame.w < img.width || d.frame.h < img.height) ? 0.5 : 0; // the half-texel UV inset of the original's atlas frames
+            const ch = d.frame.h;
+            if (fl & 16) { const tc = grayTinted(fr, tint); ctx.drawImage(tc, ins, ins, cw - 2 * ins, ch - 2 * ins, dx, dy, cw, ch); }
+            else if (tint >= 0 && tint !== 0xffffff) { const tc = tinted(fr, tint); ctx.drawImage(tc, ins, ins, cw - 2 * ins, ch - 2 * ins, dx, dy, cw, ch); }
+            else ctx.drawImage(img, d.frame.x + ins, d.frame.y + ins, cw - 2 * ins, ch - 2 * ins, dx, dy, cw, ch);
+          }
         }
       } else if (kind === 1) {
         const t = texts[ub[o + 11]]; const size = ub[o + 12];
@@ -372,19 +386,31 @@ async function main() {
         }
       } else if (kind === 2) { ctx.fillStyle = hex(ub[o + 14]); ctx.fillRect(ub[o + 1], ub[o + 2], ub[o + 12], ub[o + 13]); }
       else if (kind === 3) { ctx.fillStyle = hex(ub[o + 14]); ctx.beginPath(); ctx.roundRect(ub[o + 1], ub[o + 2], ub[o + 12], ub[o + 13], ub[o + 15]); ctx.fill(); }
-      else if (kind === 5) {
+      else if (kind === 5) { // nine-slice: a standalone image or a frame of an atlas; trimmed frames keep their transparent margin (Phaser slices the untrimmed size)
         const key = texts[ub[o + 11]], slash = key.indexOf("/");
-        let img = null, fx = 0, fy = 0, iw = 0, ih = 0;
-        if (slash > 0) { const at = atlas[key.slice(0, slash)], d = at && at.frames[key.slice(slash + 1)]; if (d) { img = at.img; fx = d.frame.x; fy = d.frame.y; iw = d.frame.w; ih = d.frame.h; } } // a frame of an atlas
-        else { img = standalone[key]; if (img) { iw = img.width; ih = img.height; } }
+        let img = null, fx = 0, fy = 0, fw = 0, fh = 0, uw = 0, uh = 0, tx0 = 0, ty0 = 0;
+        if (slash > 0) {
+          const at = atlas[key.slice(0, slash)], d = at && at.frames[key.slice(slash + 1)];
+          if (d) { img = at.img; fx = d.frame.x; fy = d.frame.y; fw = d.frame.w; fh = d.frame.h; uw = d.sourceSize ? d.sourceSize.w : fw; uh = d.sourceSize ? d.sourceSize.h : fh; tx0 = d.spriteSourceSize ? d.spriteSourceSize.x : 0; ty0 = d.spriteSourceSize ? d.spriteSourceSize.y : 0; }
+        } else { img = standalone[key]; if (img) { fw = uw = img.width; fh = uh = img.height; } }
         if (img) {
           const x0 = ub[o + 1], y0 = ub[o + 2], W2 = ub[o + 12], H2 = ub[o + 13], b = ub[o + 15], tint = ub[o + 14];
           const grayN = !!(ub[o + 8] & 16), prep = grayN || (tint >= 0 && tint !== 0xffffff); // greyscale nodes and tinted ones are drawn from a prepared copy of the frame
-          const src = grayN ? grayTinted({ img, d: { frame: { x: fx, y: fy, w: iw, h: ih } } }, tint) : prep ? tinted({ img, d: { frame: { x: fx, y: fy, w: iw, h: ih } } }, tint) : img;
+          const fr0 = { img, d: { frame: { x: fx, y: fy, w: fw, h: fh } } };
+          const src = grayN ? grayTinted(fr0, tint) : prep ? tinted(fr0, tint) : img;
           const sx0 = prep ? 0 : fx, sy0 = prep ? 0 : fy;
-          const xs = [sx0, sx0 + b, sx0 + iw - b, sx0 + iw], ys = [sy0, sy0 + b, sy0 + ih - b, sy0 + ih];
-          const xd = [x0, x0 + b, x0 + W2 - b, x0 + W2].map(snapPx), yd = [y0, y0 + b, y0 + H2 - b, y0 + H2].map(snapPx);
-          for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) ctx.drawImage(src, xs[i], ys[j], xs[i + 1] - xs[i], ys[j + 1] - ys[j], xd[i], yd[j], xd[i + 1] - xd[i], yd[j + 1] - yd[j]);
+          const us = [0, b, uw - b, uw], vs = [0, b, uh - b, uh];
+          const nineIns = slash > 0 && (fw < img.width || fh < img.height);
+          const xd = [x0, x0 + b, x0 + W2 - b, x0 + W2], yd = [y0, y0 + b, y0 + H2 - b, y0 + H2]; // exact, like Phaser; the pieces overlap a little at their joins so no seam shows
+          for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+            let iu0 = Math.max(us[i], tx0), iu1 = Math.min(us[i + 1], tx0 + fw), iv0 = Math.max(vs[j], ty0), iv1 = Math.min(vs[j + 1], ty0 + fh);
+            if (iu1 <= iu0 || iv1 <= iv0) continue;
+            const full = nineIns; // atlas frames sample half a texel inside their outer edge
+            const dl = full && i === 0 && iu0 === tx0 ? 0.5 : 0, dr = full && i === 2 && iu1 === tx0 + fw ? 0.5 : 0, dt = full && j === 0 && iv0 === ty0 ? 0.5 : 0, db = full && j === 2 && iv1 === ty0 + fh ? 0.5 : 0;
+            const kx = (xd[i + 1] - xd[i]) / (us[i + 1] - us[i]), ky = (yd[j + 1] - yd[j]) / (vs[j + 1] - vs[j]);
+            const ex = i < 2 && iu1 === us[i + 1] ? 0.4 : 0, ey = j < 2 && iv1 === vs[j + 1] ? 0.4 : 0;
+            ctx.drawImage(src, sx0 + (iu0 - tx0) + dl, sy0 + (iv0 - ty0) + dt, iu1 - iu0 - dl - dr, iv1 - iv0 - dt - db, xd[i] + (iu0 - us[i]) * kx, yd[j] + (iv0 - vs[j]) * ky, (iu1 - iu0) * kx + ex, (iv1 - iv0) * ky + ey);
+          }
         }
       }
       else if (kind === 4) { ctx.fillStyle = hex(ub[o + 14]); ctx.beginPath(); ctx.arc(ub[o + 1], ub[o + 2], ub[o + 12], 0, Math.PI * 2); ctx.fill(); }
@@ -555,6 +581,7 @@ async function main() {
   const fitCanvas = () => {
     shk = endfx.shake();
     ctx.setTransform(1, 0, 0, 1, shk[0], shk[1]);
+    const sq = params.get("sq"); if (sq) { ctx.imageSmoothingEnabled = sq !== "off"; if (sq !== "off") ctx.imageSmoothingQuality = sq; } // test hook
   };
   const render = () => {
     fitCanvas();
@@ -604,7 +631,6 @@ async function main() {
     }
     // level objects (normal layer first, then the player, then the top layer)
     const base = 40 + tiles;
-    snapOn = !(buf[33] > 0);
     if (buf[33] > 0) { // level editor: static level seen through the editor camera
       const z = buf[33]; ctx.save(); ctx.scale(z, z);
       const ex = -buf[34] / z, ey = -buf[35] / z;

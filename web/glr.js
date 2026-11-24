@@ -96,6 +96,7 @@ export function createGL(canvas) {
       const d = fr.d, f = d.frame, fw = f.w, fh = f.h, t = texFor(fr.img);
       const src = d.sourceSize || { w: fw, h: fh }, ss = d.spriteSourceSize || { x: 0, y: 0 };
       const ox = -src.w / 2 + ss.x, oy = -src.h / 2 + ss.y;
+      const ins = (fw < t.w || fh < t.h) ? 0.5 : 0; // the original insets the UVs of every atlas frame by half a texel (core/main.js `insetFrameUVs`)
       const Sx = (flips & 1 ? -1 : 1) * sx, Sy = (flips & 2 ? -1 : 1) * sy;
       cx = x; cy = y; cc = rot ? Math.cos(rot) : 1; cs = rot ? Math.sin(rot) : 0; cSx = Sx; cSy = Sy; ck = 0; ctw = t.w; cth = t.h;
       if (d.rotated) { // stored turned by 90 degrees: the source rectangle is fh wide and fw high
@@ -103,7 +104,7 @@ export function createGL(canvas) {
         // rotate(-90deg): (u, v) -> (v, -u)
         corner(v0, -u0, f.x, f.y); corner(v0, -u1, f.x + fh, f.y); corner(v1, -u1, f.x + fh, f.y + fw); corner(v1, -u0, f.x, f.y + fw);
       } else {
-        corner(ox, oy, f.x, f.y); corner(ox + fw, oy, f.x + fw, f.y); corner(ox + fw, oy + fh, f.x + fw, f.y + fh); corner(ox, oy + fh, f.x, f.y + fh);
+        corner(ox, oy, f.x + ins, f.y + ins); corner(ox + fw, oy, f.x + fw - ins, f.y + ins); corner(ox + fw, oy + fh, f.x + fw - ins, f.y + fh - ins); corner(ox, oy + fh, f.x + ins, f.y + fh - ins);
       }
       setState(t, blend === 1 ? 1 : 0);
       const tn = tint >= 0 && tint !== 0xffffff;
