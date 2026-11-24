@@ -90,7 +90,7 @@ async function main() {
     window.__songData = null; songBuf = null;
     if (AUTO || !entry) return Promise.resolve();
     const file = entry[4] || String(entry[1]).replaceAll(" ", "");
-    return fetch(`../ref/assets/music/${file}.mp3`).then((r) => r.arrayBuffer()).then((ab) => { window.__songData = ab; }).catch(() => {});
+    return fetch(`../ref/assets/music/${file}.mp3`).then((r) => r.arrayBuffer()).then(async (ab) => { window.__songData = ab; if (ac) songBuf = await ac.decodeAudioData(ab.slice(0)); }).catch(() => {});
   };
   let ac = null, analyser = null, gain = null, source = null, songBuf = null;
   await loadLevel(LEVEL);
@@ -328,7 +328,7 @@ async function main() {
     w.wd_audio_live(1);
     afx.attach(ac, gain);
     if (menuMode) afx.enterMenu();
-    if (window.__songData) songBuf = await ac.decodeAudioData(window.__songData.slice(0));
+    if (window.__songData && !songBuf) songBuf = await ac.decodeAudioData(window.__songData.slice(0));
   };
   const startMusic = (offset) => {
     if (!ac || !songBuf) return;
@@ -424,7 +424,7 @@ async function main() {
         const l = visibleLevels[w.wd_ui_page()];
         if (l && !loadingLevel) { // game-scene.js: "Downloading Level Assets...", input off until the level and song are loaded, then sound, close the select, restart into the level
           const id = l[2].replace("level_", ""); loadingLevel = true;
-          Promise.all([loadText(`../ref/assets/levels/${id}.txt`), loadSong(id)]).then(async ([txt]) => { afx.playEffect("playSound_01", { volume: 1 }); w.wd_ui_close_level_select(); afx.stopMusic(); await loadLevelText(id, txt); w.wd_menu_mode(0); loadingLevel = false; startPlaying(); }).catch((e) => { loadingLevel = false; fail(e); });
+          Promise.all([loadText(`../ref/assets/levels/${id}.txt`), loadSong(id)]).then(async ([txt]) => { await ensureAudio(); if (ac && !songBuf && window.__songData) songBuf = await ac.decodeAudioData(window.__songData.slice(0)); afx.playEffect("playSound_01", { volume: 1 }); w.wd_ui_close_level_select(); afx.stopMusic(); await loadLevelText(id, txt); w.wd_menu_mode(0); loadingLevel = false; startPlaying(); }).catch((e) => { loadingLevel = false; fail(e); });
         }
       }
       else if (ev === "Settings") { const g = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }; w.wd_ui_set_options(parseFloat(g("userMusicVol", 1)), parseFloat(g("userSfxVol", 1)), g("menuMusicEnabled", "true") === "true" ? 1 : 0); w.wd_ui_open_settings(); }

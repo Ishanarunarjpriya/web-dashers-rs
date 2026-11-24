@@ -85,7 +85,7 @@
     }
     tintAt(t) {
       const c = this.tint;
-      if (c && typeof c === "object") return mixColors(c.start, c.end, t);
+      if (c && typeof c === "object") return mixColors(c.start, c.end, Math.round(t * 24) / 24); // 25 steps: every distinct tint is a cached canvas
       return c == null ? -1 : c;
     }
     draw(draw, ox, oy) {
