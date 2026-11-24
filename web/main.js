@@ -483,8 +483,6 @@ async function main() {
       const ev = text(n);
       if (ev === "OpenLevelSelect") { pushProgress(); w.wd_ui_open_level_select(); }
       else if (ev === "CloseLevelSelect") w.wd_ui_close_level_select();
-      else if (ev === "PrevLevel") w.wd_ui_switch(-1);
-      else if (ev === "NextLevel") w.wd_ui_switch(1);
       else if (ev === "PlayLevel") {
         const l = visibleLevels[w.wd_ui_page()];
         if (l && !loadingLevel) { // game-scene.js: "Downloading Level Assets...", input off until the level and song are loaded, then sound, close the select, restart into the level
