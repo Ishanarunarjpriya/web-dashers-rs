@@ -403,8 +403,9 @@ async function main() {
   };
   window.__stopEditor = () => { window.WD_EDITOR_ON = false; w.wd_ed_close(); };
   const doPause = () => {
-    if (paused || menuMode) return;
+    if (paused || menuMode || sliding || won) return; // `_pauseGame`: not in the menu, during the slide-in or after the level is won
     paused = true; if (ac) ac.suspend();
+    { let mm = "true"; try { mm = localStorage.getItem("menuMusicEnabled") || "true"; } catch (e) {} w.wd_ui_set_options(afx.userMusic(), afx.userSfx(), mm === "true" ? 1 : 0); } // the volume sliders start at the saved values
     const entry = levels.find((l) => l[2] === "level_" + LEVEL_ID);
     const [p, n] = put(entry ? entry[1] : "Level");
     w.wd_ui_pause(1, p, n, parseFloat(localStorage.getItem("bestPercent_level_" + LEVEL_ID) || "0"), parseFloat(localStorage.getItem("practiceBestPercent_level_" + LEVEL_ID) || "0"));

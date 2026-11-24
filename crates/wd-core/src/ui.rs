@@ -773,6 +773,20 @@ impl Ui {
             self.make_bouncy(b, 1.0, Cond::Always, act.clone()); self.node(b).tag = "pause";
             x += widths[i] + 40.0;
         }
+        // music and sound-effect volume (game-scene.js `createSlider`): icon, fill, groove, thumb at y 530
+        let groove_w = self.sizes.get("GJ_WebSheet/slidergroove.png").map_or(420.0, |s| s.0);
+        let sc = 0.7;
+        for (which, pos_x, icon, val) in [(0u8, cx - 200.0, "gj_songIcon_001.png", self.music_vol), (1u8, cx + 200.0, "GJ_sfxIcon_001.png", self.sfx_vol)] {
+            let ic = self.image("GJ_WebSheet", icon, pos_x - 185.0, 530.0, 100.2, 1.2); self.node(ic).tag = "pause";
+            let bar_max = (groove_w - 8.0) * sc;
+            let bar_x = pos_x - groove_w * sc / 2.0 + 2.8;
+            let fill_w = val * bar_max;
+            let fill = self.image("", "sliderBar", bar_x, 530.0, 100.2, 1.0);
+            { let n = self.node(fill); n.ox = 0.0; n.oy = 0.5; n.crop_w = if fill_w > 0.0 { fill_w } else { 1.0 }; n.tag = "pause"; }
+            let g = self.image("GJ_WebSheet", "slidergroove.png", pos_x, 530.0, 100.3, sc); self.node(g).tag = "pause";
+            let th = self.image("GJ_WebSheet", "sliderthumb.png", bar_x + fill_w, 530.0, 100.4, sc);
+            { let n = self.node(th); n.tag = "pause"; n.interactive = true; n.drag = Some((bar_x, bar_x + bar_max, fill, which, 0.0)); }
+        }
     }
 
     /// A scroll area for a popup: clip rectangle (root-local), touch zone and the content node to move.
