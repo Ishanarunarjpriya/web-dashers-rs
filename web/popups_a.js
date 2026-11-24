@@ -1,5 +1,6 @@
 // Host side of popups group A (How To Play, Newgrounds, Credits, News, Help, Songs).
-for (const n of ["tutorial_01", "tutorial_02", "tutorial_03", "tutorial_04", "tutorial_05", "loadingCircle", "Phaserlogo", "GJ_square02", "GJ_button04"]) {
+window.WD_ASSETS.push(["RustLogo", "rust_logo_white.svg"]);
+for (const n of ["tutorial_01", "tutorial_02", "tutorial_03", "tutorial_04", "tutorial_05", "loadingCircle", "GJ_square02", "GJ_button04"]) {
   WD_ASSETS.push([n, `../ref/assets/sprites/${n}.png`]);
 }
 // GJ_button04's file is GJ_button_04.png

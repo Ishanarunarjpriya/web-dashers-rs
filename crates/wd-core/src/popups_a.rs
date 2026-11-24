@@ -363,8 +363,9 @@ impl Ui {
         let rt = self.pa_img(root, "GJ_GameSheet03", "robtoplogo_small.png", a + 440.0, 285.0, 0.95, d, "pa_help");
         self.make_bouncy(rt, 0.95, Cond::Always, Action::OpenUrl("https://geometrydash.com"));
         self.pa_img(root, "GJ_GameSheet03", "poweredBy_001.png", a + 250.0, 375.0, 1.0, d, "pa_help");
-        let ph = self.pa_img(root, "", "Phaserlogo", a + 432.0, 380.0, 0.1, d, "pa_help");
-        self.make_bouncy(ph, 0.1, Cond::Always, Action::OpenUrl("https://docs.phaser.io/"));
+        // "Powered By": the Rust logo takes the Phaser logo's place
+        let ph = self.pa_img(root, "", "RustLogo", a + 432.0, 380.0, 0.4, d, "pa_help");
+        self.make_bouncy(ph, 0.4, Cond::Always, Action::OpenUrl("https://www.rust-lang.org/"));
         self.pa_txt(root, "goldFont", 22.0, "Web Dashers not associated with RobTop Games", cx, 440.0, 0.5, 0.5, 1.0, d, "pa_help");
         let (bw, bh, gap) = (195.0, 70.0, 52.5);
         for (x, label, arg) in [(cx - bw - gap / 2.0, "Links", 1), (cx, "Contact", 2), (cx + bw + gap / 2.0, "Notes", 3)] {
