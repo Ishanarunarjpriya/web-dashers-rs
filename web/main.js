@@ -2,6 +2,7 @@
 import { AudioFx } from "./audio_fx.js";
 import { createEndFx } from "./endfx.js";
 import { createGL } from "./glr.js";
+import { showLoading } from "./loading.js";
 const params = new URLSearchParams(location.search);
 const LEVEL = params.get("level") || "1";
 const AUTO = params.get("auto");          // "N": play N frames without a keyboard (headless screenshots), jumping every ~JUMP frames
@@ -19,11 +20,14 @@ const W = 1138, H = 640;
 const fail = (e) => { document.body.insertAdjacentHTML("beforeend", `<pre style="position:fixed;left:8px;bottom:8px;color:#f66;font:12px monospace">${String(e && e.stack || e)}</pre>`); console.error(e); window.__error = String(e); };
 window.addEventListener("error", (e) => fail(e.error || e.message));
 
-const loadImage = (url) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("image " + url)); i.src = url; });
-const loadJson = async (url) => (await fetch(url)).json();
-const loadText = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(url + " " + r.status); return r.text(); };
+let loaded = 0, onLoaded = () => {}; // files finished, for the loading bar
+const loadImage = (url) => new Promise((res, rej) => { const i = new Image(); i.onload = () => { loaded++; onLoaded(); res(i); }; i.onerror = () => rej(new Error("image " + url)); i.src = url; });
+const loadJson = async (url) => { const j = await (await fetch(url)).json(); loaded++; onLoaded(); return j; };
+const loadText = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(url + " " + r.status); const t = await r.text(); loaded++; onLoaded(); return t; };
 
 async function main() {
+  let loading = null;
+  if (!params.get("noload")) { try { loading = await showLoading(ctx, SHEETS); const LOAD_ESTIMATE = 96; onLoaded = () => loading.progress(loaded / LOAD_ESTIMATE); } catch (e) { console.warn("loading screen", e); } }
   if (params.get("noclip")) { try { const c = JSON.parse(localStorage.getItem("gd_settings") || "{}"); c.noclip = true; localStorage.setItem("gd_settings", JSON.stringify(c)); } catch (e) {} } // test hook for benchmarks
   // ---- wasm ----
   const { instance } = await WebAssembly.instantiateStreaming(fetch(WASM), { env: { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_acos: Math.acos, js_atan: Math.atan, js_atan2: Math.atan2, js_pow: Math.pow, js_random: Math.random } });
@@ -658,6 +662,7 @@ async function main() {
     pollSlide();
   };
 
+  if (loading) { if (params.get("loadhold")) await new Promise((r) => setTimeout(r, Number(params.get("loadhold")))); await loading.done(); } // loadhold: test hook, keeps the loading screen up
   if (AUTO) {
     // headless: fixed 60 fps, scripted jumps, draw the last frame
     const frames = Number(AUTO);

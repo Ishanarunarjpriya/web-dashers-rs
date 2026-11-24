@@ -66,7 +66,6 @@ impl Ui {
             "EmEdit" => { self.kill_tag("lv_"); self.em.input = 0; true }
             "EmBack" => { self.kill_tag("cm_"); true }
             "EmCreate" => { self.kill_tag("cm_"); self.em_open_my_levels(); true }
-            "EmSaved" => { self.kill_tag("cm_"); self.em_open_my_levels(); true }
             "EmMyBack" => { self.kill_tag("my_"); self.em_open_creator(); true }
             "EmView" => { if let Some(&i) = self.em.order.get(arg) { self.kill_tag("my_"); self.em_open_view(i); } true }
             "EmViewBack" => { self.kill_tag("lv_"); self.em.view = None; self.em.input = 0; self.em_open_my_levels(); true }
@@ -149,9 +148,8 @@ impl Ui {
             self.node(b).tag = "cm_";
             let action = match *frame {
                 "GJ_createBtn_001.png" => Some(Action::Pop("EmCreate", 0)),
-                "GJ_savedBtn_001.png" => Some(Action::Pop("EmSaved", 0)),
-                // these open server-backed screens in the original
-                "GJ_dailyBtn_001.png" | "GJ_weeklyBtn_001.png" | "GJ_eventBtn_001.png" | "GJ_searchBtn_001.png" | "GJ_featuredBtn_001.png" => Some(Action::Pop("EmStub", 0)),
+                // these open server-backed screens in the original (Saved is the list of saved online levels, not the editor's My Levels)
+                "GJ_savedBtn_001.png" | "GJ_dailyBtn_001.png" | "GJ_weeklyBtn_001.png" | "GJ_eventBtn_001.png" | "GJ_searchBtn_001.png" | "GJ_featuredBtn_001.png" => Some(Action::Pop("EmStub", 0)),
                 _ => None,
             };
             match action { Some(a) => self.make_bouncy(b, sc, Cond::Always, a), None => self.node(b).tint = 0xafafaf }
