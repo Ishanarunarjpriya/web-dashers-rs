@@ -25,7 +25,7 @@ const parseFont = (fnt) => {
 /** Shows the screen and returns `{ progress(v), done() }`; `ctx` is the 2D context of the game canvas. */
 export async function showLoading(ctx, SHEETS) {
   const [bg, bar, rust, goldImg, goldFnt, webImg, webJson, launchImg, launchJson, src] = await Promise.all([
-    loadImage("../ref/assets/game-bg/game_bg_01_001-hd.png"), loadImage("../ref/assets/sprites/sliderBar.png"), loadImage("rust_logo.png"),
+    loadImage("../ref/assets/game-bg/game_bg_01_001-hd.png"), loadImage("../ref/assets/sprites/sliderBar.png"), loadImage("rust_logo.svg"),
     loadImage("../ref/assets/fonts/goldFont.png"), loadText("../ref/assets/fonts/goldFont.fnt"),
     loadImage(SHEETS + "GJ_WebSheet.png"), loadText(SHEETS + "GJ_WebSheet.json"), loadImage(SHEETS + "GJ_LaunchSheet.png"), loadText(SHEETS + "GJ_LaunchSheet.json"),
     loadText("../ref/assets/scripts/core/loading-screen.js").catch(() => ""),
