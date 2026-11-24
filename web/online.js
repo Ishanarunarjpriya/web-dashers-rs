@@ -7,7 +7,7 @@
   // `<worker>/?url=<target>` is fetched server side and handed back with CORS headers. It only lets boomlings.com, the GD CDN and Newgrounds through.
   const PROXY = "https://gd-proxy.theblehlollipop.workers.dev/?url=";
   const GD = "https://www.boomlings.com/database/";
-  for (const [n, f] of [["GJ_button02", "GJ_button_02"], ["loadingCircle", "loadingCircle"], ["GJ_square01", "GJ_square01"]]) window.WD_ASSETS.push([n, `../ref/assets/sprites/${f}.png`]);
+  for (const [n, f] of [["GJ_button02", "GJ_button_02"], ["loadingCircle", "loadingCircle"], ["GJ_square01", "GJ_square01"], ["GJ_square02", "GJ_square02"], ["GJ_square04", "GJ_square04"], ["GJ_square05", "GJ_square05"]]) window.WD_ASSETS.push([n, `../ref/assets/sprites/${f}.png`]);
 
   // one form POST to a GD server page through the proxy
   const post = async (path, body) => {
@@ -81,13 +81,13 @@
         results(wd, list, list.length, 0, Math.max(1, list.length)); return;
       }
       const q = wd.text(wd.w.wd_on_query()).trim();
-      if (kind === 0 && /^\d+$/.test(q)) { const l = await byId(q); results(wd, l ? [l] : [], l ? 1 : 0, 0, 1); return; }
+      if (kind === 0 && /^\d+$/.test(q)) { const l = await byId(q); results(wd, l ? [l] : [], l ? -1 : 0, 0, 1); return; } // total -1: a single level, no page controls
       const params = { secret: SECRET, page };
       if (kind === 1) params.type = 6;
       else if (kind >= 10) params.type = kind - 10;
       else if (q) { params.type = 0; params.str = q; } else params.type = 2;
       const diff = wd.text(wd.w.wd_on_diff());
-      if (diff) params.diff = diff;
+      if (diff) { params.diff = diff; const dt = wd.w.wd_on_demon(); if (dt) params.demonFilter = dt; }
       const body = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
       const raw = await post("getGJLevels21.php", body);
       if (!raw || raw === "-1") { results(wd, [], 0, 0, 10); return; }
@@ -114,11 +114,12 @@
           for (const seg of segs.slice(1)) { const pm = /^\d+:([^:#|]+):\d+$/.exec(seg); if (pm) { author = pm[1]; break; } }
           lvl = toLevel(m, author, officialName(parseInt(m["12"]) || 0));
         }
-        window.__special = lvl; send(wd, "wd_on_special", JSON.stringify(lvl));
+        try { const t = await post("getGJDailyLevel.php", `type=${k}&secret=${SECRET}`); const n = parseInt((t || "").split("|")[0]); if (n > 0) lvl.dailyNumber = n; } catch (e) {}
+        window.__special = lvl; window.__onlineList = [lvl]; send(wd, "wd_on_special", JSON.stringify(lvl));
       } catch (e) { fail(wd, e); }
     };
   }
-  E[`Pop("OnSpecialPlay", 0)`] = (ev, wd) => { if (window.__special) playOnline(wd, window.__special); };
+  E[`Pop("OnSpecialPlay", 0)`] = (ev, wd) => { const l = window.__special; if (l) { window.__onlineList = [l]; try { localStorage.setItem("viewedLevel_" + l.id, "1"); } catch (e) {} saveLevel(l); songInfo(wd, l); } };
 
   // `_saveOnlineLevelToSavedList`
   const saveLevel = (l, extra = {}) => {
@@ -130,9 +131,22 @@
     } catch (e) {}
   };
 
+  // the real song name and artist of a custom song (`getGJSongInfo.php`), shown in the play menu's song box
+  const songInfo = async (wd, l) => {
+    if (!l || !l.customSong || l.customSong === "0") return;
+    try {
+      const t = await post("getGJSongInfo.php", `songID=${l.customSong}&secret=${SECRET}`);
+      if (!t || t === "-1") return;
+      const m = kv(t, "~|~");
+      send2(wd, "wd_on_song", (m["2"] || "").trim(), (m["4"] || "Unknown").trim());
+    } catch (e) { console.warn("song info", e); }
+  };
+  const send2 = (wd, fn, a, b) => { const [p, l] = wd.put(a), [q, m] = wd.put(b); wd.w[fn](p, l, q, m); };
+  E['Pop("OnDeleteSaved", 0)'] = () => { try { localStorage.removeItem("gd_saved_online_levels"); } catch (e) {} };
+
   // opening the play menu marks the level as viewed and saves it (`_openPlayMenu`)
   for (let i = 0; i < 40; i++) {
-    E[`Pop("OnView", ${i})`] = (ev, wd) => { const l = window.__onlineList && window.__onlineList[i]; if (l) { try { localStorage.setItem("viewedLevel_" + l.id, "1"); } catch (e) {} saveLevel(l); } };
+    E[`Pop("OnView", ${i})`] = (ev, wd) => { const l = window.__onlineList && window.__onlineList[i]; if (l) { try { localStorage.setItem("viewedLevel_" + l.id, "1"); } catch (e) {} saveLevel(l); songInfo(wd, l); } };
     E[`Pop("OnPlay", ${i})`] = (ev, wd) => { const l = window.__onlineList && window.__onlineList[i]; if (l) playOnline(wd, l); };
     E[`Pop("OnCopy", ${i})`] = (ev, wd) => { const l = window.__onlineList && window.__onlineList[i]; if (l) copyToEditor(wd, l); };
   }

@@ -1268,3 +1268,11 @@ pub extern "C" fn wd_on_kind() -> u32 { with_ui(|u| u.on_kind() as u32) }
 pub extern "C" fn wd_on_close() { with_ui(|u| { u.kill_tag("on_"); u.on.special = None; u.on.input = false; }); }
 #[no_mangle]
 pub extern "C" fn wd_on_diff() -> usize { out_str(with_ui(|u| u.on_diff_param())) }
+#[no_mangle]
+pub unsafe extern "C" fn wd_on_song(np: *const u8, nl: usize, ap: *const u8, al: usize) {
+    let n = String::from_utf8_lossy(std::slice::from_raw_parts(np, nl)).into_owned();
+    let a = String::from_utf8_lossy(std::slice::from_raw_parts(ap, al)).into_owned();
+    with_ui(|u| u.on_set_song(&n, &a));
+}
+#[no_mangle]
+pub extern "C" fn wd_on_demon() -> u32 { with_ui(|u| u.on_demon()) }

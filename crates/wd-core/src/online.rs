@@ -10,7 +10,7 @@ pub struct OnLevel {
     /// 0 N/A .. 5 insane, 6-10 the demons, 11 auto
     pub difficulty: usize,
     pub stars: i64, pub downloads: i64, pub likes: i64, pub length: i64,
-    pub featured: bool, pub epic: i64, pub coins: i64,
+    pub featured: bool, pub epic: i64, pub coins: i64, pub daily_number: i64,
     /// best normal / practice percent saved for this level, and whether it was viewed before
     pub best: f64, pub best_practice: f64, pub viewed: bool,
 }
@@ -27,6 +27,11 @@ pub struct On {
     /// the active difficulty filters (the eight icons) and their nodes
     pub filters: [bool; 8], pub filter_nodes: Vec<usize>, pub plus: usize,
     pub spin: usize,
+    /// a level asked for by its number: just that level, without the page controls
+    pub single: bool,
+    /// the demon filter: the chosen tier (0 none, 1-5), the one picked in the open popup and its icons
+    pub demon_tier: usize, pub demon_sel: usize, pub demon_icons: Vec<usize>,
+    pub song_name_node: usize, pub song_author_node: usize,
     /// the level shown on the play menu (index into `levels`)
     pub view: Option<usize>,
     pub special: Option<u8>, pub special_level: Option<OnLevel>,
@@ -67,8 +72,10 @@ impl Ui {
         let mut out = Vec::new();
         if let Ok(j) = jsonread::parse(json) { for e in j.arr().unwrap_or(&[]) { out.push(Self::on_parse_level(e)); } }
         self.on.levels = out;
+        self.on.single = total < 0;
+        let total = total.abs();
         self.on.total = total; self.on.offset = offset; self.on.count = count.max(1);
-        self.on.pages = if self.on.kind == 1 { 10 } else { ((total as f64 / count.max(1) as f64).ceil() as usize).max(1) };
+        self.on.pages = if self.on.kind == 1 { 10 } else if self.on.kind == 2 { ((self.on.levels.len() as f64 / 10.0).ceil() as usize).max(1) } else { ((total as f64 / count.max(1) as f64).ceil() as usize).max(1) };
         self.on.loading = false; self.on.error.clear();
         if self.get_tag_count("on_l") > 0 { self.on_open_list(); }
     }
@@ -79,7 +86,7 @@ impl Ui {
         OnLevel {
             id: s("id"), name: s("name"), author: s("author"), desc: s("desc"), song_name: s("songName"), custom_song: s("customSong"),
             difficulty: (n("difficulty").max(0) as usize).min(11), stars: n("stars"), downloads: n("downloads"), likes: n("likes"), length: n("length"),
-            featured: n("featured") != 0, epic: n("epic"), coins: n("coins"),
+            featured: n("featured") != 0, epic: n("epic"), coins: n("coins"), daily_number: n("dailyNumber"),
             best: e.get_num("best").unwrap_or(0.0), best_practice: e.get_num("bestPractice").unwrap_or(0.0), viewed: n("viewed") != 0,
         }
     }
@@ -95,6 +102,16 @@ impl Ui {
         if let Ok(j) = jsonread::parse(json) { self.on.special_level = Some(Self::on_parse_level(&j)); }
         self.on.loading = false; self.on.error.clear();
         if self.on.special.is_some() { self.on_open_special(); }
+    }
+
+    /// the song's real name and artist, once `getGJSongInfo.php` answered
+    pub fn on_set_song(&mut self, name: &str, artist: &str) {
+        let (sn, sa) = (self.on.song_name_node, self.on.song_author_node);
+        let box_w = self.screen_width * 0.55;
+        if self.get(sn).is_none() || self.get_tag_count("on_m") == 0 { return; }
+        let f = self.fonts.get("bigFont").cloned().unwrap_or_default(); let g = self.fonts.get("goldFont").cloned().unwrap_or_default();
+        if !artist.is_empty() { let w = g.width(&format!("By: {}", artist), 36.0); let n = self.node(sa); n.text = format!("By: {}", artist); n.width = w; self.on_fit(sa, box_w - 100.0, 0.3); }
+        if !name.is_empty() { let w = f.width(name, 50.0); let n = self.node(sn); n.text = name.to_string(); n.width = w; self.on_fit(sn, box_w - 100.0, 0.3); }
     }
 
     pub fn on_query(&self) -> String { self.on.query.clone() }
@@ -125,6 +142,16 @@ impl Ui {
             "OnSearchOpen" => { self.kill_tag("cm_"); self.on.kind = 0; self.on_open_search(); true }
             "OnFeatured" => { self.kill_tag("cm_"); self.on_begin_list(1); true }
             "OnSaved" => { self.kill_tag("cm_"); self.on_begin_list(2); true }
+            "OnDemon" => { self.on_open_demon(); true }
+            "OnDemonTier" => { self.on.demon_sel = arg; for (i, &nid) in self.on.demon_icons.clone().iter().enumerate() { if let Some(n) = self.nodes.get_mut(nid).and_then(|n| n.as_mut()) { n.tint = if i == arg { 0xffffff } else { 0x8f8f8f }; } } true }
+            "OnDemonOk" => {
+                const FR: [&str; 6] = ["difficulty_06_btn_001.png", "difficulty_07_btn2_001.png", "difficulty_08_btn2_001.png", "difficulty_06_btn2_001.png", "difficulty_09_btn2_001.png", "difficulty_10_btn2_001.png"];
+                self.on.demon_tier = self.on.demon_sel;
+                let ic = self.on.filter_nodes.get(6).copied();
+                if let Some(i) = ic { if let Some(n) = self.nodes.get_mut(i).and_then(|n| n.as_mut()) { n.frame = FR[self.on.demon_sel].into(); n.sx = 0.85; n.sy = 0.85; } }
+                self.kill_tag("on_p"); true
+            }
+            "OnDeleteSaved" => { self.on.levels.clear(); self.on.page = 0; self.on.pages = 1; self.on_open_list(); true }
             "OnDaily" => { self.on.special = Some(arg as u8); self.on.special_level = None; self.on.loading = true; self.on.error.clear(); self.on_open_special(); true }
             "OnSpecialClose" => { self.kill_tag("on_d"); self.on.special = None; true }
             "OnField" => { self.on.input = true; self.on_refresh_field(); true }
@@ -147,9 +174,17 @@ impl Ui {
             "OnNext" => { if !self.on.loading { self.on.page += 1; self.on_page_loading(); } true }
             "OnRefresh" => { if !self.on.loading { self.on_page_loading(); } true }
             "OnView" => { self.kill_tag("on_l"); self.on_open_menu(arg); true }
-            "OnMenuBack" => { self.kill_tag("on_m"); self.on.view = None; self.on_open_list(); true }
+            "OnMenuBack" => {
+                self.kill_tag("on_m"); self.on.view = None;
+                if self.on.kind == 3 { self.em_open_creator(); self.on_open_special(); } else { self.on_open_list(); }
+                true
+            }
             "OnMenuRefresh" => { if let Some(i) = self.on.view { self.on_open_menu(i); } true }
-            "OnPlay" | "OnSave" | "OnSpecialPlay" | "OnCopy" | "OnSongDownload" => true, // the host does these
+            "OnSpecialPlay" => { // the play menu of the daily / weekly / event level; back returns to the creator menu and the popup
+                if let Some(l) = self.on.special_level.clone() { self.kill_tag("on_d"); self.kill_tag("cm_"); self.on.levels = vec![l]; self.on.kind = 3; self.on_open_menu(0); }
+                true
+            }
+            "OnPlay" | "OnSave" | "OnCopy" | "OnSongDownload" | "OnInfo" => true, // the host does these
             _ => false,
         }
     }
@@ -158,7 +193,7 @@ impl Ui {
     pub fn on_kind(&self) -> u8 { self.on.kind }
 
     fn on_begin_list(&mut self, kind: u8) {
-        self.on.kind = kind; self.on.page = 0; self.on.pages = 1; self.on.total = 0; self.on.levels.clear();
+        self.on.kind = kind; self.on.single = false; self.on.page = 0; self.on.pages = 1; self.on.total = 0; self.on.levels.clear();
         self.on.loading = true; self.on.error.clear();
         self.on_open_list();
     }
@@ -285,7 +320,7 @@ impl Ui {
         }
         let plus = self.image("GJ_GameSheet03", "GJ_plus2Btn_001.png", panel_right + 42.0, f_y + f_h / 2.0, 105.0, 1.0);
         { let n = self.node(plus); n.tag = tag; n.visible = false; }
-        self.make_bouncy(plus, 1.0, Cond::Always, Action::None);
+        self.make_bouncy(plus, 1.0, Cond::Always, Action::Pop("OnDemon", 0));
         self.on.plus = plus;
         // the extra panel
         let ex_y = f_y + f_h + 18.0; let ex_h = sh * 0.11;
@@ -335,7 +370,9 @@ impl Ui {
         let (list_left, list_top) = (cx - pw / 2.0, 320.0 - ph / 2.0 + 10.0);
         self.shape(Kind::Rect, list_left, list_top, pw, ph, 0xC2723E, 1.0, 201.0, tag);
         let root = self.shape(Kind::Rect, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 202.0, tag);
-        let count = self.on.levels.len();
+        let saved = self.on.kind == 2;
+        let (first, shown) = if saved { let a = (self.on.page * 10).min(self.on.levels.len()); (a, self.on.levels.len().min(a + 10) - a) } else { (0, self.on.levels.len()) };
+        let count = shown;
         let row_h = 180.0;
         let view_top = list_top + 12.0; let view_bottom = list_top + ph - 22.0; let view_h = view_bottom - view_top;
         let list_h = count as f64 * row_h;
@@ -344,10 +381,10 @@ impl Ui {
         self.scrolls[si].max = (list_h - view_h).max(0.0);
         self.set_scroll(si, 0.0);
         let levels = self.on.levels.clone();
-        for (idx, l) in levels.iter().enumerate() { self.on_cell(content, idx, l, list_left, pw); }
+        for (idx, l) in levels.iter().skip(first).take(shown).enumerate() { self.on_cell(content, idx, first + idx, l, list_left, pw); }
         if count == 0 && !self.on.loading {
-            let m = if !self.on.error.is_empty() { self.on.error.clone() } else if self.on.kind == 2 { "No saved levels".to_string() } else { "No levels found".to_string() };
-            self.on_txt(None, "bigFont", 40.0, &m, cx, 320.0, 0.5, 0.5, 204.0, tag);
+            if saved { self.on_txt(None, "bigFont", 38.0, "You have not downloaded any ", cx, 320.0, 0.5, 0.5, 204.0, tag); self.on_txt(None, "bigFont", 38.0, "levels yet! ", cx + 20.0, 360.0, 0.5, 0.5, 204.0, tag); }
+            else { let m = if !self.on.error.is_empty() { self.on.error.clone() } else { "No levels found".to_string() }; self.on_txt(None, "bigFont", 40.0, &m, cx, 320.0, 0.5, 0.5, 204.0, tag); }
         }
         // the table frame
         let side_h = self.sizes.get("GJ_WebSheet/GJ_table_side_001.png").map_or(1.0, |s| s.1);
@@ -360,11 +397,16 @@ impl Ui {
         if featured { let h = self.image("GJ_GameSheet03", "featuredLabel_001.png", sw / 2.0, 320.0 - 265.0, 204.0, 1.0); self.node(h).tag = tag; }
         else { let title = if self.on.kind == 2 { "Saved Levels" } else { "Online Levels" }; self.on_txt(None, "bigFont", 52.0, title, cx, 320.0 - 245.0, 0.5, 0.5, 204.0, tag); }
         // page info (top right), the page button, arrows, refresh
+        if self.on.single {
+            let back = self.image("GJ_GameSheet03", "GJ_arrow_01_001.png", 45.0, 45.0, 204.0, 1.0); self.node(back).tag = tag;
+            self.make_bouncy(back, 1.0, Cond::Always, Action::Pop("OnListBack", 0));
+            return;
+        }
         if self.on.kind != 2 && !self.on.loading && self.on.total > 0 {
             let start = self.on.offset + 1; let end = self.on.count * (self.on.page as i64 + 1);
             self.on_txt(None, "goldFont", 22.0, &format!("{} to {} of {}", start, end, self.on.total), sw - 8.0, 3.0, 1.0, 0.0, 204.0, tag);
         }
-        if self.on.kind != 2 {
+        {
             let pb = self.shape(Kind::Rect, sw - 35.0, sh / 2.0 - 240.0, 70.0, 70.0, 0, 0.0, 205.0, tag);
             { let n = self.node(pb); n.ox = 0.5; n.oy = 0.5; n.width = 70.0; n.height = 70.0; }
             let bg = self.image("", "GJ_button02", 0.0, 0.0, 205.0, 0.7); { let n = self.node(bg); n.parent = Some(pb); n.tag = tag; }
@@ -374,7 +416,7 @@ impl Ui {
                 let p = self.image("GJ_GameSheet03", "GJ_arrow_03_001.png", 40.0, sh / 2.0, 204.0, 1.0); self.node(p).tag = tag;
                 self.make_bouncy(p, 1.0, Cond::Always, Action::Pop("OnPrev", 0));
             }
-            if !featured && self.on.page + 1 < self.on.pages && !self.on.loading {
+            if (!featured || saved) && self.on.page + 1 < self.on.pages && !self.on.loading {
                 let n2 = self.image("GJ_GameSheet03", "GJ_arrow_03_001.png", sw - 40.0, sh / 2.0, 204.0, 1.0); { let n = self.node(n2); n.flip_x = true; n.tag = tag; }
                 self.make_bouncy(n2, 1.0, Cond::Always, Action::Pop("OnNext", 0));
             }
@@ -383,7 +425,10 @@ impl Ui {
             let sp = self.image("", "loadingCircle", cx, 320.0, 205.0, 1.0);
             { let n = self.node(sp); n.tag = tag; n.additive = true; n.alpha = 0.5; }
             self.on.spin = sp;
-        } else if self.on.kind != 2 {
+        } else if saved {
+            let rf = self.image("GJ_GameSheet03", "GJ_deleteBtn_001.png", sw - 55.0, sh - 55.0, 204.0, 1.0); self.node(rf).tag = tag;
+            self.make_bouncy(rf, 1.0, Cond::Always, Action::Pop("OnDeleteSaved", 0));
+        } else {
             let rf = self.image("GJ_GameSheet03", "GJ_updateBtn_001.png", sw - 55.0, sh - 55.0, 204.0, 1.0); self.node(rf).tag = tag;
             self.make_bouncy(rf, 1.0, Cond::Always, Action::Pop("OnRefresh", 0));
         }
@@ -395,7 +440,7 @@ impl Ui {
     }
 
     /// `_buildLevelCell`
-    fn on_cell(&mut self, content: usize, idx: usize, l: &OnLevel, rx: f64, pw: f64) {
+    fn on_cell(&mut self, content: usize, idx: usize, global: usize, l: &OnLevel, rx: f64, pw: f64) {
         let tag = "on_l";
         let row_h = 180.0;
         let row_y = idx as f64 * row_h; let cy = row_y + row_h / 2.0;
@@ -403,7 +448,8 @@ impl Ui {
         let stripe = self.shape(Kind::Rect, rx, row_y, pw, row_h, if idx % 2 == 0 { 0xB5652E } else { 0xC2723E }, 1.0, 202.005, tag);
         self.node(stripe).parent = Some(content);
         if idx > 0 { let dv = self.shape(Kind::Rect, rx + 5.0, row_y - 0.75, pw - 10.0, 1.5, 0, 0.6, 202.006, tag); self.node(dv).parent = Some(content); }
-        let (dw, dh) = diff_size(l.difficulty);
+        let saved = self.on.kind == 2;
+        let (dw, dh) = match (saved, l.difficulty) { (true, 6) | (true, 9) => (diff_size(l.difficulty).0, 90.0), (true, 10) => (80.0, 95.0), _ => diff_size(l.difficulty) };
         let sc = (85.0 / dh).min(90.0 / dw);
         let extra = match l.difficulty { 6 | 9 => 1.04, 10 => 1.1, _ => 1.0 };
         if let Some(c) = coin_frame(l) { self.on_img(Some(content), "GJ_GameSheet03", c, rx + 52.0, cy, 1.0, d, tag); }
@@ -434,13 +480,13 @@ impl Ui {
             stat_x += iw + 8.0 + tw + 25.0;
         }
         // "Get It" until the level was viewed, then "View"
-        let (frame, label, fs) = if l.viewed { ("GJ_button01", "View", 40.0) } else { ("GJ_button02", "Get It", 30.0) };
+        let (frame, label, fs) = if l.viewed || saved { ("GJ_button01", "View", 40.0) } else { ("GJ_button02", "Get It", 30.0) };
         let zone = self.shape(Kind::Rect, btn_x, cy, 140.0, 60.0, 0, 0.0, d + 0.008, tag);
         { let n = self.node(zone); n.ox = 0.5; n.oy = 0.5; n.width = 140.0; n.height = 60.0; n.parent = Some(content); }
         let nine = self.shape(Kind::Nine, 0.0, 0.0, 140.0, 60.0, 0, 1.0, d + 0.008, tag);
         { let n = self.node(nine); n.frame = frame.into(); n.radius = 20.0; n.ox = 0.5; n.oy = 0.5; n.tint = 0xffffff; n.parent = Some(zone); }
         self.on_txt(Some(zone), "bigFont", fs, label, -2.0, -4.0, 0.5, 0.5, d + 0.009, tag);
-        self.make_bouncy(zone, 1.0, Cond::Always, Action::Pop("OnView", idx));
+        self.make_bouncy(zone, 1.0, Cond::Always, Action::Pop("OnView", global));
     }
 
     // ---- the play menu (`_openPlayMenu`) ----
@@ -509,8 +555,10 @@ impl Ui {
         self.pa_nine(root, "GJ_square01", cx, box_y, box_w, box_h, 503.0, tag);
         let song = if l.song_name.is_empty() { "Unknown" } else { &l.song_name };
         let sn = self.on_txt(None, "bigFont", 50.0, song, cx - box_w / 2.0 + 20.0, box_y - 60.0, 0.0, 0.5, 504.0, tag);
+        self.on.song_name_node = sn;
         self.on_fit(sn, box_w - 100.0, 0.3);
         let sa = self.on_txt(None, "goldFont", 36.0, "By: Unknown", cx - box_w / 2.0 + 20.0, box_y - 15.0, 0.0, 0.5, 504.0, tag);
+        self.on.song_author_node = sa;
         self.on_fit(sa, box_w - 100.0, 0.3);
         if !l.custom_song.is_empty() && l.custom_song != "0" {
             let dl = self.image("GJ_GameSheet03", "GJ_downloadBtn_001.png", cx + box_w / 2.0 - 50.0, box_y + 40.0, 504.0, 1.0); self.node(dl).tag = tag;
@@ -518,34 +566,135 @@ impl Ui {
         }
     }
 
-    // ---- daily / weekly / event ----
+    /// the demon filter popup (`_buildDemonFilterPopup`)
+    fn on_open_demon(&mut self) {
+        self.kill_tag("on_p");
+        let (sw, cx) = (self.screen_width, self.screen_width / 2.0);
+        let tag = "on_p";
+        let dim = self.shape(Kind::Rect, 0.0, 0.0, sw, 640.0, 0, 100.0 / 255.0, 1000.0, tag);
+        { let n = self.node(dim); n.interactive = true; n.width = sw; n.height = 640.0; }
+        let root = self.shape(Kind::Rect, cx, 320.0, 0.0, 0.0, 0, 0.0, 1000.0, tag);
+        { let n = self.node(root); n.sx = 0.0; n.sy = 0.0; }
+        self.tween_to(root, &[(Prop::ScaleX, 1.0), (Prop::ScaleY, 1.0)], 660.0, Ease::ElasticOut, Then::Nothing);
+        let (pw, ph) = (760.0, 360.0);
+        self.pa_nine(root, "GJ_square01", 0.0, 0.0, pw, ph, 1001.0, tag);
+        self.on_txt(Some(root), "bigFont", 64.0, "Demon Filter", 0.0, -ph / 2.0 + 40.0, 0.5, 0.5, 1002.0, tag);
+        const FR: [&str; 6] = ["difficulty_06_btn_001.png", "difficulty_07_btn2_001.png", "difficulty_08_btn2_001.png", "difficulty_06_btn2_001.png", "difficulty_09_btn2_001.png", "difficulty_10_btn2_001.png"];
+        let slot = (pw - 60.0) / 6.0;
+        self.on.demon_sel = self.on.demon_tier; self.on.demon_icons.clear();
+        for (i, f) in FR.iter().enumerate() {
+            let ic = self.on_img(Some(root), "GJ_GameSheet03", f, -pw / 2.0 + 30.0 + slot * i as f64 + slot / 2.0, 0.0, 1.1, 1002.0, tag);
+            self.node(ic).tint = if i == self.on.demon_sel { 0xffffff } else { 0x8f8f8f };
+            self.make_bouncy(ic, 1.1, Cond::Always, Action::Pop("OnDemonTier", i));
+            self.on.demon_icons.push(ic);
+        }
+        self.pa_btn(root, "GJ_button01", 0.0, ph / 2.0 - 45.0, 110.0, 55.0, "OK", "goldFont", 44.0, -3.0, -4.0, Action::Pop("OnDemonOk", 0), 1002.0, tag);
+    }
+
+    /// the demon tier to search for (0 none): only while the demon filter is on
+    pub fn on_demon(&self) -> u32 { if self.on.filters[6] { self.on.demon_tier as u32 } else { 0 } }
+
+    // ---- daily / weekly / event (`_buildSpecialLevelPopup`) ----
     pub fn on_open_special(&mut self) {
         self.kill_tag("on_d");
         let Some(kind) = self.on.special else { return };
-        let (sw, cx) = (self.screen_width, self.screen_width / 2.0);
-        let dim = self.shape(Kind::Rect, 0.0, 0.0, sw, 640.0, 0, 0.4, 300.0, "on_d");
+        let (sw, cx, cy) = (self.screen_width, self.screen_width / 2.0, 320.0);
+        let tag = "on_d";
+        // per kind: panel texture and tint, cell texture and tint, corner frame (and scale / cut), label, crown
+        struct St { panel: &'static str, panel_tint: i64, cell: &'static str, cell_tint: i64, corner: &'static str, corner_scale: f64, cut: f64, ins: f64, line_len: f64,
+                    offs: [(f64, f64); 3], line_offs: [(f64, f64); 2], label: &'static str, label_text: &'static str, crown: &'static str }
+        let st = match kind {
+            0 => St { panel: "GJ_square01", panel_tint: -1, cell: "GJ_square02", cell_tint: -1, corner: "dailyLevelCorner_001.png", corner_scale: 1.0, cut: 0.0, ins: 0.0, line_len: -1.0, offs: [(0.0, 0.0); 3], line_offs: [(0.0, 0.0); 2], label: "dailyLevelLabel_001.png", label_text: "Daily Level", crown: "gj_dailyCrown_001.png" },
+            1 => St { panel: "GJ_square05", panel_tint: -1, cell: "GJ_square05", cell_tint: 0xafafaf, corner: "gauntletCorner_001.png", corner_scale: 0.6, cut: 15.0, ins: 8.0, line_len: 16.0, offs: [(-1.0, -1.0), (-1.0, -1.0), (1.0, 1.0)], line_offs: [(3.5, -3.5), (-3.5, -2.0)], label: "weeklyLevelLabel_001.png", label_text: "", crown: "gj_weeklyCrown_001.png" },
+            _ => St { panel: "GJ_square05", panel_tint: 0xcf16fb, cell: "GJ_square04", cell_tint: -1, corner: "dailyLevelCorner_001.png", corner_scale: 1.0, cut: 0.0, ins: 0.0, line_len: -1.0, offs: [(0.0, 0.0); 3], line_offs: [(0.0, 0.0); 2], label: "eventLevelLabel_001.png", label_text: "Event Level", crown: "gj_eventCrown_001.png" },
+        };
+        let dim = self.shape(Kind::Rect, 0.0, 0.0, sw, 640.0, 0, 100.0 / 255.0, 1000.0, tag);
         { let n = self.node(dim); n.interactive = true; n.width = sw; n.height = 640.0; }
-        let root = self.shape(Kind::Rect, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 300.0, "on_d");
-        let (bw, bh) = (800.0, 550.0);
-        self.pa_nine(root, "GJ_square01", cx, 320.0, bw, bh, 301.0, "on_d");
-        self.pa_close(root, cx - bw / 2.0 + 20.0, 320.0 - bh / 2.0 + 20.0, 1.0, 1.4, Action::Pop("OnSpecialClose", 0), 302.0, "on_d");
-        let title = match kind { 0 => "Daily Level", 1 => "Weekly Level", _ => "Event Level" };
-        self.pa_txt(root, "bigFont", 46.0, title, cx, 130.0, 0.5, 0.5, 1.0, 302.0, "on_d");
-        if let Some(l) = self.on.special_level.clone() {
-            let name = self.pa_txt(root, "bigFont", 40.0, &l.name, cx, 215.0, 0.5, 0.5, 1.0, 302.0, "on_d");
-            let nw = self.node(name).width; if nw > 640.0 { let k = 640.0 / nw; let n = self.node(name); n.sx = k; n.sy = k; }
-            self.pa_txt(root, "goldFont", 30.0, &format!("By {}", l.author), cx, 262.0, 0.5, 0.5, 1.0, 302.0, "on_d");
-            let (dw, dh) = diff_size(l.difficulty); let sc = (100.0 / dh).min(105.0 / dw);
-            self.pa_img(root, "GJ_GameSheet03", &diff_frame(l.difficulty, true), cx - 190.0, 350.0, sc, 302.0, "on_d");
-            let play = self.pa_img(root, "GJ_GameSheet03", "GJ_playBtn2_001.png", cx, 350.0, 1.0, 302.0, "on_d");
-            self.make_bouncy(play, 1.0, Cond::Always, Action::Pop("OnSpecialPlay", 0));
-            self.pa_img(root, "GJ_GameSheet03", "GJ_downloadsIcon_001.png", cx + 150.0, 325.0, 0.9, 302.0, "on_d");
-            self.pa_txt(root, "bigFont", 28.0, &grouped(l.downloads), cx + 185.0, 325.0, 0.0, 0.5, 1.0, 302.0, "on_d");
-            self.pa_img(root, "GJ_GameSheet03", "GJ_sLikeIcon_001.png", cx + 150.0, 380.0, 1.3, 302.0, "on_d");
-            self.pa_txt(root, "bigFont", 28.0, &grouped(l.likes), cx + 185.0, 380.0, 0.0, 0.5, 1.0, 302.0, "on_d");
-        } else {
-            let m = if self.on.loading { "Loading...".to_string() } else if !self.on.error.is_empty() { self.on.error.clone() } else { "Nothing here".to_string() };
-            self.pa_txt(root, "bigFont", 36.0, &m, cx, 320.0, 0.5, 0.5, 1.0, 302.0, "on_d");
+        // everything else slides in from the left
+        let root = self.shape(Kind::Rect, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 1000.0, tag);
+        { let n = self.node(root); n.x = -sw; }
+        self.tween_to(root, &[(Prop::X, 0.0)], 600.0, Ease::ElasticOut, Then::Nothing);
+        let (pw, ph) = (800.0, 550.0);
+        let tex = |ui: &Ui, k: &str| ui.sizes.get(&format!("/{}", k)).map_or(80.0, |s| s.0);
+        let nine = |ui: &mut Ui, frame: &'static str, x: f64, y: f64, w: f64, h: f64, tint: i64, depth: f64| {
+            let r = tex(ui, if frame == "GJ_square01" { "GJ_square01" } else { "GJ_square02" }) * 0.325;
+            let n = ui.shape(Kind::Nine, x, y, w, h, 0, 1.0, depth, tag);
+            { let m = ui.node(n); m.frame = frame.into(); m.radius = r; m.ox = 0.5; m.oy = 0.5; m.tint = if tint < 0 { 0xffffff } else { tint }; m.parent = Some(root); }
+            n
+        };
+        nine(self, st.panel, cx, cy, pw, ph, st.panel_tint, 1001.0);
+        let (nl, nr, nt, nb) = (cx - pw / 2.0, cx + pw / 2.0, cy - ph / 2.0, cy + ph / 2.0);
+        // the three corner pieces (top left mirrored upside down, bottom left, bottom right mirrored sideways)
+        for (k, (ox, oy, x, y, fx, fy)) in [(0.0, 0.0, nl + st.ins + st.offs[0].0, nt + st.ins + st.offs[0].1, false, true), (0.0, 1.0, nl + st.ins + st.offs[1].0, nb - st.ins + st.offs[1].1, false, false), (1.0, 1.0, nr - st.ins + st.offs[2].0, nb - st.ins + st.offs[2].1, true, false)].into_iter().enumerate() {
+            let c = self.on_img(Some(root), "GJ_GameSheet03", st.corner, x, y, st.corner_scale, 1001.5, tag);
+            { let n = self.node(c); n.ox = ox; n.oy = oy; n.flip_x = fx; n.flip_y = fy; } let _ = k;
+        }
+        if st.cut > 0.0 { // the two black diagonal lines at the bottom corners
+            let sq = self.sizes.get("GJ_WebSheet/square.png").map_or(16.0, |s| s.0);
+            for (k, (x1, y1, x2, y2)) in [(nr, nb - st.cut, nr - st.cut, nb), (nl, nb - st.cut, nl + st.cut, nb)].into_iter().enumerate() {
+                let (dx, dy) = st.line_offs[k];
+                let full = ((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)).sqrt();
+                let len = if st.line_len >= 0.0 { st.line_len } else { full };
+                let (mx, my) = ((x1 + x2) / 2.0 + dx, (y1 + y2) / 2.0 + dy);
+                let ln = self.on_img(Some(root), "GJ_WebSheet", "square.png", mx, my, 1.0, 1001.6, tag);
+                { let n = self.node(ln); n.tint = 0; n.sx = len / sq; n.sy = 4.0 / sq; n.rot = (y2 - y1).atan2(x2 - x1); }
+            }
+        }
+        // the label, the greyed-out safe button and the close button
+        if self.sizes.contains_key(&format!("GJ_GameSheet03/{}", st.label)) { self.on_img(Some(root), "GJ_GameSheet03", st.label, cx, nt + 60.0, 1.0, 1002.0, tag); }
+        else { self.on_txt(Some(root), "goldFont", 52.0, st.label_text, cx, nt + 60.0, 0.5, 0.5, 1002.0, tag); }
+        let safe = self.on_img(Some(root), "GJ_GameSheet04", "GJ_safeBtn_001.png", nr - 20.0, nt + 15.0, 1.0, 1002.0, tag);
+        { let n = self.node(safe); n.ox = 1.0; n.oy = 0.0; } self.lock_gray(safe);
+        let close = self.on_img(Some(root), "GJ_WebSheet", "GJ_closeBtn_001.png", nl + 20.0, nt + 20.0, 1.0, 1002.0, tag);
+        self.node(close).hit_scale = 2.0;
+        self.make_bouncy(close, 1.0, Cond::Always, Action::Pop("OnSpecialClose", 0));
+        // the level cell
+        let (cell_w, cell_h) = (720.0, 220.0);
+        let (ccx, ccy) = (cx, cy + 25.0);
+        let (cl, ct) = (ccx - cell_w / 2.0, ccy - cell_h / 2.0);
+        match self.on.special_level.clone() {
+            None => {
+                if self.on.loading { let sp = self.image("", "loadingCircle", ccx, ccy, 1003.0, 1.0); { let n = self.node(sp); n.tag = tag; n.parent = Some(root); n.additive = true; n.alpha = 0.5; } self.on.spin = sp; }
+                else { let m = if self.on.error.is_empty() { "Nothing here".to_string() } else { self.on.error.clone() }; self.on_txt(Some(root), "bigFont", 36.0, &m, ccx, ccy, 0.5, 0.5, 1003.0, tag); }
+            }
+            Some(l) => {
+                nine(self, st.cell, ccx, ccy, cell_w, cell_h, st.cell_tint, 1003.0);
+                let (dw, dh) = diff_size(l.difficulty);
+                let sc = (85.0 / dh).min(90.0 / dw);
+                if let Some(c) = coin_frame(&l) { self.on_img(Some(root), "GJ_GameSheet03", c, cl + 75.0, ccy, 1.0, 1003.5, tag); }
+                self.on_img(Some(root), "GJ_GameSheet03", &diff_frame(l.difficulty, false), cl + 75.0, ccy, sc, 1003.6, tag);
+                let name_x = cl + 160.0; let max_w = cell_w - 160.0 - 170.0; let gap = 5.0;
+                let d = 1004.0;
+                let name = self.on_txt(Some(root), "bigFont", 45.0, &l.name, name_x, 0.0, 0.0, 0.0, d, tag); self.on_fit(name, max_w, 0.3);
+                let author = self.on_txt(Some(root), "goldFont", 32.0, &format!("By {}", l.author), name_x, 0.0, 0.0, 0.0, d, tag); self.on_fit(author, max_w, 0.3);
+                let official = OFFICIAL.contains(&l.song_name.as_str());
+                let song = self.on_txt(Some(root), "bigFont", 28.0, &l.song_name, name_x, 0.0, 0.0, 0.0, d, tag);
+                { let n = self.node(song); n.color = if official { 0x00d6ff } else { 0xff79ff }; } self.on_fit(song, max_w, 0.3);
+                let dh_of = |ui: &Ui, i: usize| ui.get(i).map_or(0.0, |n| n.height * n.sy);
+                let total = dh_of(self, name) + dh_of(self, author) + dh_of(self, song) + 30.0 + gap * 3.0;
+                let mut ty = ccy - total / 2.0;
+                self.node(name).y = ty; ty += dh_of(self, name) + gap;
+                self.node(author).y = ty; ty += dh_of(self, author) + gap;
+                self.node(song).y = ty; ty += dh_of(self, song) + gap;
+                let stat_y = ty + 15.0;
+                let mut sx = name_x;
+                for (icon, val, scale) in [("GJ_timeIcon_001.png", length_name(l.length).to_string(), 0.6), ("GJ_downloadsIcon_001.png", stat_count(l.downloads), 0.6), ("GJ_sLikeIcon_001.png", stat_count(l.likes), 0.9)] {
+                    let ic = self.on_img(Some(root), "GJ_GameSheet03", icon, sx, stat_y, scale, d, tag);
+                    self.node(ic).ox = 0.0;
+                    let iw = self.node(ic).width * scale;
+                    let t = self.on_txt(Some(root), "bigFont", 26.0, &val, sx + iw + 8.0, stat_y, 0.0, 0.5, d, tag);
+                    self.on_fit(t, max_w / 2.0, 0.3);
+                    sx += iw + 8.0 + self.on_disp_w(t) + 25.0;
+                }
+                if l.daily_number > 0 {
+                    let t = self.on_txt(Some(root), "bigFont", 24.0, &format!("#{}", l.daily_number), cl + cell_w - 18.0, ct + cell_h - 14.0, 1.0, 1.0, d, tag);
+                    { let n = self.node(t); n.color = 0x8a8fb8; n.alpha = 0.6; }
+                }
+                let play = self.on_img(Some(root), "GJ_GameSheet03", "GJ_playBtn2_001.png", cl + cell_w - 95.0, ccy, 0.75, d, tag);
+                self.make_bouncy(play, 0.75, Cond::Always, Action::Pop("OnSpecialPlay", 0));
+                let crown = self.on_img(Some(root), "GJ_GameSheet04", st.crown, ccx, ct + 12.0, 1.0, d, tag);
+                self.node(crown).oy = 0.8;
+            }
         }
     }
 }
