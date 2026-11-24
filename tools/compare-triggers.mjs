@@ -1,0 +1,441 @@
+// Differential test of the move / rotate / spawn / stop / toggle triggers: the original LevelObject methods (level.js, run as-is on a
+// LevelObject prototype with the real trigger-building and collider-building code of `_spawnObject`) versus triggers.rs, frame by frame
+// in the update order of game-scene.js, on every shipped level.
+// usage: node tools/compare-triggers.mjs [seed] [levelIdx|-] [maxFramesPerLevel]
+import fs from "node:fs";
+import vm from "node:vm";
+import assert from "node:assert";
+import { load } from "./physics-harness.mjs";
+import { makeRecorder } from "./sprite-ref.mjs";
+import { makeFuzz } from "./fuzz-level.mjs";
+
+const root = new URL("..", import.meta.url).pathname;
+// REAL=1: the original LevelObject loads the level itself (real sprites, via a recording stand-in for Phaser) and the sprites are compared too
+const REAL = !!process.env.REAL;
+const REC = REAL ? await makeRecorder() : null;
+const H = REAL ? REC.H : await load();
+const { ctx, w, ptr, layout, colLayout, colRow } = H;
+let seed = Number(process.argv[2] || 1);
+const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+// spawn triggers with a random delay draw random numbers: both sides get identical, separate streams
+const stream = (seed0) => { let s = seed0 >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); };
+ctx.__rnd = stream(12345); vm.runInContext("Math.random = __rnd", ctx);
+globalThis.__random = stream(12345);
+const ONLY_ARG = process.argv[3];
+const ONLY = ONLY_ARG !== undefined && ONLY_ARG !== "-" && /^\d+$/.test(ONLY_ARG) ? Number(ONLY_ARG) : null;
+const ONLY_LABEL = ONLY_ARG && /\.txt$/.test(ONLY_ARG) ? ONLY_ARG : null;
+const MAXF = Number(process.argv[4] || 4000);
+
+if (!REAL) {
+  vm.runInContext("var fs = 1000; var gs = 1001;", ctx);
+  vm.runInContext(fs.readFileSync(root + "ref/assets/scripts/core/triggers.js", "utf8") + "\nthis.Easing = Easing; this.ColorManager = ColorManager;", ctx);
+}
+// the trigger branch of `_spawnObject`, verbatim
+const src = fs.readFileSync(root + "ref/assets/scripts/core/level.js", "utf8");
+const t0 = src.indexOf("  if (objectDef && objectDef.type === triggerType) {\n    if (this._nextObjectId === undefined) {");
+const t1 = src.indexOf("\n  if (this._nextObjectId === undefined) {\n    this._nextObjectId = 0;\n  }\n  const linkedObjectId", t0 + 10);
+assert(t0 > 0 && t1 > t0, "trigger slice markers not found");
+vm.runInContext(`this.spawnTrig = function (levelObj) {\n const objectDef = getObjectFromId(levelObj.id);\n ${src.slice(t0, t1)}\n};`, ctx);
+
+if (REAL) {
+  const enc = new TextEncoder();
+  const put = (str) => { const b = enc.encode(str); const p = w.wd_alloc(Math.max(1, b.length)); new Uint8Array(w.memory.buffer, p, b.length).set(b); return [p, b.length]; };
+  for (const f of fs.readdirSync(root + "ref/assets/sheets").filter((n) => n.endsWith(".json") && !/AnimDesc/.test(n))) {
+    const [np, nl] = put(f.replace(/\.json$/, "")); const [jp, jl] = put(fs.readFileSync(root + "ref/assets/sheets/" + f, "utf8"));
+    w.wd_atlas_add(np, nl, jp, jl);
+  }
+}
+const gsrc = REAL ? fs.readFileSync(root + "ref/assets/scripts/core/game-scene.js", "utf8") : "";
+let animBlock = null;
+if (REAL) {
+  const a0 = gsrc.indexOf("    if (!window.enableLDM) {\n      window._animTimer += deltaTime;\n      for (let _as of window._animatedSprites) {");
+  const a1 = gsrc.indexOf("    this._level.updateAudioScale(this._audio.getMeteringValue(), this._cameraX, screenWidth);", a0);
+  const a2 = gsrc.indexOf("\n", a1);
+  animBlock = vm.runInContext(`(function (deltaTime) {\n${gsrc.slice(a0, a2)}\n})`, ctx);
+}
+const animLog = [];
+ctx.window.BeastAnim = { IDS: [], commandMany: (states, id) => { animLog.push(id); }, defaultBase() {}, command() {} };
+const files = fs.readdirSync(root + "ref/assets/levels").filter((f) => f.endsWith(".txt")).sort();
+const same = (a, b) => Object.is(a, b) || a === b || (Number.isNaN(a) && Number.isNaN(b));
+const canon = (v) => JSON.stringify(v, (k, x) => (typeof x === "number" && Object.is(x, -0) ? 0 : x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+const text = (n) => new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.wd_result_ptr(), n));
+const rjson = (n) => JSON.parse(text(n));
+const LISTS = { move: "_moveTriggers", rotate: "_rotateTriggers", spawn: "_spawnTriggers", stop: "_stopTriggers", toggle: "_toggleTriggers", followY: "_followPlayerYTriggers", follow: "_followTriggers", onDeath: "_onDeathTriggers", touch: "_touchTriggers", pickup: "_pickupTriggers", count: "_countTriggers", instantCount: "_instantCountTriggers", collision: "_collisionTriggers", blocks: "_collisionBlocks", color: "_colorTriggers", pulse: "_pulseTriggers", alpha: "_alphaTriggers", shake: "_shakeTriggers", playerVis: "_playerVisTriggers", animation: "_animationTriggers", enterEffect: "_enterEffectTriggers" };
+const OTHER = [];
+
+function newLevel() {
+  animLog.length = 0;
+  if (REAL) {
+    REC.scene._state = { y: 0 }; REC.scene._cameraY = 0; REC.scene._playerWorldX = 0; REC.scene.time = { now: 0, delayedCall() {} };
+    const L = new ctx.LevelObject(REC.scene, { _v: 0 });
+    L.resetAll = () => {
+      L.resetColorTriggers(); L.resetAlphaTriggers(); L.resetRotateTriggers(); L.resetPulseTriggers(); L.resetEnterEffectTriggers(); L.resetSpawnTriggers(); L.resetMoveTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers(); L.resetToggleTriggers(); L.resetAnimationTriggers(); L.resetShakeTriggers(); L.resetChannelBlending(); L.resetPlayerVisibilityTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetCollisionTriggers(); L.resetInstantCountTriggers();
+    };
+    return L;
+  }
+  const L = Object.create(ctx.LevelObject.prototype);
+  Object.assign(L, {
+    objects: [], objectSprites: [], _groupColliders: {}, _groupSprites: {}, _collisionSections: [], _nearbyBuffer: [], _nextObjectId: 0, _startPositions: [],
+    _secretCoinCompleted: new Set(), _userCoinCompleted: new Set(), _secretCoinSlotCount: 0, _userCoinSlotCount: 0,
+    _spawnTextObject() {}, _spawnTriggerEditorVisual() {}, _getSectionIndexForWorldX: () => 0, _refreshSpriteSection() {},
+    _scene: { _playerWorldX: 0, _state: { y: 0 }, _cameraY: 0, time: { now: 0 } }, _cameraXRef: { _v: 0 }, _channelBlending: { 1007: true }, _colorChannelSprites: {}, _activePulses: [],
+    _activeAlphaTweens: [], _getGlowAlphaMultiplier: () => 0.425, _groupOpacity: {}, _sections: [], _beastSprites: [], _touchPlayerVisActivated: new Set(), shakeOffsetX: 0, shakeOffsetY: 0, _shakeState: null,
+  });
+  for (const k of [...Object.values(LISTS), ...OTHER]) L[k] = [];
+  L.resetAll = () => {
+    L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers(); L._colorTriggerIdx = 0; L._pulseTriggerIdx = 0; L._activePulses = []; L._touchColorTriggerActivated = new Set(); L._channelBlending = { 1007: true };
+    L._moveTriggerIdx = L._rotateTriggerIdx = L._spawnTriggerIdx = L._stopTriggerIdx = L._toggleTriggerIdx = L._followPlayerYTriggerIdx = L._followTriggerIdx = 0;
+    L._onDeathTriggerIdx = L._touchTriggerIdx = L._pickupTriggerIdx = L._countTriggerIdx = L._instantCountTriggerIdx = L._collisionTriggerIdx = 0;
+    L._armedOnDeathTriggers = []; L._activeTouchTriggers = []; L._activeCountTriggers = []; L._activeCollisionTriggers = []; L._itemCounts = {};
+    L._touchOnDeathTriggerActivated = new Set(); L._touchTouchTriggerActivated = new Set(); L._touchPickupTriggerActivated = new Set(); L._touchCountTriggerActivated = new Set(); L._touchInstantCountTriggerActivated = new Set();
+    L._activeFollowPlayerYTweens = []; L._activeFollowTweens = []; L._touchFollowPlayerYTriggerActivated = new Set(); L._touchFollowTriggerActivated = new Set();
+    L._activeMoveTweens = []; L._activeRotateTweens = []; L._activeSpawnDelays = [];
+    L._groupOffsets = {}; L._groupRotations = {}; L._groupToggledOff = {};
+    L._touchMoveTriggerActivated = new Set(); L._touchSpawnTriggerActivated = new Set(); L._touchStopTriggerActivated = new Set(); L._touchToggleTriggerActivated = new Set();
+  };
+  L.resetAll();
+  return L;
+}
+
+// random levels: dense groups, every ported trigger kind (the shipped levels barely use follow / spawn-triggered ones)
+function fuzzLevel() {
+  const parts = ["kA4,0"];
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const grp = () => 1 + Math.floor(rnd() * 8);
+  const num = (lo, hi) => (lo + rnd() * (hi - lo)).toFixed(3);
+  const n = 40 + Math.floor(rnd() * 160);
+  for (let i = 0; i < n; i++) {
+    const x = Math.floor(rnd() * 3000) * 0.5, y = Math.floor(rnd() * 40) * 0.5;
+    const base = ["1", "ID", "2", x, "3", y];
+    const kind = rnd();
+    if (kind < 0.45) {
+      const id = pick([1, 1, 1, 8, 8, 103, 35, 36, 10, 13, 48, 200, 201, 11, 12, 38]);
+      const o = ["1", id, "2", x, "3", y];
+      const gs = Array.from({ length: Math.floor(rnd() * 3) }, grp);
+      if (gs.length) o.push("57", gs.join("."));
+      if (rnd() < 0.2) o.push("6", Math.floor(rnd() * 4) * 90);
+      parts.push(o.join(","));
+      continue;
+    }
+    const id = pick([901, 901, 901, 1346, 1346, 1268, 1268, 1616, 1049, 1049, 1814, 1347, 1347, 1812, 1595, 1817, 1611, 1811, 1815, 1816, 1816, 1816, 29, 30, 899, 105, 221, 1006, 1006, 1007, 1007, 1007, 1520, 1520, 1612, 1613, 1585, 1585, 23, 24, 25, 26, 27, 28, 55, 56, 57, 58, 59]);
+    const o = ["1", id, "2", id === 1816 ? 300 + 15 * Math.floor(rnd() * 20) : x, "3", id === 1816 ? 15 * Math.floor(rnd() * 6) : y];
+    const add = (k, v) => o.push(String(k), String(v));
+    add(51, grp());
+    if (rnd() < 0.4) add(11, 1);
+    if (rnd() < 0.3) add(62, 1);
+    if (rnd() < 0.3) add(57, Array.from({ length: 1 + Math.floor(rnd() * 2) }, grp).join("."));
+    if (rnd() < 0.6) add(10, num(0, 3));
+    if (id === 901) { add(28, num(-90, 90)); add(29, num(-90, 90)); add(30, Math.floor(rnd() * 20)); add(85, num(0.5, 4)); if (rnd() < 0.15) add(pick([58, 59, 302, 303]), 1); }
+    if (id === 1346) { add(68, num(-360, 360)); add(69, Math.floor(rnd() * 3)); add(70, rnd() < 0.3 ? 1 : 0); add(71, grp()); add(30, Math.floor(rnd() * 20)); add(85, num(0.5, 4)); }
+    if (id === 1268) { add(63, num(0, 2)); if (rnd() < 0.3) add(556, num(0, 1)); }
+    if (id === 1049) add(56, rnd() < 0.5 ? 1 : 0);
+    if (id === 1814) { add(90, num(0, 3)); add(91, num(0, 1)); add(92, num(-30, 30)); add(105, num(0, 5)); }
+    if (id === 1347) { add(71, grp()); add(72, num(-2, 2)); add(73, num(-2, 2)); }
+    if (id === 29 || id === 30 || id === 899 || id === 105 || id === 221) { add(7, Math.floor(rnd() * 256)); add(8, Math.floor(rnd() * 256)); add(9, Math.floor(rnd() * 256)); add(14, rnd() < 0.3 ? 1 : 0); if (id > 100) { add(23, pick([1, 2, 3, 4, 1002, 1003, 1004, 1009, 8, 20])); add(17, rnd() < 0.3 ? 1 : 0); add(35, num(0, 1)); if (rnd() < 0.3) add(50, pick([1, 2, 3, 4, 8, 20])); if (rnd() < 0.3) add(49, `${Math.floor(rnd() * 360)}a${num(0, 2)}a${num(0, 2)}a0a0`); } }
+    if (id === 1007) add(35, num(-0.3, 1.3));
+    if (id === 1520) { add(75, num(-5, 120)); add(84, num(0, 0.6)); }
+    if (id === 1585) add(76, Math.floor(rnd() * 12));
+    if (id === 1006) { add(52, rnd() < 0.7 ? 0 : 1); add(7, Math.floor(rnd() * 256)); add(8, Math.floor(rnd() * 256)); add(9, Math.floor(rnd() * 256)); add(45, num(0, 1)); add(46, num(0, 1)); add(47, num(0, 1)); if (rnd() < 0.3) { add(48, 1); add(49, `${Math.floor(rnd() * 360)}a${num(0, 2)}a${num(0, 2)}a0a0`); } if (rnd() < 0.3) add(50, pick([1, 2, 3, 4, 8, 20])); }
+    if (id === 1812) add(56, rnd() < 0.5 ? 1 : 0);
+    if (id === 1595) { add(56, Math.floor(rnd() * 3)); add(81, rnd() < 0.3 ? 1 : 0); add(82, rnd() < 0.4 ? 1 : 0); }
+    if (id === 1817) { add(80, 1 + Math.floor(rnd() * 4)); add(77, Math.floor(rnd() * 4)); }
+    if (id === 1611 || id === 1811) { add(80, 1 + Math.floor(rnd() * 4)); add(77, Math.floor(rnd() * 5)); add(56, rnd() < 0.7 ? 1 : 0); if (id === 1611) add(104, rnd() < 0.3 ? 1 : 0); else add(88, Math.floor(rnd() * 3)); }
+    if (id === 1815) { add(80, 1 + Math.floor(rnd() * 3)); add(95, 1 + Math.floor(rnd() * 3)); add(56, rnd() < 0.5 ? 1 : 0); add(93, rnd() < 0.3 ? 1 : 0); }
+    if (id === 1816) { add(80, 1 + Math.floor(rnd() * 3)); add(94, rnd() < 0.6 ? 1 : 0); }
+    parts.push(o.join(","));
+  }
+  return parts.join(";");
+}
+const FUZZ = Number(process.env.FUZZ || 0);
+const sources = FUZZ ? Array.from({ length: FUZZ }, (_, i) => ({ label: `fuzz#${i}`, str: fuzzLevel() })) : files.map((f) => ({ label: f, str: fs.readFileSync(root + "ref/assets/levels/" + f, "utf8") }));
+
+const strip = (t) => JSON.parse(JSON.stringify(t));
+let bad = 0, framesTotal = 0, levelsDone = 0, checks = 0;
+const report = (msg) => { if (bad++ < 12) console.log(msg); };
+
+for (let li = 0; li < sources.length; li++) {
+  if (ONLY !== null && li !== ONLY) continue;
+  if (ONLY_LABEL && sources[li].label !== ONLY_LABEL) continue;
+  const str = sources[li].str;
+  const lvl = ctx.parseLevel(str);
+  ctx.window.enableLDM = true; // object spawning in this harness uses the low-detail collider path
+  const L = newLevel();
+  const sprites = []; // [x, y, groups]
+  let realImgs = null;
+  if (REAL) {
+    ctx.window.enableLDM = false; ctx.window.isEditor = false; ctx.window.settingsMap = {};
+    const official = !/^\d{5,}\.txt$/.test(sources[li].label); // the numbered files are online levels
+    ctx.window.currentlevel = ["x", "X", "the_level", []]; ctx.window.allLevels = official ? [ctx.window.currentlevel] : [];
+    w.wd_set_official(official ? 1 : 0);
+    ctx.__rnd = stream(12345); vm.runInContext("Math.random = __rnd", ctx);
+    REC.created.length = 0; ctx.window._animTimer = 0;
+    L.loadLevel(str);
+    const padEmitter = (c) => c.kind === "particles" && c.args?.[3]?.lifespan?.min === 250 && c.args?.[3]?.lifespan?.max === 450 && c.args?.[3]?.frequency === 24;
+    realImgs = REC.created.filter((c) => (c.kind === "image" && !c._eeEditorTrigger && !String(c.frameName).startsWith("edit_")) || padEmitter(c));
+    ctx.__rnd = stream(777 + li); vm.runInContext("Math.random = __rnd", ctx); globalThis.__random = stream(777 + li);
+  } else {
+    const objs = ctx.LevelObject.prototype._normalizeTeleportPortals.call(L, lvl.objects);
+    for (const lo of objs) {
+      const def = ctx.getObjectFromId(lo.id);
+      if (def && def.type === ctx.triggerType) { ctx.spawnTrig.call(L, lo); continue; }
+      const linked = L._nextObjectId++;
+      lo._eeObjectId = linked;
+      const objectId = parseInt(lo.id ?? 0, 10);
+      const secretSlot = objectId === 142 ? L._secretCoinSlotCount++ : null;
+      const userSlot = objectId === 1329 ? L._userCoinSlotCount++ : null;
+      if (def) ctx.spawnCol.call(L, lo, def, lo.x * 2, lo.y * 2, objectId, linked, secretSlot, userSlot, null);
+      if (def && lo.groups) {
+        const gids = [...new Set(lo.groups.split(".").map(Number).filter((n) => n > 0))];
+        if (gids.length) {
+          const n = 1 + (objectId % 3);
+          for (let k = 0; k < n; k++) {
+            const x = lo.x * 2 + 10 * k, y = 460 - lo.y * 2 + 7 * k;
+            const spr = { active: true, _eeGroups: gids, _eeInitialWorldX: x, _eeInitialBaseY: y, _origWorldX: x, _origBaseY: y, x, y, rotation: 0, setVisible() {} };
+            for (const g of gids) (L._groupSprites[g] ||= []).push(spr);
+            sprites.push(x, y, gids.length, ...gids);
+          }
+        }
+      }
+    }
+    for (const k of OTHER) L[k] = []; // the kinds that are not ported
+    for (const [kind, k] of Object.entries(LISTS)) if (kind !== "blocks" && kind !== "spawn") L[k].sort((a, b) => a.x - b.x);
+
+  }
+  ctx.window.mainColor = 327424; ctx.window.secondaryColor = 64511;
+  const cm = new ctx.ColorManager();
+  if (!REAL) { ctx.window.settingsMap = {}; L._setUpSettings(lvl.settings); }
+  for (const ch in L._initialColors) cm.setInitialColor(parseInt(ch, 10), L._initialColors[ch]);
+  for (const ch in L._initialCopies) cm.setInitialCopy(parseInt(ch, 10), L._initialCopies[ch]);
+  for (const ch in L._initialOpacity) cm.setInitialOpacity(parseInt(ch, 10), L._initialOpacity[ch]);
+  L._scene._colorManager = cm; if (!REAL) L._channelBlendingInitial = { ...L._channelBlending };
+  const applyCT = (c) => { cm.triggerColor(c.index, c.color, c.duration, c.copy, c.opacity); L.setChannelBlending?.(c.index, !!c.blending); if (c.tintGround) cm.triggerColor(1001, c.color, c.duration, c.copy); };
+  const cmChannels = [...new Set([1, 2, 3, 4, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1009, ...L._colorTriggers.map((c) => c.index), ...L._pulseTriggers.map((p) => p.targetChannel || 1)])];
+  const cmBuf = w.wd_alloc(5 * 8);
+  ctx.window.enableLDM = false; // from here on the game plays (pulse triggers are off in low-detail mode)
+  const cols = L.objects.filter((c) => c instanceof ctx.Collider);
+  cols.forEach((c, i) => (c.uid = i));
+
+  // ---- Rust ----
+  const bytes = new TextEncoder().encode(str);
+  const sp = w.wd_alloc(bytes.length);
+  new Uint8Array(w.memory.buffer, sp, bytes.length).set(bytes);
+  if (REAL) w.wd_visual_seed(12345);
+  const n = w.wd_game_load_level(sp, bytes.length);
+  if (REAL) w.wd_game_after_load();
+  const aptr = w.wd_alloc(Math.max(8, sprites.length * 8));
+  new Float64Array(w.memory.buffer, aptr, Math.max(1, sprites.length)).set(sprites);
+  if (!REAL) w.wd_trig_set_anchors(aptr, sprites.length);
+  const rowLen = colLayout.length;
+  const cbuf = w.wd_alloc(Math.max(1, n * rowLen) * 8);
+  const lbuf = w.wd_alloc(Math.max(1, layout.length) * 8);
+  const rustRows = () => { w.wd_game_get_state(lbuf, cbuf); return new Float64Array(w.memory.buffer, cbuf, Math.max(1, n * rowLen)); };
+  let levelBad = false, skipped = false;
+  const seen = { disabled: 0, moved: 0, rotated: 0, resorted: 0 };
+  const fail = (msg) => { report(`MISMATCH ${sources[li].label}: ${msg}`); levelBad = true; };
+
+  if (n !== cols.length) { fail(`collider count rust=${n} js=${cols.length}`); continue; }
+  const rows0 = rustRows();
+  outer: for (let i = 0; i < cols.length; i++) {
+    const row = colRow(cols[i]);
+    for (let j = 0; j < rowLen; j++) if (!same(row[j], rows0[i * rowLen + j])) { fail(`collider ${i} (${cols[i].type}) ${colLayout[j].name} rust=${rows0[i * rowLen + j]} js=${row[j]}`); break outer; }
+  }
+  const jsLists = Object.fromEntries(Object.entries(LISTS).map(([k, v]) => [k, strip(L[v])]));
+  try { assert.deepStrictEqual(JSON.parse(canon(rjson(w.wd_trig_lists()))), JSON.parse(canon(jsLists))); } catch (e) { fail("trigger lists differ: " + String(e.message).split("\n").slice(0, 60).join(" | ")); }
+  if (levelBad) continue;
+
+  // REAL: sprite state, group by group and frame by frame
+  let spriteCheck = () => null, groupSpriteIdx = [];
+  if (REAL) {
+    const rrows = () => JSON.parse(text(w.wd_fx_sprites()));
+    const first = rrows();
+    if (first.length !== realImgs.length) { fail(`sprite count rust=${first.length} js=${realImgs.length}`); continue; }
+    const idxOf = new Map(realImgs.map((c, i) => [c, i]));
+    const jsGroups = {};
+    for (const g of Object.keys(L._groupSprites)) jsGroups[g] = L._groupSprites[g].filter((c) => idxOf.has(c._raw)).map((c) => idxOf.get(c._raw));
+    const rg = JSON.parse(text(w.wd_fx_groups()));
+    for (const k of Object.keys(jsGroups)) if (!jsGroups[k].length) delete jsGroups[k]; // groups with only text objects (not ported yet)
+    if (canon(jsGroups) !== canon(rg)) {
+      const ks = new Set([...Object.keys(jsGroups), ...Object.keys(rg)]);
+      for (const k of ks) if (canon(jsGroups[k]) !== canon(rg[k])) { fail(`group ${k} sprites: js=${canon(jsGroups[k])?.slice(0, 150)} rust=${canon(rg[k])?.slice(0, 150)}`); break; }
+      continue;
+    }
+    groupSpriteIdx = [...new Set(Object.values(jsGroups).flat())].sort((a, b) => a - b);
+    const nz = (v) => (Object.is(v, -0) ? 0 : v);
+    const frameTable = JSON.parse(text(w.wd_render_frames()));
+    const fields = (c) => [c.x, c.y, c.rotation, c.scaleX, c.scaleY, c.alpha, c.visible, c.active !== false, c.tintv === undefined ? null : c.tintv, c.blend ?? 0, c.kind === "image" ? c.frameName : "__pad_emitter__"];
+    const names = ["x", "y", "rotation", "scaleX", "scaleY", "alpha", "visible", "active", "tint", "blend", "frame"];
+    spriteCheck = (all) => {
+      const rows = rrows();
+      const list = all ? realImgs.map((_, i) => i) : groupSpriteIdx;
+      for (const i of list) {
+        const c = realImgs[i], r = rows[i], f = fields(c);
+        for (let k = 0; k < 11; k++) {
+          if (names[k] === "tint" && !(c._eeSectionIndex >= L._visMinSec && c._eeSectionIndex <= L._visMaxSec)) continue; // only what is on screen is kept up to date
+          if (names[k] === "tint") { globalThis.__tintChecks = (globalThis.__tintChecks || 0) + 1; if (f[k] !== null) globalThis.__tintSet = (globalThis.__tintSet || 0) + 1; if (c._eePulsed) globalThis.__tintPulsed = (globalThis.__tintPulsed || 0) + 1; }
+          const a = typeof f[k] === "number" ? nz(f[k]) : f[k], b = names[k] === "frame" ? frameTable[r[10]][1] : (typeof r[k] === "number" ? nz(r[k]) : r[k]);
+          if (!(a === b || (typeof a === "number" && typeof b === "number" && Number.isNaN(a) && b === null) || (a === null && b === null) || (Number.isNaN(a) && Number.isNaN(b)))) return `sprite ${i} (${c.frameName}) ${names[k]}: js=${a} rust=${b}` + (process.env.DBG ? ` | js orb=${JSON.stringify({ inOrbs: L._orbSprites.some((m) => m._raw === c), active: c.active, wx: c._eeWorldX, guide: c._eeOrbGuide, baseScale: c._eeBaseScale, last: c._eeLastOrbScale, cam: L._cameraXRef._v })} js memb=${JSON.stringify(Object.entries(L._groupSprites).filter(([g, l]) => l.some((m) => m._raw === c)).map(([g]) => g))} js em=${JSON.stringify({ alpha: c.alpha, sec: c._eeSectionIndex, eeActive: c._eeActive, wx: c._eeWorldX, x: c.x, groups: c._eeGroups, dontFade: c._eeDontFade, cam: L._cameraXRef._v })} js centers=${JSON.stringify(Object.entries(L._groupRotations).map(([g, r]) => { const cg = r.centerGroupId; const jc = cg > 0 ? L._getGroupCenter(cg) : null; const out = w.wd_alloc(16); if (cg > 0) w.wd_fx_center(BigInt(cg), out); const rc = new Float64Array(w.memory.buffer, out, 2); const members = (L._groupSprites[cg] || []).map((m) => `${m.kind}:${m.active}:${m._eeInitialWorldX ?? m._eeWorldX ?? m.x},${m._eeInitialBaseY ?? m._eeBaseY ?? m.y}`); return { g, cg, js: jc, rust: [rc[0], rc[1]], members: members.slice(0, 8), n: members.length }; }))} js alphaDbg=${JSON.stringify({ groupOpacity: L._groupOpacity, chOp: c._eeColorChannel ? cm.getOpacity(c._eeColorChannel) : null, force: L._alphaForceApply, applied: c._eeChannelAlphaApplied, glowMult: L._getGlowAlphaMultiplier(), calc: L._getGroupOpacityForSprite(c), approach: c._eeApproachAlpha, eeActive: c._eeActive })} js dbg=${(() => { const before = c.tintv; const hid = L._isSpriteHidden(c); L._applyChannelTint(c, String(c._eeColorChannel), cm.getHex(c._eeColorChannel), cm); const r = { hidden: hid, stamp: c._eeTintStamp, idxStamp: L._colorIndexStamp, before, after: c.tintv, inSection: (L._sections[c._eeSectionIndex] || []).includes(c), parent: !!c.parentContainer, hex: cm.getHex(c._eeColorChannel) }; c.tintv = before; return JSON.stringify(r); })()} js flags=${JSON.stringify({ black: c._isBlack, can: c._canColor, bd: c._blackDefault, cant: c._cantColor, ch: c._eeColorChannel, tch: c._eeTintChannels, pulsed: c._eePulsed, saw: c._isSaw, sc: c._SawColor, audio: c._eeAudioScale, sec: c._eeSectionIndex, vmin: L._visMinSec, vmax: L._visMaxSec, active: c.active })} vis=${c.visible} active=${c.active} toggled=${c._eeToggledOffGroups ? [...c._eeToggledOffGroups] : null} rot=${c.rotation} jsRotations=${JSON.stringify(Object.fromEntries((c._eeGroups || []).map((g) => [g, L._groupRotations[g]])))} initY=${c._eeInitialBaseY} baseY=${c._eeBaseY} visOffY=${c._eeVisOffY} groups=${c._eeGroups} rustRow=${JSON.stringify(rows[i])} rustSprite=${(() => { const l = w.wd_fx_sprite(i); return text(l); })()} offsets=${JSON.stringify(L._groupOffsets)} | js approach=${c._eeApproachAlpha} origAlpha=${c._eeOrigAlpha} glow=${c._eeIsGlowSprite} entry=${JSON.stringify(c._eeInvisibleBlockEntry && { x: c._eeInvisibleBlockEntry.x, a: c._eeInvisibleBlockEntry.alpha, rem: c._eeInvisibleBlockEntry.removed })} px=${L._scene._playerWorldX} jsEntries=${JSON.stringify(L._invisibleBlockEntries.map((e) => [e.x, e.sprites.length, e.alpha]))} rustEntries=${text(w.wd_fx_invisible())}` : "");
+        }
+      }
+      return null;
+    };
+  }
+
+  const jsState = () => canon({
+    offsets: Object.fromEntries(Object.entries(L._groupOffsets).map(([k, v]) => [k, [v.x, v.y]])),
+    rotations: Object.fromEntries(Object.entries(L._groupRotations).map(([k, v]) => [k, [v.totalRad, v.centerGroupId, v.lockRotation]])),
+    active: [L._activeMoveTweens.length, L._activeRotateTweens.length, L._activeSpawnDelays.length, L._activeFollowPlayerYTweens.length, L._activeFollowTweens.length],
+    followY: L._activeFollowPlayerYTweens.map((a) => [a.elapsed, a.groupInitialGDY, a.history.length]),
+    follow: L._activeFollowTweens.map((a) => [a.elapsed, a.lastFollowX, a.lastFollowY]),
+    spawnDelays: L._activeSpawnDelays.map((s) => [s.targetGroup, s.delay, s.elapsed]),
+    idx: [L._moveTriggerIdx, L._rotateTriggerIdx, L._spawnTriggerIdx, L._stopTriggerIdx, L._toggleTriggerIdx, L._followPlayerYTriggerIdx, L._followTriggerIdx, L._onDeathTriggerIdx, L._touchTriggerIdx, L._pickupTriggerIdx, L._countTriggerIdx, L._instantCountTriggerIdx, L._collisionTriggerIdx],
+    toggledOff: Object.keys(L._groupToggledOff).map(Number).sort((a, b) => a - b),
+    armedOnDeath: L._armedOnDeathTriggers.map((t) => L._onDeathTriggers.indexOf(t)),
+    activeTouch: L._activeTouchTriggers.map((t) => L._touchTriggers.indexOf(t)),
+    holding: L._activeTouchTriggers.map((t) => !!t._holding),
+    activeCount: L._activeCountTriggers.map((t) => L._countTriggers.indexOf(t)),
+    activeCollision: L._activeCollisionTriggers.map((e) => [L._collisionTriggers.indexOf(e.trig), e.colliding]),
+    itemCounts: L._itemCounts,
+    blending: Object.fromEntries(Object.entries(L._channelBlending).map(([k, v]) => [k, !!v])),
+    colorIdx: [L._colorTriggerIdx, L._pulseTriggerIdx],
+    groupOpacity: L._groupOpacity,
+    shake: [L._shakeTriggerIdx, L.shakeOffsetX, L.shakeOffsetY, L._shakeState ? [L._shakeState.strength, L._shakeState.endTime, L._shakeState.interval, Number.isFinite(L._shakeState.lastStepTime) ? L._shakeState.lastStepTime : "-inf"] : null, L._touchShakeTriggerActivated.size],
+    vis: [L._playerVisTriggerIdx, !!L.playerHidden, L._touchPlayerVisActivated.size],
+    anim: [L._animationTriggerIdx, L._touchAnimationTriggerActivated.size, animLog.slice()],
+    enter: [L._enterEffectTriggerIdx, L._activeEnterEffect, L._activeExitEffect],
+    pulses: L._activePulses.map((p) => [L._pulseTriggers.indexOf(p.trig), p.elapsed, p.totalDuration]),
+    groupOps: [...(L._pulseGroupOps || new Map())].map(([g, op]) => [Number(g), op ? [L._pulseTriggers.indexOf(op.trig), op.intensity] : null]),
+    alpha: [L._alphaTriggerIdx, ...L._activeAlphaTweens.map((a) => [L._alphaTriggers.indexOf(a.trig), a.elapsed, a.startOpacity])],
+  });
+  const rustState = () => { const s = rjson(w.wd_trig_state()); return canon(s); };
+  const heavy = () => {
+    const rows = rustRows();
+    for (let i = 0; i < cols.length; i++) {
+      for (const [name, v] of [["x", cols[i].x], ["y", cols[i].y], ["rotation_degrees", cols[i].rotationDegrees]]) {
+        const j = colLayout.findIndex((f) => f.name === name);
+        if (!same(v, rows[i * rowLen + j])) return `collider ${i} (${cols[i].type}) ${name} rust=${rows[i * rowLen + j]} js=${v}`;
+      }
+    }
+    const rs = rjson(w.wd_trig_sections());
+    seen.disabled = Math.max(seen.disabled, rs.disabled.length);
+    seen.moved = Math.max(seen.moved, cols.filter((c) => c.x !== c._eeInitialBaseX || c.y !== c._eeInitialBaseY).length);
+    seen.rotated = Math.max(seen.rotated, cols.filter((c) => c.rotationDegrees !== c._eeInitialRotationDegrees).length);
+    seen.resorted = Math.max(seen.resorted, cols.filter((c) => c._eeCollisionSectionIndex !== Math.max(0, Math.floor(c._eeInitialBaseX / 400))).length);
+    const js = { sections: {}, length: L._collisionSections.length, disabled: cols.map((c, i) => (c.disabled ? i : -1)).filter((i) => i >= 0) };
+    for (const k of Object.keys(L._collisionSections)) { const sec = L._collisionSections[k]; if (Array.isArray(sec) && /^\d+$/.test(k) && Number(k) < 4294967295) js.sections[k] = sec.map((c) => c.uid); }
+    if (canon(js) !== canon(rs)) {
+      const ks = new Set([...Object.keys(js.sections), ...Object.keys(rs.sections)]);
+      for (const k of ks) if (canon(js.sections[k]) !== canon(rs.sections[k])) return `section ${k}: rust=${canon(rs.sections[k])?.slice(0, 120)} js=${canon(js.sections[k])?.slice(0, 120)}`;
+      return `sections meta: rust length=${rs.length} disabled=${rs.disabled.length} js length=${js.length} disabled=${js.disabled.length}`;
+    }
+    return null;
+  };
+
+  const touchTrigs = Object.values(jsLists).flat().filter((t) => t.touchTriggered);
+  const lastX = Math.max(0, ...Object.values(jsLists).flat().map((t) => t.x)) + 300;
+  let prevCx = undefined, now = 1000, px = -419, py = 30, frame = 0, cx = 0, h1 = false, h2 = false;
+  if (rnd() < 0.5) px = Math.floor(rnd() * lastX * 0.2);
+  if (rnd() < 0.4) { // start from a start position: the level fast-forwards its triggers to there
+    const ffx = Math.floor(rnd() * lastX); var ffxUsed = ffx;
+    try { L.fastForwardTriggers(ffx, cm); w.wd_trig_ff(ffx); px = ffx; if (process.env.DEBUGCM) { w.wd_trig_cm(1001, cmBuf); const m = new Float64Array(w.memory.buffer, cmBuf, 5); console.log(`after ff ${ffx}: js 1001 = ${JSON.stringify(cm.getColor(1001))} rust = ${m[0]},${m[1]},${m[2]}`); } } catch (e) { if (/call stack/.test(String(e.message))) skipped = true; else throw e; }
+    if (!skipped && jsState() !== rustState()) fail(`after fast-forward to ${ffx}: state differs\n  js  =${jsState().slice(0, 500)}\n  rust=${rustState().slice(0, 500)}`);
+  }
+  for (frame = 0; frame < MAXF && px < lastX && !levelBad; frame++) {
+    const dt = [1 / 60, 1 / 60, 1 / 60, 1 / 30, 1 / 120, 0.0166667, 0.02][Math.floor(rnd() * 7)];
+    px += 623.2 * dt * (rnd() < 0.05 ? 3 : 1) * (rnd() < 0.2 ? 0 : 1) + (rnd() < 0.003 ? rnd() * 800 : 0);
+    py = Math.max(-100, Math.min(900, py + (rnd() - 0.5) * 60));
+    const near = touchTrigs.find((t) => Math.abs(t.x - px) < 70);
+    if (near && rnd() < 0.6) py = near.y + (rnd() - 0.5) * 100;
+    cx = px - 419 + (rnd() < 0.1 ? rnd() * 50 : 0);
+    const cy = rnd() * 40;
+    const dual = rnd() < 0.15, y2 = rnd() * 600;
+    const aGrav = rnd() < 0.3, aCam = typeof prevCx === "number" ? prevCx : cx;
+    prevCx = cx;
+    if (rnd() < 0.002) { // an attempt restarts: everything is reset
+      L.resetMoveTriggers(); L.resetRotateTriggers(); L.resetToggleTriggers(); L.resetSpawnTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers();
+      L.resetColorTriggers(); L.resetPulseTriggers(); L.resetChannelBlending(); cm.reset(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetInstantCountTriggers(); L.resetCollisionTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers();
+      for (let k = 0; k < 19; k++) w.wd_trig_reset(k);
+      px = -419; continue;
+    }
+    const animMeter = rnd() < 0.5 ? 0 : rnd() * 1.3;
+    const nh1 = rnd() < 0.15 ? !h1 : h1, nh2 = rnd() < 0.15 ? !h2 : h2;
+    const pr1 = nh1 && !h1, pr2 = nh2 && !h2;
+    h1 = nh1; h2 = nh2;
+    const died = rnd() < 0.004;
+    if (process.env.TRACE) fs.writeSync(2, `frame ${frame} px=${px}\n`);
+    // JS: the trigger calls of game-scene.js `update`
+    try {
+    now += dt * 1000 * (rnd() < 0.1 ? 3 : 1); L._scene.time.now = now; w.wd_trig_time(now);
+    L.applyShakeToOffsets(now); w.wd_trig_shake(now);
+    if (REAL) { const gs = { _level: L, _state: { gravityFlipped: !!aGrav }, _audio: { getMeteringValue: () => animMeter }, _cameraX: aCam }; animBlock.call(gs, dt * 1000); w.wd_fx_animate(dt * 1000, aCam, aGrav ? 1 : 0, animMeter); }
+    L._scene._playerWorldX = px; L._scene._state.y = py; L._scene._cameraY = cy; L._cameraXRef._v = cx;
+    for (const t of L.checkColorTriggers(px)) applyCT(t);
+    for (const t of L.checkTouchColorTriggers(px, py)) applyCT(t); if (dual) for (const t of L.checkTouchColorTriggers(px, y2)) applyCT(t);
+    L.checkMoveTriggers(px); L.checkSpawnTriggers(px);
+    L.checkTouchSpawnTriggers(px, py); if (dual) L.checkTouchSpawnTriggers(px, y2);
+    L.checkTouchMoveTriggers(px, py); if (dual) L.checkTouchMoveTriggers(px, y2);
+    L.beginGroupTransformBatch();
+    L.stepMoveTriggers(dt); L.stepSpawnTriggers(dt, cm);
+    L.checkAlphaTriggers(px); L.checkTouchAlphaTriggers(px, py); if (dual) L.checkTouchAlphaTriggers(px, y2); L.stepAlphaTriggers(dt);
+    L.checkRotateTriggers(px); L.stepRotateTriggers(dt);
+    L.checkStopTriggers(px); L.checkTouchStopTriggers(px, py); if (dual) L.checkTouchStopTriggers(px, y2);
+    L.checkFollowPlayerYTriggers(px); L.checkTouchFollowPlayerYTriggers(px, py); if (dual) L.checkTouchFollowPlayerYTriggers(px, y2);
+    L.stepFollowPlayerYTriggers(dt);
+    L.checkFollowTriggers(px); L.checkTouchFollowTriggers(px, py); if (dual) L.checkTouchFollowTriggers(px, y2);
+    L.stepFollowTriggers(dt);
+    L.flushGroupTransformBatch();
+    L.checkToggleTriggers(px);
+    L.checkAnimationTriggers(px); L.checkTouchAnimationTriggers(px, py); if (dual) L.checkTouchAnimationTriggers(px, y2);
+    L.checkTouchToggleTriggers(px, py); if (dual) L.checkTouchToggleTriggers(px, y2);
+    L.checkShakeTriggers(px); L.checkPlayerVisibilityTriggers(px); L.checkTouchPlayerVisibilityTriggers(px, py); if (dual) L.checkTouchPlayerVisibilityTriggers(px, y2);
+    L.checkTouchShakeTriggers(px, py); if (dual) L.checkTouchShakeTriggers(px, y2);
+    L.checkOnDeathTriggers(px); L.checkTouchOnDeathTriggers(px, py); if (dual) L.checkTouchOnDeathTriggers(px, y2);
+    L.checkTouchTriggers(px); L.checkTouchTouchTriggers(px, py); if (dual) L.checkTouchTouchTriggers(px, y2);
+    const dualIn = L.isTouchTriggerDualMode();
+    L.stepTouchTriggers(h1, pr1, dualIn && h2, dualIn && pr2, cm);
+    L.checkPickupTriggers(px, cm); L.checkTouchPickupTriggers(px, py, cm); if (dual) L.checkTouchPickupTriggers(px, y2, cm);
+    L.checkCountTriggers(px, cm); L.checkCollisionTriggers(px); L.updateCollisionTriggers();
+    L.checkTouchCountTriggers(px, py, cm); if (dual) L.checkTouchCountTriggers(px, y2, cm);
+    L.checkInstantCountTriggers(px, cm); L.checkTouchInstantCountTriggers(px, py, cm); if (dual) L.checkTouchInstantCountTriggers(px, y2, cm);
+    if (REAL) L.updateVisibility(cx);
+    L.checkPulseTriggers(px); L.stepPulseTriggers(dt, cm); cm.step(dt);
+    if (REAL) L.applyColorChannels(cm, true);
+    L.checkEnterEffectTriggers(px);
+    if (REAL) L.applyEnterEffects(cx);
+    } catch (e) { if (/call stack/.test(String(e.message))) { skipped = true; break; } throw e; }
+    if (process.env.TRACE) fs.writeSync(2, `js done\n`);
+    if (process.env.PHASE) w.wd_trig_phase_limit(frame >= Number(process.env.AT) ? Number(process.env.PHASE) : 1e9);
+    // Rust
+    w.wd_trig_frame(px, py, cx, cy, dt, dual ? 1 : 0, y2, (h1 ? 1 : 0) | (pr1 ? 2 : 0) | (h2 ? 4 : 0) | (pr2 ? 8 : 0));
+    if (REAL) w.wd_fx_enter(cx, px);
+    if (died) { L.triggerOnDeath(cm); w.wd_trig_death(); }
+    framesTotal++;
+    const a = jsState(), b = rustState();
+    if (L._activePulses.length) globalThis.__pulseFrames = (globalThis.__pulseFrames || 0) + 1;
+    if (L._activeAlphaTweens.length) globalThis.__alphaFrames = (globalThis.__alphaFrames || 0) + 1;
+    checks++;
+    for (const ch of cmChannels) { const c = cm.getColor(ch); w.wd_trig_cm(ch, cmBuf); const m = new Float64Array(w.memory.buffer, cmBuf, 5); if (!same(c.r, m[0]) || !same(c.g, m[1]) || !same(c.b, m[2]) || !same(cm.getOpacity(ch), m[3]) || !same(cm.getHex(ch), m[4])) { if (process.env.DEBUGCM) console.log(`px=${px} idx js=${L._colorTriggerIdx} ffx=${typeof ffxUsed !== 'undefined' ? ffxUsed : 'none'}`, JSON.stringify(L._colorTriggers.filter((t) => t.x <= px + 1 && (t.tintGround || t.index === ch)).map((t) => ({ x: t.x, idx: t.index, tg: t.tintGround, c: t.color, d: t.duration, copy: t.copy, sp: t.spawnTriggered, touch: t.touchTriggered })))); fail(`frame ${frame} colour channel ${ch}: js ${c.r},${c.g},${c.b} op ${cm.getOpacity(ch)} | rust ${m[0]},${m[1]},${m[2]} op ${m[3]}`); break; } }
+    if (levelBad) break;
+    if (REAL && process.env.TRACE_SPRITE) { const ti = Number(process.env.TRACE_SPRITE); const c = realImgs[ti]; const r = JSON.parse(text(w.wd_fx_sprites()))[ti]; console.log(`f${frame} cx=${cx.toFixed(1)} js scale=${c.scaleX} last=${c._eeLastOrbScale} active=${c._eeActive} mult=${c._eeEffectMult} | rust scale=${r[3]} frame=${r[10]}`); }
+    if (REAL && !process.env.NOSPRITE) { const m = spriteCheck(frame % 60 === 0); if (m) { fail(`frame ${frame} (px=${px.toFixed(1)}) ${m}`); break; } }
+    if (a !== b) {
+      const ja = JSON.parse(a), jb = JSON.parse(b);
+      const keys = Object.keys(ja).filter((k) => JSON.stringify(ja[k]) !== JSON.stringify(jb[k]));
+      fail(`frame ${frame} (px=${px.toFixed(1)}) state differs in ${keys.join(", ")}\n` + keys.map((k) => `  ${k}: js=${JSON.stringify(ja[k]).slice(0, 400)}\n  ${k}: rust=${JSON.stringify(jb[k]).slice(0, 400)}`).join("\n"));
+      if (process.env.DBG) console.log("followY tweens:", JSON.stringify(L._activeFollowPlayerYTweens.map((a) => ({ target: a.trig.targetGroup, speed: a.trig.speed, delay: a.trig.delay, offset: a.trig.offset, maxSpeed: a.trig.maxSpeed, duration: a.trig.duration, elapsed: a.elapsed, gdy: a.groupInitialGDY, hist: a.history.length, hy: a.history.map((h) => h.y).slice(0, 3) }))), "py", py, "dt", dt, "offs", JSON.stringify(L._groupOffsets[79]));
+      break;
+    }
+    if (frame % 40 === 0 || (L._activeMoveTweens.length + L._activeRotateTweens.length + L._activeFollowPlayerYTweens.length + L._activeFollowTweens.length) > 0 && frame % 7 === 0) {
+      const h = heavy();
+      if (h) { fail(`frame ${frame} (px=${px.toFixed(1)}) ${h}`); break; }
+    }
+  }
+  if (!levelBad && !skipped) { const h = heavy(); if (h) fail(`end ${h}`); }
+  levelsDone++;
+  const stats = [L._moveTriggers.length, L._rotateTriggers.length, L._spawnTriggers.length, L._stopTriggers.length, L._toggleTriggers.length, L._followPlayerYTriggers.length, L._followTriggers.length];
+  const moved = cols.filter((c) => c.x !== c._eeInitialBaseX || c.y !== c._eeInitialBaseY).length, rotated = cols.filter((c) => c.rotationDegrees !== c._eeInitialRotationDegrees).length, off = cols.filter((c) => c.disabled).length;
+  console.log(`${sources[li].label}: ${levelBad ? "MISMATCH" : skipped ? "skipped (the original overflows its stack)" : "ok"}  triggers move/rot/spawn/stop/toggle/followY/follow=${stats.join("/")} colliders=${cols.length} groups=${Object.keys(L._groupColliders).length} frames=${frame} (most at once: moved=${seen.moved} rotated=${seen.rotated} disabled=${seen.disabled} in another section=${seen.resorted})`);
+}
+if (REAL) console.log(`(sprite tints compared: ${globalThis.__tintChecks || 0}, non-null: ${globalThis.__tintSet || 0}, pulsed: ${globalThis.__tintPulsed || 0})`);
+console.log(`(frames with a group pulse running: ${globalThis.__pulseFrames || 0}, with an alpha tween running: ${globalThis.__alphaFrames || 0})`);
+console.log(`${levelsDone} levels, ${framesTotal} frames, ${checks} state checks: ${bad ? bad + " MISMATCHED" : "all identical"}`);
+process.exit(bad ? 1 : 0);

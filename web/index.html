@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Dashers (Rust)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; background: #000; image-rendering: auto; }
+  #hud { position: fixed; left: 8px; top: 6px; color: #fff; font: 12px/1.3 ui-monospace, monospace; text-shadow: 0 0 3px #000; pointer-events: none; white-space: pre; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1138" height="640"></canvas>
+<div id="hud"></div>
+<script>window.WD_ASSETS = []; window.WD_EVENTS = {}; window.WD_TICK = [];</script>
+<script src="player_vis.js"></script>
+<script src="garage.js"></script>
+<script src="popups_a.js"></script>
+<script src="popups_b.js"></script>
+<script src="editor.js"></script>
+<script type="module" src="main.js"></script>
+</body>
+</html>
