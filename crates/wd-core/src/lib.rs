@@ -916,7 +916,8 @@ pub extern "C" fn wd_game_begin_slide() { with_game(|g| { g.fx.menu_mode = false
 #[no_mangle]
 pub extern "C" fn wd_game_slide_state() -> u32 { with_game(|g| if g.fx.slide.is_some() { 1 } else if g.fx.slide_done { g.fx.slide_done = false; 2 } else { 0 }) }
 #[no_mangle]
-pub extern "C" fn wd_menu_mode(on: u32) { with_game(|g| { g.fx.menu_mode = on != 0; if on != 0 { g.fx.menu_camera_x = -g.g.center_x; g.camera_x = g.fx.menu_camera_x; g.fx.bg.prev_camera_x = g.camera_x; } }); }
+pub extern "C" fn wd_menu_mode(on: u32) { with_game(|g| { g.fx.menu_mode = on != 0; if on != 0 { g.fx.menu_camera_x = -g.g.center_x; g.camera_x = g.fx.menu_camera_x; g.camera_y = 0.0; if let Some(gr) = g.fx.ground.as_mut() { gr.reset_state(); } // the scene restart of the original: no raised camera, no ship floor and ceiling
+             g.fx.bg.prev_camera_x = g.camera_x; } }); }
 
 /// Level list for the level select: JSON `[[internal, display, id, song?], ...]`; `page` selects the shown one.
 #[no_mangle]
