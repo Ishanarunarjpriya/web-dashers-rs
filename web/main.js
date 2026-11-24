@@ -28,7 +28,7 @@ const loadText = async (url) => { const r = await fetch(url); if (!r.ok) throw n
 async function main() {
   let loading = null;
   if (!params.get("noload")) { try { loading = await showLoading(ctx, SHEETS); const LOAD_ESTIMATE = 96; onLoaded = () => loading.progress(loaded / LOAD_ESTIMATE); } catch (e) { console.warn("loading screen", e); } }
-  if (params.get("noclip")) { try { const c = JSON.parse(localStorage.getItem("gd_settings") || "{}"); c.noclip = true; localStorage.setItem("gd_settings", JSON.stringify(c)); } catch (e) {} } // test hook for benchmarks
+  if (params.get("noclip")) { try { const c = JSON.parse(localStorage.getItem("gd_settings") || "{}"); c.noclip = true; if (params.get("noclip") === "all") Object.assign(c, { noclipAccuracy: true, showFPS: true, showCPS: true }); localStorage.setItem("gd_settings", JSON.stringify(c)); } catch (e) {} } // test hook for benchmarks
   // ---- wasm ----
   const { instance } = await WebAssembly.instantiateStreaming(fetch(WASM), { env: { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_acos: Math.acos, js_atan: Math.atan, js_atan2: Math.atan2, js_pow: Math.pow, js_random: Math.random } });
   const w = instance.exports;
@@ -236,7 +236,7 @@ async function main() {
     const camX = w.wd_game_scene(0), camY = w.wd_game_scene(1);
     const n = w.wd_pv_events();
     pv.players[0].hidden = pv.players[1].hidden = pvHidden;
-    pv.frame(dt, { ox: -camX, oy: camY, camX, camY, menu: menuMode || !!w.wd_ui_menu_active(), paused, won: won || !!window.__pvForceWon, restart: pvRestart, endX: w.wd_game_scene(5), endY: w.wd_game_scene(4), screenW: W, events: n ? text(n).split("|") : [] });
+    pv.frame(dt, { ox: -camX, oy: camY, camX, camY, menu: menuMode || !!w.wd_ui_menu_active(), paused, won: won || !!window.__pvForceWon, restart: pvRestart, mirrorP: w.wd_mirror_progress(), endX: w.wd_game_scene(5), endY: w.wd_game_scene(4), screenW: W, events: n ? text(n).split("|") : [] });
     pvRestart = false;
   };
   // text objects: a frame named `@text` / `<size>|<text>` is drawn with the bitmap font (origin at the centre)
@@ -367,7 +367,7 @@ async function main() {
     analyser = ac.createAnalyser(); analyser.fftSize = 2048;
     gain.connect(analyser); analyser.connect(ac.destination);
     w.wd_audio_live(1);
-    afx.attach(ac, gain);
+    afx.attach(ac, gain, analyser);
     if (menuMode) afx.enterMenu();
     if (window.__songData && !songBuf) songBuf = await ac.decodeAudioData(window.__songData.slice(0));
   };
@@ -654,8 +654,8 @@ async function main() {
   const beat = (ms) => 0.45 + 0.35 * Math.abs(Math.sin(ms / 1000 * Math.PI * 2));
   const step = (dtMs) => {
     w.wd_trig_time(performance.now());
-    if (analyser) { analyser.getFloatTimeDomainData(peakBuf); let pk = 0; for (let k = 0; k < peakBuf.length; k++) { const v = Math.abs(peakBuf[k]); if (v > pk) pk = v; } w.wd_set_audio_peak(pk, MUSIC_VOL); }
-    else w.wd_set_audio_meter(beat(performance.now()));
+    if (analyser) { analyser.getFloatTimeDomainData(peakBuf); let pk = 0; for (let k = 0; k < peakBuf.length; k++) { const v = Math.abs(peakBuf[k]); if (v > pk) pk = v; } w.wd_set_audio_peak(pk, afx.userMusic() * 0.8); } // audio.js `_effectiveVolume()`
+    else w.wd_set_audio_meter(0.1); // no sound yet: the meter rests at 0.1, objects do not pulse
     const r = w.wd_game_update(dtMs, held ? 1 : 0);
     if ((r >> 30) & 1) restarted(); // died and restarted
     pollSong();
@@ -730,6 +730,23 @@ async function main() {
   let hudText = "";
   const PROF = !!params.get("prof"); let tp = 0; const P = window.__prof = {};
   const lp = PROF ? (k) => { const n = performance.now(); P[k] = (P[k] ?? 0) * 0.97 + (n - tp) * 0.03; tp = n; } : () => {};
+  // the indicators of game-scene.js: "Ignore Damage", accuracy, deaths, CPS and "Botted" in the big font at 40% alpha, and the FPS text in Arial
+  let fpsAcc = 0, fpsFrames = 0, fpsStr = "FPS: 0";
+  const drawHud = () => {
+    const S = readSettings();
+    if (S.showFPS) { ctx.save(); ctx.font = "17px Arial"; ctx.fillStyle = "#fff"; ctx.textBaseline = "top"; ctx.fillText(fpsStr, 4, 2); ctx.restore(); }
+    const f = fontOf[1];
+    if (!f || menuMode || w.wd_ui_menu_active()) return;
+    ctx.save(); ctx.globalAlpha = 0.4;
+    const t = (str, y, color) => drawBitmapText(f, str, 20, 10, y, 1, 0, 0, color);
+    const nc = !!S.noclip, acc = nc && !!S.noclipAccuracy;
+    if (nc) t("Ignore Damage", 10, 0xffffff);
+    if (acc) { t(w.wd_noclip_stat(0).toFixed(2) + "%", 30, 0xffffff); t(w.wd_noclip_stat(1) + " Deaths", 50, 0xffffff); }
+    const cpsY = 10 + (nc ? 20 : 0) + (acc ? 40 : 0);
+    if (S.showCPS) t(cpsTimes.length + " CPS", cpsY, held && !won && !wasDead ? 0x00ff00 : 0xffffff);
+    if (w.wd_macro_state() === 2 && !paused && !won) t("Botted", cpsY + (S.showCPS ? 20 : 0), 0xff0000);
+    ctx.restore();
+  };
   const loop = (now) => {
     if (PROF) { tp = performance.now(); P.frame = (P.frame ?? 16) * 0.97 + (now - last) * 0.03; }
     if (clicks.length && ++tick % 6 === 0 && clickIdx < clicks.length) { const x = clicks[clickIdx++], y = clicks[clickIdx++]; w.wd_ui_pointer(0, x, y); w.wd_ui_pointer(2, x, y); }
@@ -776,15 +793,16 @@ async function main() {
     }
     lp("misc");
     endfx.drawFront();
+    drawHud();
     drawUi();
     lp("ui");
     if (PROF && params.get("prof") === "2") { ctx.getImageData(0, 0, 1, 1); lp("flush"); } // forces the queued drawing to finish, so its cost shows up
     if (loadingLevel && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);
     handleUi();
-    lp("hud0"); frame++; acc += dt; if (acc > 500) { fps = Math.round(frame * 1000 / acc); frame = 0; acc = 0; }
-    { const st = { ...OPT_DEFAULTS, ...readSettings() }; if (held && !cpsHeld) cpsTimes.push(now); cpsHeld = held; while (cpsTimes.length && now - cpsTimes[0] > 1000) cpsTimes.shift();
-      const ht = (menuMode || w.wd_ui_menu_active()) ? "" : [st.noclip ? "Ignore Damage" : "", st.showFPS ? `FPS: ${fps}` : "", st.showCPS ? `${cpsTimes.length} CPS` : "", st.showHitboxes ? "(hitboxes: not drawn yet)" : ""].filter(Boolean).join("\n");
-      if (ht !== hudText) { hudText = ht; hud.textContent = ht; } } // touching the DOM every frame forces a layout
+    lp("hud0");
+    fpsAcc += dt; fpsFrames++; // game-scene.js: "FPS: n", refreshed every 250 ms
+    if (fpsAcc >= 250) { fpsStr = "FPS: " + Math.round(fpsFrames * 1000 / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
+    if (held && !cpsHeld && !won && !wasDead) cpsTimes.push(now); cpsHeld = held; while (cpsTimes.length && now - cpsTimes[0] > 1000) cpsTimes.shift();
     lp("hud");
     requestAnimationFrame(loop);
   };

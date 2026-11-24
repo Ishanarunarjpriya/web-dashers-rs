@@ -1245,3 +1245,7 @@ pub extern "C" fn wd_beast_info() -> usize {
 /// Tests: the beast update step of a frame (`BeastAnim.update`), `delta_ms` of real time
 #[no_mangle]
 pub extern "C" fn wd_beast_update(delta_ms: f64) { with_game(|g| g.beast_update(delta_ms)); }
+
+/// No-clip statistics shown by the HUD: 0 = accuracy (percent), 1 = deaths
+#[no_mangle]
+pub extern "C" fn wd_noclip_stat(which: u32) -> f64 { with_game(|g| if which == 0 { g.p.nc_accuracy } else { g.p.nc_deaths }) }

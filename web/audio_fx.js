@@ -6,8 +6,8 @@ export class AudioFx {
   constructor() { this.ac = null; this.musicGain = null; this.sfx = {}; this.menuBuf = null; this.menuSrc = null; this.wantMenu = false; this.loading = false; }
 
   /** Called once the AudioContext exists; `musicGain` is the node the music plays through (so the meter sees it). */
-  attach(ac, musicGain) {
-    this.ac = ac; this.musicGain = musicGain;
+  attach(ac, musicGain, sink) {
+    this.ac = ac; this.musicGain = musicGain; this.sink = sink || ac.destination; // the original's analyser listens to the whole sound manager, effects included
     if (this.loading) return;
     this.loading = true;
     const dec = async (url) => { try { const r = await fetch(url); if (!r.ok) return null; return await ac.decodeAudioData(await r.arrayBuffer()); } catch (e) { return null; } };
@@ -31,7 +31,7 @@ export class AudioFx {
     if (!ac || !buf) return;
     const src = ac.createBufferSource(); src.buffer = buf;
     const g = ac.createGain(); g.gain.value = volume;
-    src.connect(g); g.connect(ac.destination);
+    src.connect(g); g.connect(this.sink || ac.destination);
     src.start();
   }
 

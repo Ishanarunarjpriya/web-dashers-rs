@@ -660,6 +660,7 @@
       // Reads the wasm state for both players, runs the per-frame logic (dt in seconds) and rebuilds the layers
       frame(dt, o) {
         const { w } = env;
+        this.mirrorP = o.mirrorP || 0;
         loadCfg2();
         const evs = o.events || [];
         for (const v of players) {
@@ -764,8 +765,10 @@
           const items = v.items.slice().sort((a, b) => a.depth - b.depth || a.order - b.order);
           for (const it of items) {
             const px = it.screen ? 0 : ox, py = it.screen ? 0 : oy;
-            if (it.additive) drawFrame({ img: it.fr.img, d: it.fr.d }, it.x + px, it.y + py, it.rot, it.sx, it.sy, it.alpha, it.tint, 1, 0);
-            else drawItem(it, px, py);
+            // `_getMirrorXOffset`: while the mirror portal's effect runs the player icon is drawn at x + (width - 2x) * progress
+            const sxp = it.x + px, mxp = this.mirrorP && !it.screen ? sxp + (W - 2 * sxp) * this.mirrorP : sxp;
+            if (it.additive) drawFrame({ img: it.fr.img, d: it.fr.d }, mxp, it.y + py, it.rot, it.sx, it.sy, it.alpha, it.tint, 1, 0);
+            else drawFrame({ img: it.fr.img, d: it.fr.d }, mxp, it.y + py, it.rot, it.sx, it.sy, it.alpha, it.tint, 0, 0);
           }
         }
       },

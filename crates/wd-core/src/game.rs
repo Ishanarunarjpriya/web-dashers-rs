@@ -109,6 +109,7 @@ impl Game {
         self.e.fly_visual_only = false;
         self.e.fly_floor_y = None;
         self.e.fly_ceiling_y = None;
+        self.e.fly_camera_target = None; // `resetGroundState`: the camera stops following the fly area
         self.e.floor_y = 0.0;
         self.e.ceiling_y = None;
         use crate::physics::speed_portal as sp;
@@ -243,7 +244,7 @@ impl Game {
 
     /// The level-layer part of an attempt start (`resetGroundState`).
     fn begin_ground(&mut self) {
-        self.e.fly_ground_active = false; self.e.fly_visual_only = false; self.e.fly_floor_y = None; self.e.fly_ceiling_y = None;
+        self.e.fly_ground_active = false; self.e.fly_visual_only = false; self.e.fly_floor_y = None; self.e.fly_ceiling_y = None; self.e.fly_camera_target = None;
         self.e.floor_y = 0.0; self.e.ceiling_y = None;
         self.delta_buffer = 0.0; self.space_was_down = false;
     }
