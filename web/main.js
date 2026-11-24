@@ -508,14 +508,11 @@ async function main() {
 
   // ---- frame ----
   let last = performance.now(), frame = 0, fps = 0, acc = 0;
-  // Phaser runs with `resolution: 1` and stretches a 1138x640 canvas with CSS, which blurs the HD art; draw at the size it is shown instead.
-  let pxScale = 1, resCap = 1.5; // resCap: the most device pixels per game pixel; lowered below when the frame rate drops
+  // Like the original (Phaser `resolution: 1`, FIT): the canvas is 1138x640 and the browser stretches it to the window.
+  let pxScale = 1;
   const fitCanvas = () => {
-    const s = Number(params.get("pxs")) || Math.min(resCap, Math.max(0.5, Math.min((innerWidth || W) / W, (innerHeight || H) / H) * (devicePixelRatio || 1)));
-    const nw = Math.max(1, Math.round(W * s)), nh = Math.max(1, Math.round(H * s));
-    if (canvas.width !== nw || canvas.height !== nh) { canvas.width = nw; canvas.height = nh; }
     const [shx, shy] = endfx.shake();
-    pxScale = nw / W; ctx.setTransform(pxScale, 0, 0, pxScale, shx * pxScale, shy * pxScale); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "low"; // plain bilinear, as Phaser; "high" costs a lot per image
+    ctx.setTransform(1, 0, 0, 1, shx, shy);
   };
   const render = () => {
     fitCanvas();
@@ -696,7 +693,7 @@ async function main() {
   }
   const clicks = (params.get("clicks") || "").split(",").filter(Boolean).map(Number);
   let clickIdx = 0, tick = 0; const cpsTimes = []; let cpsHeld = false;
-  let slowWin = 0, hudText = "";
+  let hudText = "";
   const PROF = !!params.get("prof"); let tp = 0; const P = window.__prof = {};
   const lp = PROF ? (k) => { const n = performance.now(); P[k] = (P[k] ?? 0) * 0.97 + (n - tp) * 0.03; tp = n; } : () => {};
   const loop = (now) => {
@@ -749,7 +746,7 @@ async function main() {
     lp("ui");
     if (loadingLevel && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);
     handleUi();
-    lp("hud0"); frame++; acc += dt; if (acc > 500) { fps = Math.round(frame * 1000 / acc); frame = 0; acc = 0; if (!document.hidden && !loadingLevel) { if (fps < 50 && ++slowWin >= 2 && resCap > 1) { resCap = Math.max(1, resCap - 0.25); slowWin = 0; } else if (fps >= 50) slowWin = 0; } }
+    lp("hud0"); frame++; acc += dt; if (acc > 500) { fps = Math.round(frame * 1000 / acc); frame = 0; acc = 0; }
     { const st = { ...OPT_DEFAULTS, ...readSettings() }; if (held && !cpsHeld) cpsTimes.push(now); cpsHeld = held; while (cpsTimes.length && now - cpsTimes[0] > 1000) cpsTimes.shift();
       const ht = (menuMode || w.wd_ui_menu_active()) ? "" : [st.noclip ? "Ignore Damage" : "", st.showFPS ? `FPS: ${fps}` : "", st.showCPS ? `${cpsTimes.length} CPS` : "", st.showHitboxes ? "(hitboxes: not drawn yet)" : ""].filter(Boolean).join("\n");
       if (ht !== hudText) { hudText = ht; hud.textContent = ht; } } // touching the DOM every frame forces a layout
