@@ -170,11 +170,26 @@ async function main() {
     per.set(tint, c);
     return c;
   };
+  let snapOn = false;
+  const snapPx = (v) => Math.round(v * pxScale) / pxScale;
   const hex = (n) => "#" + (n & 0xffffff).toString(16).padStart(6, "0");
   const drawFrame = (fr, x, y, rot, sx, sy, alpha, tint, blend, flips) => {
     const d = fr.d, f = d.frame;
     const fw = f.w, fh = f.h;
     const src = d.sourceSize || { w: fw, h: fh }, ss = d.spriteSourceSize || { x: 0, y: 0 };
+    if (snapOn && !rot && !flips && sx > 0 && sy > 0 && !d.rotated) {
+      // upright sprites: put all four edges on whole device pixels, so two sprites that share an edge share the same pixels (no hairline gaps)
+      const ox = -src.w / 2 + ss.x, oy = -src.h / 2 + ss.y;
+      const L = snapPx(x + ox * sx), R = snapPx(x + (ox + fw) * sx), T = snapPx(y + oy * sy), B = snapPx(y + (oy + fh) * sy);
+      if (R > L && B > T) {
+        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+        ctx.globalCompositeOperation = blend === 1 ? "lighter" : "source-over";
+        if (tint >= 0 && tint !== 0xffffff) ctx.drawImage(tinted(fr, tint), 0, 0, fw, fh, L, T, R - L, B - T);
+        else ctx.drawImage(fr.img, f.x, f.y, fw, fh, L, T, R - L, B - T);
+        ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+      }
+      return;
+    }
     ctx.save();
     ctx.translate(x, y);
     if (rot) ctx.rotate(rot);
@@ -314,7 +329,7 @@ async function main() {
           const src = tint >= 0 && tint !== 0xffffff ? tinted({ img, d: { frame: { x: 0, y: 0, w: img.width, h: img.height } } }, tint) : img;
           const iw = img.width, ih = img.height;
           const xs = [0, b, iw - b, iw], ys = [0, b, ih - b, ih];
-          const xd = [x0, x0 + b, x0 + W2 - b, x0 + W2], yd = [y0, y0 + b, y0 + H2 - b, y0 + H2];
+          const xd = [x0, x0 + b, x0 + W2 - b, x0 + W2].map(snapPx), yd = [y0, y0 + b, y0 + H2 - b, y0 + H2].map(snapPx);
           for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) ctx.drawImage(src, xs[i], ys[j], xs[i + 1] - xs[i], ys[j + 1] - ys[j], xd[i], yd[j], xd[i + 1] - xd[i], yd[j + 1] - yd[j]);
         }
       }
@@ -507,13 +522,15 @@ async function main() {
       }
       const tw = bgTile.width, th = bgTile.height;
       const tx = ((buf[20] % tw) + tw) % tw, ty = ((buf[21] % th) + th) % th; // a TileSprite shows texture pixel (x + tilePositionX, y + tilePositionY) at its (x, y)
-      for (let xx = -tx; xx < W; xx += tw) for (let yy = -ty; yy < H; yy += th) ctx.drawImage(bgTile, xx, yy);
+      const e1 = 1 / pxScale;
+      for (let xx = -tx; xx < W; xx += tw) for (let yy = -ty; yy < H; yy += th) ctx.drawImage(bgTile, xx, yy, tw + e1, th + e1);
       const tint = buf[22] & 0xffffff;
       if (tint !== 0xffffff) { ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = hex(tint); ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = "source-over"; }
     } else { ctx.fillStyle = hex(buf[22]); ctx.fillRect(0, 0, W, H); }
     endfx.drawBack();
     // level objects (normal layer first, then the player, then the top layer)
     const base = 40 + tiles;
+    snapOn = !(buf[33] > 0);
     if (buf[33] > 0) { // level editor: static level seen through the editor camera
       const z = buf[33]; ctx.save(); ctx.scale(z, z);
       const ex = -buf[34] / z, ey = -buf[35] / z;
@@ -560,8 +577,9 @@ async function main() {
       const tile2 = ground2Img && buf[25] ? tinted({ img: ground2Img, d: { frame: { x: 0, y: 0, w: ground2Img.width, h: ground2Img.height } } }, buf[24]) : null;
       for (let t = 0; t < tiles; t++) {
         const tx = buf[40 + t];
-        ctx.drawImage(tile, tx, gy);
-        if (tile2) ctx.drawImage(tile2, tx, gy);
+        const gw = tile.width + 1 / pxScale; // a device pixel of overlap hides the seam between tiles
+        ctx.drawImage(tile, 0, 0, tile.width, tile.height, tx, gy, gw, tile.height);
+        if (tile2) ctx.drawImage(tile2, 0, 0, tile2.width, tile2.height, tx, gy, gw, tile2.height);
         if (buf[17]) { ctx.save(); ctx.translate(tx, buf[16]); ctx.scale(1, -1); ctx.drawImage(tile, 0, 0); if (tile2) ctx.drawImage(tile2, 0, 0); ctx.restore(); }
       }
     }
