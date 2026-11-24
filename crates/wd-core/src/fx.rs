@@ -825,7 +825,10 @@ impl Game {
     /// (frame, x, y, rotation, scaleX, scaleY, alpha, tint or -1, blend, flip bits, top layer, reserved) in draw order.
     pub fn build_render(&mut self) -> usize {
         let mut order: Vec<(u8, f64, f64, usize)> = Vec::new();
+        // the main menu hides the level's containers (game-scene.js: `container.setVisible(false)`): only background and ground show
+        let hidden = self.fx.menu_mode && !self.fx.editor_mode;
         for si in 0..self.fx.sprites.len() {
+            if hidden { break; }
             let s = &self.fx.sprites[si];
             if !s.visible || s.alpha <= 0.0 || s.flag("_isEmitter") { continue; }
             let layer = s.num("_eeLayer").unwrap_or(1.0);
