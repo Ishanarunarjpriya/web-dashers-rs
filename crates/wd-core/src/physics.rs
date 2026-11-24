@@ -271,10 +271,12 @@ pub struct Sim<'a> {
     pub replace_pending: Option<Vec<usize>>,
     pub replace_cols: std::collections::BTreeMap<usize, crate::pcol::Col>,
     pub stash: Vec<(usize, crate::pcol::Col)>,
+    /// the level's coin bookkeeping (`tryCollectSecretCoin` ...); None in the harnesses, which answer through `Env`
+    pub coins: Option<&'a mut crate::coins::CoinState>,
 }
 
 impl<'a> Sim<'a> {
-    pub fn new(p: &'a mut Player, g: &'a mut Globals, e: &'a mut Env) -> Sim<'a> { Sim { p, g, e, log: Vec::new(), vlog: Vec::new(), other: None, cands: Vec::new(), near_idx: Vec::new(), replace_idx: None, replace_pending: None, replace_cols: Default::default(), stash: Vec::new() } }
+    pub fn new(p: &'a mut Player, g: &'a mut Globals, e: &'a mut Env) -> Sim<'a> { Sim { p, g, e, log: Vec::new(), vlog: Vec::new(), other: None, cands: Vec::new(), near_idx: Vec::new(), replace_idx: None, replace_pending: None, replace_cols: Default::default(), stash: Vec::new(), coins: None } }
 
     pub fn flip_mod(&self) -> f64 { if self.p.gravity_flipped { -1.0 } else { 1.0 } }
 

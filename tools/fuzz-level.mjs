@@ -1,5 +1,5 @@
 // Random trigger-heavy levels shared by the differential tests (every ported trigger kind, dense groups).
-export function makeFuzz(rnd) {
+export function makeFuzz(rnd, opts = {}) {
 return function fuzzLevel() {
   const parts = ["kA4,0"];
   const pick = (a) => a[Math.floor(rnd() * a.length)];
@@ -10,6 +10,23 @@ return function fuzzLevel() {
     const x = Math.floor(rnd() * 3000) * 0.5, y = Math.floor(rnd() * 40) * 0.5;
     const base = ["1", "ID", "2", x, "3", y];
     const kind = rnd();
+    if (opts.text && rnd() < 0.12) { // a text object (914) with random look and groups
+      const b64 = (s) => Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const word = pick(["Hello", "GO!", "Jump here", "x", "Dash 123", "a b c", "WOW"]);
+      const o = ["1", 914, "2", x, "3", y, "31", b64(word)];
+      const gs = Array.from({ length: Math.floor(rnd() * 3) }, grp);
+      if (gs.length) o.push("57", gs.join("."));
+      if (rnd() < 0.5) o.push("21", pick([1, 2, 3, 4, 1004, 1009, 12]));
+      if (rnd() < 0.4) o.push("32", num(0.4, 2.5));
+      if (rnd() < 0.3) o.push("6", num(-180, 180));
+      if (rnd() < 0.2) o.push("4", 1);
+      if (rnd() < 0.2) o.push("5", 1);
+      if (rnd() < 0.3) o.push("24", pick([-5, -3, -1, 1, 3, 5, 7, 9]));
+      if (rnd() < 0.3) o.push("25", Math.floor(rnd() * 10) - 5);
+      if (rnd() < 0.1) { o.push("131", num(-40, 40)); o.push("132", num(-40, 40)); }
+      parts.push(o.join(","));
+      continue;
+    }
     if (kind < 0.45) {
       const id = pick([1, 1, 1, 8, 8, 103, 35, 36, 10, 13, 48, 200, 201, 11, 12, 38]);
       const o = ["1", id, "2", x, "3", y];

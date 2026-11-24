@@ -87,6 +87,9 @@ pub struct Fx {
     pub visible_by_channel: Option<BTreeMap<i64, Vec<usize>>>,
     pub watch: Vec<i64>,
     pub index_built: bool,
+    pub coin_tweens: Vec<crate::coins::CoinTween>,
+    /// (coin sprite, collected) -> the animation frames of that look
+    pub coin_frames: BTreeMap<(usize, bool), Vec<Option<u32>>>,
 }
 
 pub fn section_index(world_x: f64) -> u64 { (or0(world_x) / 400.0).floor().max(0.0) as u64 }
@@ -383,6 +386,8 @@ impl Game {
         }
     }
 
+    /// `anchorSprite.parentContainer.visible === false`
+    pub fn sprite_container_hidden(&self, si: usize) -> bool { self.sprite_hidden(si) }
     fn sprite_hidden(&self, si: usize) -> bool {
         if self.fx.sprites[si].num("_eeLayer") == Some(2.0) { return false; } // the top container is always shown
         match self.fx.sprites[si].num("_eeSectionIndex") {
@@ -780,10 +785,12 @@ impl Game {
 
     /// The end of `update` for the sprite world: colours, enter effects, ground and background.
     pub fn render_step(&mut self, delta_ms: f64) {
+        self.step_coin_tweens(delta_ms);
         if self.fx.sprites.is_empty() && self.fx.ground.is_none() { return; }
         self.fx.player_x = self.e.player_world_x;
         self.apply_color_channels();
         self.apply_enter_effects(self.camera_x);
+        self.beast_update(delta_ms);
         let ops: Vec<(bool, f64, Option<f64>, Option<f64>)> = self.log.iter().filter_map(|l| parse_fly(l)).collect();
         let (cam_x, cam_y, sx, sy) = (self.camera_x, self.camera_y, self.trig.shake_off.0, self.trig.shake_off.1);
         let has2 = self.fx.has_ground2;
@@ -794,8 +801,9 @@ impl Game {
             }
             g.step_animation(delta_ms / 1000.0);
         }
-        self.fx.bg.update(cam_x, cam_y, 0.0);
-        if let Some(g) = self.fx.ground.as_mut() { self.fx.ground_frame = g.update(cam_x, cam_y, sx, sy, has2); }
+        let mp = self.mirror_progress();
+        let shift = self.fx.bg.update(cam_x, cam_y, mp);
+        if let Some(g) = self.fx.ground.as_mut() { if shift != 0.0 { g.shift(shift); } self.fx.ground_frame = g.update(cam_x, cam_y, sx, sy, has2); }
     }
 
     pub fn render_restart(&mut self) {
@@ -808,7 +816,8 @@ impl Game {
     fn sprite_depth(&self, si: usize) -> f64 {
         let s = &self.fx.sprites[si];
         let z = s.num("_eeZDepth").unwrap_or(0.0);
-        if !s.flag("_eeChannelAdditive") { return z; }
+        // beast parts have their depth set straight from `_eeZDepth` every frame
+        if !s.flag("_eeChannelAdditive") || s.num("_beastPartOf").is_some() { return z; }
         match s.num("_eeLayerBase") { Some(base) => base - 0.5 + (z - base) * 0.24, None => z }
     }
 
@@ -821,6 +830,7 @@ impl Game {
             if !s.visible || s.alpha <= 0.0 || s.flag("_isEmitter") { continue; }
             let layer = s.num("_eeLayer").unwrap_or(1.0);
             let top = layer == 2.0;
+            if !self.mirror_view(si).4 { continue; }
             if !top {
                 let sec = match s.num("_eeSectionIndex") { Some(v) => v as i64, None => continue };
                 if self.fx.editor_mode { order.push((0, self.sprite_depth(si), s.num("_eeSpawnOrder").unwrap_or(0.0), si)); continue; }
@@ -846,12 +856,14 @@ impl Game {
         buf[30] = self.e.player_world_x / if self.end_x_pos > 0.0 { self.end_x_pos } else { 1.0 };
         buf[31] = self.trig.shake_off.0; buf[32] = self.trig.shake_off.1;
         if self.fx.editor_mode { buf[33] = self.fx.ed_cam.2; buf[34] = self.fx.ed_cam.0; buf[35] = self.fx.ed_cam.1; }
+        buf[36] = self.mirror_progress(); buf[37] = self.p.mirrored as u8 as f64;
         buf.extend_from_slice(&gf.tile_x);
         for (top, _, _, si) in order {
             let s = &self.fx.sprites[si];
+            let (mx, msx, mrot, malpha, _) = self.mirror_view(si);
             let edt = if self.fx.editor_mode { self.fx.ed_tint.get(si).copied().unwrap_or(-1.0) } else { -1.0 };
             buf.extend_from_slice(&[
-                self.fx.sprite_frame[si] as f64, s.x, s.y, s.rotation, s.scale_x, s.scale_y, s.alpha,
+                self.fx.sprite_frame[si] as f64, mx, s.y, mrot, msx, s.scale_y, malpha,
                 if edt >= 0.0 { edt } else { s.tint.unwrap_or(-1.0) }, s.blend as f64, (s.flip_x as u8 | ((s.flip_y as u8) << 1)) as f64, top as f64, 0.0,
             ]);
         }
@@ -1007,5 +1019,17 @@ impl Game {
     pub fn editor_set_selection(&mut self, sel: &[usize], tint: f64) {
         self.fx.ed_tint = vec![-1.0; self.fx.sprites.len()];
         for &o in sel { if let Some(&(a, b)) = self.fx.obj_ranges.get(o) { for si in a..b { if let Some(t) = self.fx.ed_tint.get_mut(si as usize) { *t = tint; } } } }
+    }
+}
+
+impl Game {
+    /// The texture frames of both looks of every coin sprite (`names[si] = (uncollected, collected)`), resolved by the host side.
+    pub fn attach_coin_frames(&mut self, names: Vec<(usize, Vec<Option<(String, String)>>, Vec<Option<(String, String)>>)>) {
+        for (si, a, b) in names {
+            for (collected, list) in [(false, a), (true, b)] {
+                let ids: Vec<Option<u32>> = list.into_iter().map(|n| n.map(|key| match self.fx.frames.iter().position(|f| *f == key) { Some(p) => p as u32, None => { self.fx.frames.push(key); (self.fx.frames.len() - 1) as u32 } })).collect();
+                self.fx.coin_frames.insert((si, collected), ids);
+            }
+        }
     }
 }

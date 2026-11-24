@@ -38,6 +38,7 @@ export async function makeRecorder() {
   class Rec {
     constructor(kind, args) { this.kind = kind; this.args = args; this.x = args[0] ?? 0; this.y = args[1] ?? 0; this.rotation = 0; this.scaleX = 1; this.scaleY = 1; this.alpha = 1; this.visible = true; this.active = true; this.depth = 0; this.flipX = false; this.flipY = false; this.tintv = null; this.blend = 0; this.originX = 0.5; this.originY = 0.5; this.data = {}; this.list = []; this.parentContainer = null; this.scene = Rec.sceneRef; if (kind === "image") { this.atlas = args[2]; this.frameName = args[3]; } created.push(this); }
     get _raw() { return this; }
+    get frame() { return { name: this.frameName }; }
     setOrigin(x, y = x) { this.originX = x; this.originY = y; return this; }
     setScale(x, y = x) { this.scaleX = x; this.scaleY = y; return this; }
     setScaleX(v) { this.scaleX = v; return this; } setScaleY(v) { this.scaleY = v; return this; }

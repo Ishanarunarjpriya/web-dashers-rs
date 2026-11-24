@@ -79,7 +79,7 @@ pub struct AtlasFrame { pub width: f64, pub height: f64, pub real_w: f64, pub re
 
 /// The sprite lists the per-frame animation code walks (level.js `_animatedSprites`, `_sawSprites`, `_orbSprites`, `_audioScaleSprites`, `_audioPulseSprites`).
 #[derive(Default, Clone, Debug)]
-pub struct SpriteLists { pub animated: Vec<usize>, pub saws: Vec<usize>, pub orbs: Vec<usize>, pub audio_scale: Vec<usize>, pub audio_pulse: Vec<usize> }
+pub struct SpriteLists { pub animated: Vec<usize>, pub saws: Vec<usize>, pub orbs: Vec<usize>, pub audio_scale: Vec<usize>, pub audio_pulse: Vec<usize>, pub coins: Vec<usize> }
 
 #[derive(Default)]
 pub struct Atlases { pub sheets: HashMap<String, HashMap<String, AtlasFrame>> }
@@ -145,6 +145,10 @@ pub struct Builder<'a> {
     pub spawn_order: f64,
     pub secret_slots: i64,
     pub user_slots: i64,
+    /// saved coin progress (linked object ids), for the collected look of coins
+    pub secret_done: Vec<i64>,
+    pub user_done: Vec<i64>,
+    pub beasts: Vec<crate::beast::Beast>,
     glow_keys: HashSet<String>,
     pub next_object_id: i64,
     pub legacy_color_level: bool,
@@ -174,7 +178,7 @@ fn re_persp_outline(f: &str) -> bool { f.starts_with("persp_outline_") }
 
 impl<'a> Builder<'a> {
     pub fn new(atlases: &'a Atlases, rng: &'a mut dyn FnMut() -> f64) -> Builder<'a> {
-        Builder { atlases, sprites: Vec::new(), spawn_order: 0.0, secret_slots: 0, user_slots: 0, glow_keys: HashSet::new(), next_object_id: 0, legacy_color_level: false, is_editor: false, ldm: false, group_sprites: BTreeMap::new(), emitters: Vec::new(), pad_emitters: false, lists: SpriteLists::default(), prev_pad_emitter: None, color_channel_sprites: BTreeMap::new(), channel_blending: [(1007i64, true)].into_iter().collect(), persp_cache: HashMap::new(), rng }
+        Builder { atlases, sprites: Vec::new(), spawn_order: 0.0, secret_slots: 0, user_slots: 0, secret_done: Vec::new(), user_done: Vec::new(), beasts: Vec::new(), glow_keys: HashSet::new(), next_object_id: 0, legacy_color_level: false, is_editor: false, ldm: false, group_sprites: BTreeMap::new(), emitters: Vec::new(), pad_emitters: false, lists: SpriteLists::default(), prev_pad_emitter: None, color_channel_sprites: BTreeMap::new(), channel_blending: [(1007i64, true)].into_iter().collect(), persp_cache: HashMap::new(), rng }
     }
 
     /// The particle emitter of the pads that have one (`_spawnObject`'s pad branch): it only matters to the sprite world as a
@@ -576,14 +580,19 @@ impl<'a> Builder<'a> {
             s.set_num("_coinWorldX", world_x);
             s.set_num("_coinWorldY", world_y);
             s.set_num("_coinBaseScale", if sx == 0.0 { 1.0 } else { sx });
+            self.lists.coins.push(si);
             const SECRET: [&str; 4] = ["secretCoin_01_001.png", "secretCoin_01_002.png", "secretCoin_01_003.png", "secretCoin_01_004.png"];
             const USER: [&str; 4] = ["secretCoin_2_01_001.png", "secretCoin_2_01_002.png", "secretCoin_2_01_003.png", "secretCoin_2_01_004.png"];
             let anim = if id == 142 { s.set_num("_secretCoinId", linked as f64); s.set_num("_secretCoinSlot", secret_slot.unwrap_or(0) as f64); Some((SECRET, "_secretCoinCompleted")) }
                        else if id == 1329 { s.set_num("_userCoinId", linked as f64); s.set_num("_userCoinSlot", user_slot.unwrap_or(0) as f64); Some((USER, "_userCoinCompleted")) } else { None };
             if let Some((frames, flag)) = anim {
+                let collected = if id == 142 { self.secret_done.contains(&linked) } else { self.user_done.contains(&linked) };
+                const SECRET_B: [&str; 4] = ["secretCoin_b_01_001.png", "secretCoin_b_01_002.png", "secretCoin_b_01_003.png", "secretCoin_b_01_004.png"];
+                const USER_B: [&str; 4] = ["secretCoin_2_b_01_001.png", "secretCoin_2_b_01_002.png", "secretCoin_2_b_01_003.png", "secretCoin_2_b_01_004.png"];
+                let frames: [&str; 4] = if collected { if id == 142 { SECRET_B } else { USER_B } } else { frames };
                 s.props.insert("_animFrames", Val::List(frames.iter().map(|f| f.to_string()).collect()));
                 s.set_num("_animIdx", 0.0);
-                s.set_flag(flag, false);
+                s.set_flag(flag, collected);
                 let first = frames[0];
                 if let Some((atlas, _)) = self.atlases.find(first) { let a = atlas.to_string(); let s = &mut self.sprites[si]; s.atlas = a; s.frame = first.to_string(); }
             }
@@ -688,6 +697,7 @@ impl<'a> Builder<'a> {
         // children are added by `spawn_children` (below)
         let coin_animation = ty == "coin";
         self.spawn_children(o, def, id, &frame_name, main, world_x, base_y, sprite_world_x, obj_z_depth, col1, col2, is_saw_id, is_fast_saw_id, &reg, &is_detail_child, level_scale);
+        if crate::beast::IDS.contains(&id) { self.spawn_beast(o, def, &reg, start, world_x, base_y, obj_z_depth, col1, col2); }
         if id == 747 { self.spawn_teleport_exit(o, def, &reg, obj_z_depth, col1); }
         // portal particles are added to a section too (they take a spawn-order number)
         if def.get_bool("portalParticle") == Some(true) && !self.ldm && !self.is_editor { self.spawn_order += 1.0; }
@@ -1104,4 +1114,229 @@ pub fn visible_sections(camera_x: f64, last_section: i64, screen_width: f64, cul
         (0f64.max(((camera_x - margin) / 400.0).floor()), (last_section as f64).min(((camera_x + screen_width + margin) / 400.0).floor()))
     };
     if lo > hi { None } else { Some((lo as i64, hi as i64)) }
+}
+
+// ---- text objects (level.js `_spawnTextObject`, object 914) ----
+impl<'a> Builder<'a> {
+    /// The frame-table entry a text sprite draws: atlas `@text`, frame `size|text`.
+    pub fn text_frame(size: f64, text: &str) -> (String, String) { ("@text".to_string(), format!("{}|{}", num(size), text)) }
+
+    /// Spawns the bitmap text sprite of a text object. `linked` is the object's linked id (already counted).
+    pub fn spawn_text(&mut self, o: &LevelObject, def: &Json, linked: i64) -> usize {
+        let world_x = o.x * 2.0;
+        let world_y = T - o.y * 2.0;
+        // (`levelObj.text` is always a string once parsed, so the definition's default text never shows)
+        let text = o.text.clone();
+        let base_size = def.get_num("textSize").filter(|v| v.is_finite()).unwrap_or(36.0);
+        let size = 1f64.max(m_round(base_size));
+        let (atlas, frame) = Self::text_frame(size, &text);
+        let mut s = Sprite::new(&atlas, &frame, world_x, world_y);
+        let (tsx, tsy) = gd_object_scale(o);
+        let warp = gd_object_warp(o);
+        let (sx, sy) = (tsx * if o.flip_x { -1.0 } else { 1.0 }, tsy * if o.flip_y { -1.0 } else { 1.0 });
+        let rot = or0(o.rot);
+        // applyGDObjectTransform
+        if warp == 0.0 || warp.is_nan() {
+            if rot != 0.0 { s.set_angle(rot); }
+            if sx != 1.0 || sy != 1.0 { s.scale_x = sx; s.scale_y = sy; }
+            s.set_num("_eeBaseScaleX", sx);
+            s.set_num("_eeBaseScaleY", sy);
+        } else {
+            s.set_num("_eeBaseScaleX", 1.0);
+            s.set_num("_eeBaseScaleY", 1.0);
+            let (rx, ry) = warp_axes(rot, warp);
+            s.props.insert("_gdWarp", Val::Arr(vec![rx, ry, sx, sy]));
+        }
+        let (bx, by) = (s.num("_eeBaseScaleX").unwrap_or(1.0), s.num("_eeBaseScaleY").unwrap_or(1.0));
+        s.set_num("_eeObjScaleX", bx);
+        s.set_num("_eeObjScaleY", by);
+        let depth_base = |z: i64| -> f64 { match z { -5 => -12.0, -3 => -9.0, -1 => -6.0, 0 => 0.0, 1 => 3.0, 3 => 6.0, 5 => 9.0, 7 => 10.5, 9 => 12.0, 11 => 13.5, _ => 0.0 } };
+        let z_layer = o.z_layer.unwrap_or_else(|| def.get_num("default_z_layer").map_or(3, |v| v as i64));
+        let z_order = o.z_order.unwrap_or_else(|| def.get_num("default_z_order").map_or(0, |v| v as i64));
+        let z_depth = depth_base(z_layer) + z_order as f64 * 0.001;
+        s.set_num("_eeLayer", 1.0);
+        s.set_num("_eeWorldX", world_x);
+        s.set_num("_eeBaseY", world_y);
+        s.set_num("_eeOrigWorldX", world_x);
+        s.set_num("_eeOrigBaseY", world_y);
+        s.set_num("_eeZDepth", z_depth);
+        s.set_num("_eeOrigAlpha", 1.0);
+        s.set_flag("_eeTextObject", true);
+        s.set_num("_eeObjectId", linked as f64);
+        s.set_num("_eeEditorLayer", o.editor_layer.unwrap_or_else(|| crate::js::parse_int(o.raw.get("20").map(|v| v.as_str()).unwrap_or("0")).unwrap_or(0)) as f64);
+        s.set_num("_eeEditorLayer2", o.editor_layer2.unwrap_or_else(|| crate::js::parse_int(o.raw.get("61").map(|v| v.as_str()).unwrap_or("0")).unwrap_or(0)) as f64);
+        let si = self.sprites.len();
+        let channel = match o.color1 { Some(c) if c != 0 => c, _ => def.get_num("default_base_color_channel").map_or(0, |v| v as i64) };
+        if channel > 0 && def.get_bool("can_color") != Some(false) {
+            s.set_num("_eeColorChannel", channel as f64);
+            self.color_channel_sprites.entry(channel).or_default().push(si);
+        }
+        let gids = crate::triggers::object_groups(&o.groups);
+        if !gids.is_empty() {
+            s.props.insert("_eeGroups", Val::Arr(gids.iter().map(|g| *g as f64).collect()));
+            s.set_num("_origWorldX", world_x); s.set_num("_origBaseY", world_y);
+            s.set_num("_eeMoveBaseWorldX", world_x); s.set_num("_eeMoveBaseBaseY", world_y);
+            s.set_num("_eeInitialWorldX", world_x); s.set_num("_eeInitialBaseY", world_y);
+            let r = s.rotation;
+            s.set_num("_eeInitialRotationRad", r);
+            for g in &gids { self.group_sprites.entry(*g).or_default().push(si); }
+        }
+        self.sprites.push(s);
+        self.add_to_section(si);
+        si
+    }
+}
+fn m_round(v: f64) -> f64 { (v + 0.5).floor() }
+
+// ---- BeastAnim objects (animations.js `beastAnimSpawn`) ----
+impl<'a> Builder<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_beast(&mut self, o: &LevelObject, def: &Json, reg: &Reg, start: usize, world_x: f64, base_y: f64, z: f64, col1: f64, col2: f64) {
+        use crate::beast::{eye_for, secondary_tags, BState, Beast};
+        let id = o.id.unwrap_or(0);
+        let Some(state) = BState::create_with(id, &mut *self.rng) else { return };
+        let obj_scale = { let s = or0(o.scale); if s == 0.0 { 1.0 } else { s } };
+        let obj_rot = or0(o.rot) * PI / 180.0;
+        let (rot_cos, rot_sin) = (m::cos(obj_rot), m::sin(obj_rot));
+        let detail_tags = secondary_tags(id);
+        // groupMap / detailTextures, in file order
+        let mut group_map: Vec<String> = Vec::new();
+        let mut detail_tex: Vec<String> = Vec::new();
+        for (_, parts) in &state.desc.container {
+            for p in parts {
+                let Some(tex) = p.texture.as_ref().filter(|t| t.ends_with(".png")) else { continue };
+                if !group_map.contains(tex) { group_map.push(tex.clone()); }
+                if let Some(tags) = detail_tags { if tags.contains(&p.tag) && !detail_tex.contains(tex) { detail_tex.push(tex.clone()); } }
+            }
+        }
+        let eye_def = eye_for(id);
+        let mut children_by_frame: Vec<(String, &Json)> = Vec::new();
+        for c in child_vec(def) {
+            if let Some(f) = c.get_str("frame").filter(|f| !f.is_empty()) {
+                match children_by_frame.iter_mut().find(|e| e.0 == f) { Some(e) => e.1 = c, None => children_by_frame.push((f.to_string(), c)) }
+            }
+        }
+        let mut slot_tex: Vec<(String, Vec<String>)> = Vec::new();
+        let mut slot_child: Vec<(String, &Json)> = Vec::new();
+        for (_, parts) in &state.desc.container {
+            for p in parts {
+                let Some(tex) = p.texture.as_ref().filter(|t| t.ends_with(".png")) else { continue };
+                match slot_tex.iter_mut().find(|e| e.0 == p.key) { Some(e) => { if !e.1.contains(tex) { e.1.push(tex.clone()); } } None => slot_tex.push((p.key.clone(), vec![tex.clone()])) }
+                if let Some(c) = children_by_frame.iter().find(|e| e.0 == *tex) { if !slot_child.iter().any(|e| e.0 == p.key) { slot_child.push((p.key.clone(), c.1)); } }
+            }
+        }
+        let mut detail_part_def: Vec<(String, &Json)> = Vec::new();
+        for (pk, c) in &slot_child {
+            if let Some((_, texs)) = slot_tex.iter().find(|e| e.0 == *pk) {
+                for t in texs { if !detail_part_def.iter().any(|e| e.0 == *t) { detail_part_def.push((t.clone(), *c)); } }
+            }
+        }
+        let detail_channel = if col2 > 0.0 { col2 } else { 1011.0 };
+        let end = self.sprites.len();
+        let mut eye: Option<usize> = None;
+        let mut hidden: Vec<usize> = Vec::new();
+        for si in start..end {
+            if self.sprites[si].num("_beastPartOf").is_some() { continue; }
+            let frame = self.sprites[si].frame.clone();
+            if frame.is_empty() { continue; }
+            if let Some((ef, _)) = eye_def { if frame == ef {
+                eye = Some(si);
+                let s = &mut self.sprites[si];
+                s.set_flag("_beastManaged", true);
+                s.set_num("_eeZDepth", z + 0.009);
+                continue;
+            } }
+            let base_frame = frame.replace("_glow_001.png", "_001.png");
+            if !group_map.contains(&frame) && !group_map.contains(&base_frame) { continue; }
+            let s = &mut self.sprites[si];
+            s.visible = false; s.active = false;
+            s.set_flag("_beastStaticHidden", true);
+            hidden.push(si);
+        }
+        let beast_glow = Self::has_glow(Some(def), Some(o));
+        let mut parts: Vec<(String, usize)> = Vec::new();
+        let mut glows: BTreeMap<String, usize> = BTreeMap::new();
+        for tex in &group_map {
+            let Some(si) = self.add_image(world_x, base_y, tex) else { continue };
+            {
+                let s = &mut self.sprites[si];
+                s.set_num("_eeLayer", 1.0);
+                s.set_num("_eeWorldX", world_x);
+                s.set_num("_eeBaseY", base_y);
+                s.set_num("_eeZDepth", z + 0.005);
+                s.set_num("_eeOrigAlpha", 1.0);
+                s.set_num("_beastPartOf", id as f64);
+                s.set_flag("_beastManaged", true);
+            }
+            let child_def: Option<&Json> = detail_part_def.iter().find(|e| e.0 == *tex).map(|e| e.1);
+            // colorDef = { ...childDef, can_color: childDef.can_color ?? objectDef.can_color } or the object definition
+            let cd: &Json = child_def.unwrap_or(def);
+            let cd_can = if child_def.is_some() { cd.get_bool("can_color").or(def.get_bool("can_color")) } else { def.get_bool("can_color") };
+            let detail_part = detail_tex.contains(tex);
+            let tint = cd.get_num("tint");
+            if !detail_part { if let Some(t) = tint { self.sprites[si].tint = Some(t); } }
+            let black_default = !detail_part && (cd.get_bool("black") == Some(true) || tint == Some(0.0) || def.get_bool("black") == Some(true));
+            if black_default {
+                let s = &mut self.sprites[si];
+                s.tint = Some(0.0);
+                s.set_flag("_isBlack", true);
+                let can = cd_can == Some(true);
+                s.set_flag("_canColor", can);
+                s.set_flag("_blackDefault", can && !(o.color1.map_or(false, |c| c > 0)));
+            }
+            self.add_to_section(si);
+            let ch = if detail_part { detail_channel } else { col1 };
+            self.reg_color(reg, si, ch, false, col1);
+            self.reg_groups(reg, si, world_x, base_y);
+            { let mut sp = std::mem::replace(&mut self.sprites[si], Sprite::new("", "", 0.0, 0.0)); reg.object(&mut sp); self.sprites[si] = sp; }
+            parts.push((tex.clone(), si));
+            if beast_glow && tex.ends_with("_001.png") {
+                let glow_frame = tex.replace("_001.png", "_glow_001.png");
+                if glow_frame != *tex {
+                    let mut key = format!("{}:{}:{}:{}", num(world_x), num(base_y), glow_frame, 0);
+                    if self.glow_keys.contains(&key) {
+                        let mut suffix = 1;
+                        while self.glow_keys.contains(&format!("{}|{}", key, suffix)) { suffix += 1; }
+                        key = format!("{}|{}", key, suffix);
+                    }
+                    if let Some(gi) = self.add_image(world_x, base_y, &glow_frame) {
+                        self.glow_keys.insert(key);
+                        self.apply_visual_props(gi, &glow_frame, o, 0.0, None);
+                        // colorData: the part's definition, none for a detail part
+                        if !detail_part {
+                            let g_tint = cd.get_num("tint");
+                            let g_black = cd.get_bool("black") == Some(true) || g_tint == Some(0.0);
+                            if let Some(t) = g_tint { self.sprites[gi].tint = Some(t); }
+                            if g_black {
+                                let s = &mut self.sprites[gi];
+                                s.tint = Some(0.0);
+                                s.set_flag("_isBlack", true);
+                                let can = cd_can == Some(true);
+                                s.set_flag("_canColor", can);
+                                s.set_flag("_blackDefault", can && !(o.color1.map_or(false, |c| c > 0)));
+                            }
+                        }
+                        let ldm = self.ldm;
+                        { let s = &mut self.sprites[gi]; s.blend = ADD; s.set_alpha(0.425); s.set_num("_eeLayer", 0.0); s.set_flag("_eeIsGlowSprite", true); s.visible = !ldm; s.set_num("_eeWorldX", world_x); s.set_num("_eeBaseY", base_y); }
+                        let a = self.sprites[gi].alpha;
+                        self.sprites[gi].set_num("_eeOrigAlpha", a);
+                        self.add_to_section(gi);
+                        self.sync_glow_color(gi, si);
+                        let a = self.sprites[gi].alpha;
+                        { let s = &mut self.sprites[gi]; s.set_num("_eeOrigAlpha", a); s.set_num("_eeZDepth", z + 0.002); s.set_num("_beastPartOf", id as f64); s.set_flag("_beastManaged", true); }
+                        self.reg_color(reg, gi, ch, false, col1);
+                        self.reg_groups(reg, gi, world_x, base_y);
+                        glows.insert(tex.clone(), gi);
+                    }
+                }
+            }
+        }
+        if parts.is_empty() { return; }
+        let mut state = state;
+        let rec = Beast { state: BState { ..state.clone() }, parts, glows, hidden, eye, eye_parent: eye_def.map(|e| e.1.to_string()), world_x, base_y, scale: obj_scale, flip_x: o.flip_x, flip_y: o.flip_y, rot_cos, rot_sin, last_frame_key: None, base_rot: None };
+        let mut rec = rec;
+        rec.state.default_base_with(&mut *self.rng);
+        let _ = &mut state;
+        self.beasts.push(rec);
+    }
 }

@@ -66,6 +66,9 @@ pub struct Game {
     pub disabled: Vec<bool>,
     pub trig: crate::triggers::Triggers,
     pub fx: crate::fx::Fx,
+    pub mirror: crate::mirror::Mirror,
+    pub coins: crate::coins::CoinState,
+    pub beasts: crate::beast::Beasts,
     pub delta_buffer: f64,
     pub space_was_down: bool,
     pub physics_frame: f64,
@@ -140,6 +143,7 @@ impl Game {
             c.dash_hold_main = 0.0;
             c.dash_hold_dual = 0.0;
         }
+        self.reset_coins();
     }
 
     /// `_applyLevelStartOptions`
@@ -147,6 +151,7 @@ impl Game {
         self.p.is_mini = self.start.mini;
         self.p.gravity_flipped = self.start.gravity_flipped;
         self.p.mirrored = self.start.mirrored;
+        self.mirror_cancel();
         if self.start.dual { self.set_dual(true); }
     }
 
@@ -220,6 +225,7 @@ impl Game {
             self.p.is_mini = pos.mini.map_or(false, |v| v != 0);
             self.g.player_speed = pos.speed.and_then(|s| if s >= 0 { speeds.get(s as usize).copied() } else { None }).unwrap_or(f64::NAN);
             self.p.mirrored = pos.mirrored.map_or(false, |v| v != 0);
+            self.mirror_cancel();
             if pos.dual.map_or(false, |v| v != 0) { self.set_dual(true); }
             self.fast_forward_triggers(pos.x);
             self.p.last_collision_world_x = if self.e.player_world_x.is_finite() { Some(self.e.player_world_x) } else { None };
@@ -293,7 +299,7 @@ impl Game {
             toggled: Default::default(), sec: crate::triggers::section_index(c.x),
         }).collect();
         let disabled = vec![false; cols.len()];
-        Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
+        Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
     }
 
     /// Everything the level provides to the simulation: colliders (with their groups) and triggers.
@@ -312,7 +318,22 @@ impl Game {
                 }
             }
         }
+        // which colliders are coins, and the linked object id the saved progress refers to (the object's index in the loaded list)
+        let mut coin_link: std::collections::BTreeMap<usize, (bool, i64)> = Default::default();
+        {
+            let mut idx = 0usize;
+            for (k, o) in objects.iter().enumerate() {
+                if let Some(list) = crate::collider::spawn_colliders(o) {
+                    for c in list.iter().filter(|c| !c.placeholder) {
+                        if c.coin_id == Some(142) { coin_link.insert(idx, (false, k as i64)); }
+                        if c.coin_id == Some(1329) { coin_link.insert(idx, (true, k as i64)); }
+                        idx += 1;
+                    }
+                }
+            }
+        }
         let mut g = Game::new(cols);
+        g.coins.link = coin_link;
         for (i, gr) in groups.into_iter().enumerate() {
             for &gid in &gr { g.trig.group_cols.entry(gid).or_default().push(i); }
             g.trig.meta[i].groups = gr;
@@ -375,15 +396,19 @@ impl Game {
     pub(crate) fn sim_for_pub<R>(&mut self, second: bool, f: impl FnOnce(&mut Sim) -> R) -> R { self.sim_for(second, f) }
     fn sim_for<R>(&mut self, second: bool, f: impl FnOnce(&mut Sim) -> R) -> R {
         self.e.second_player = second;
+        if self.coins.enabled { self.e.practice_mode = self.practice_mode; }
+        let from = self.log.len();
         let r = {
             let (p, other) = if second { (&mut self.p2, &mut self.p) } else { (&mut self.p, &mut self.p2) };
             let mut sim = Sim::new(p, &mut self.g, &mut self.e);
             sim.other = Some(other);
+            if self.coins.enabled { sim.coins = Some(&mut self.coins); }
             let r = f(&mut sim);
             self.log.extend(sim.log);
             self.vlog.extend(sim.vlog);
             r
         };
+        self.consume_mirror_log(from);
         self.e.second_player = false;
         r
     }
@@ -773,6 +798,7 @@ impl Game {
         let quantized_before = self.delta_buffer;
         let _ = quantized_before;
         let q = self.step_frame_with_delta(delta_ms, jump_held);
+        self.coin_pickups();
         if !self.end_camera_override {
             let offset = self.e.player_world_x - self.g.center_x;
             if self.end_x_pos > 0.0 {
@@ -798,6 +824,7 @@ impl Game {
         let dual_alive = self.e.is_dual && !self.p2.is_dead;
         let input = crate::triggers::Input { p1_hold: self.p.up_key_down, p1_press: self.p.up_key_pressed, p2_hold: dual_alive && self.p2.up_key_down, p2_press: dual_alive && self.p2.up_key_pressed };
         self.trigger_frame(pos, if dual_alive { Some(self.p2.y) } else { None }, delta_ms / 1000.0, input);
+        if self.mirror.enabled { self.step_mirror(delta_ms / 1000.0); }
         false
     }
 }
@@ -853,7 +880,7 @@ impl Game {
             let p = &mut self.p;
             p.y = cp.y; p.y_velocity = cp.y_velocity; p.gravity_flipped = cp.gravity_flipped; p.is_mini = cp.is_mini;
             p.is_swing = cp.is_swing; p.is_flying = cp.is_flying; p.is_jumping = cp.is_jumping; p.on_ground = cp.on_ground; p.can_jump = cp.can_jump;
-            p.was_boosted = cp.was_boosted; p.mirrored = cp.mirrored; p.is_dashing = cp.is_dashing; p.dash_y_velocity = cp.dash_y_velocity;
+            p.was_boosted = cp.was_boosted; p.mirrored = cp.mirrored; self.mirror.animating = false; p.is_dashing = cp.is_dashing; p.dash_y_velocity = cp.dash_y_velocity;
             p.ball_should_rotate = cp.ball_should_rotate; p.ball_rotate_opposite = cp.ball_rotate_opposite;
             p.ball_normal_rotate = if cp.ball_normal_rotate == 0.0 || cp.ball_normal_rotate.is_nan() { 1.0 } else { cp.ball_normal_rotate };
             p.ball_hit_pad = cp.ball_hit_pad; p.robot_hold = cp.robot_hold; p.robot_hold_timer = cp.robot_hold_timer;

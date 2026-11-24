@@ -409,6 +409,7 @@ impl Game {
         (x, y)
     }
 
+    pub fn group_offset_sum_pub(&self, groups: &[i64]) -> (f64, f64) { self.group_offset_sum(groups) }
     /// `_getGroupCenter`
     pub fn group_center_pub(&self, gid: i64) -> (f64, f64) { self.group_center(gid) }
     /// `_getGroupCenter` with the per-`_applyGroupTransforms` cache
@@ -1002,6 +1003,7 @@ impl Game {
         if !self.trig.group_anchors.contains_key(&g) { return; }
         let id = t.animate_id;
         self.trig.anim_events.push((g, id));
+        self.beast_command(g, id);
     }
 
     pub fn check_animation(&mut self, px: f64) {
@@ -1027,7 +1029,7 @@ impl Game {
         }
     }
 
-    pub fn reset_animation(&mut self) { self.trig.anim_idx = 0; self.trig.touch_anim.clear(); }
+    pub fn reset_animation(&mut self) { self.trig.anim_idx = 0; self.trig.touch_anim.clear(); self.beasts_default(); }
 
     pub fn check_enter_effect(&mut self, px: f64) {
         while self.trig.enter_idx < self.trig.l.enter_effects.len() {

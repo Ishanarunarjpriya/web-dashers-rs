@@ -15,6 +15,7 @@ const REAL = !!process.env.REAL;
 const REC = REAL ? await makeRecorder() : null;
 const H = REAL ? REC.H : await load();
 const { ctx, w, ptr, layout, colLayout, colRow } = H;
+const putStr = (str) => { const b = new TextEncoder().encode(str); const p = w.wd_alloc(Math.max(1, b.length)); new Uint8Array(w.memory.buffer, p, b.length).set(b); return [p, b.length]; };
 let seed = Number(process.argv[2] || 1);
 const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
 // spawn triggers with a random delay draw random numbers: both sides get identical, separate streams
@@ -53,8 +54,32 @@ if (REAL) {
   const a2 = gsrc.indexOf("\n", a1);
   animBlock = vm.runInContext(`(function (deltaTime) {\n${gsrc.slice(a0, a2)}\n})`, ctx);
 }
+const COINS = !!process.env.COINS;
+const lsStore = new Map();
+if (COINS) ctx.localStorage = { getItem: (k) => (lsStore.has(k) ? lsStore.get(k) : null), setItem: (k, v) => lsStore.set(k, String(v)) };
+const MIRROR = !!process.env.MIRROR;
+let MirrorCls = null;
+if (REAL && MIRROR) {
+  const m0 = gsrc.indexOf("  _mirrorProgress() {"), m1 = gsrc.indexOf("_labelTextCurrent(label, key) {");
+  MirrorCls = vm.runInContext(`(class M {\n${gsrc.slice(m0, m1)}\n})`, ctx);
+}
 const animLog = [];
+let coinSeed = null;
+const crnd = stream(31337);
 ctx.window.BeastAnim = { IDS: [], commandMany: (states, id) => { animLog.push(id); }, defaultBase() {}, command() {} };
+// BEAST=1: the real BeastAnim (animations.js) and descriptions on both sides
+const BEAST = REAL && !!process.env.BEAST;
+if (BEAST) {
+  for (let k = 1; k <= 5; k++) {
+    const name = `GJBeast0${k}`, src = fs.readFileSync(root + `ref/assets/sheets/${name}_AnimDesc.json`, "utf8");
+    ctx[`${name}_AnimDesc`] = JSON.parse(src);
+    const [np, nl] = putStr(name), [jp, jl] = putStr(src);
+    if (!w.wd_beast_desc_add(np, nl, jp, jl)) throw new Error("desc " + name);
+  }
+  vm.runInContext(fs.readFileSync(root + "ref/assets/scripts/core/animations.js", "utf8"), ctx);
+  const real = ctx.window.BeastAnim, cm = real.commandMany;
+  real.commandMany = (states, id) => { animLog.push(id); cm(states, id); };
+}
 const files = fs.readdirSync(root + "ref/assets/levels").filter((f) => f.endsWith(".txt")).sort();
 const same = (a, b) => Object.is(a, b) || a === b || (Number.isNaN(a) && Number.isNaN(b));
 const canon = (v) => JSON.stringify(v, (k, x) => (typeof x === "number" && Object.is(x, -0) ? 0 : x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
@@ -108,6 +133,37 @@ function fuzzLevel() {
     const x = Math.floor(rnd() * 3000) * 0.5, y = Math.floor(rnd() * 40) * 0.5;
     const base = ["1", "ID", "2", x, "3", y];
     const kind = rnd();
+    if (process.env.BEAST && rnd() < 0.1) { // a beast with random look
+      const o = ["1", pick([918, 1327, 1328, 1584, 2012]), "2", x, "3", y];
+      const gs = Array.from({ length: Math.floor(rnd() * 3) }, grp);
+      if (gs.length) o.push("57", gs.join("."));
+      if (rnd() < 0.4) o.push("32", num(0.4, 2.5));
+      if (rnd() < 0.3) o.push("6", num(-180, 180));
+      if (rnd() < 0.3) o.push("4", 1);
+      if (rnd() < 0.3) o.push("5", 1);
+      if (rnd() < 0.3) o.push("21", pick([1, 2, 3, 4, 1004, 1009, 12]));
+      if (rnd() < 0.3) o.push("22", pick([1, 2, 3, 4, 1004, 1009, 12]));
+      if (rnd() < 0.2) o.push("96", 1);
+      parts.push(o.join(","));
+      continue;
+    }
+    if (process.env.TEXT && rnd() < 0.12) { // a text object (914) with random look and groups
+      const b64 = (t) => Buffer.from(t, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const word = pick(["Hello", "GO!", "Jump here", "x", "Dash 123", "a b c", "WOW"]);
+      const o = ["1", 914, "2", x, "3", y, "31", b64(word)];
+      const gs = Array.from({ length: Math.floor(rnd() * 3) }, grp);
+      if (gs.length) o.push("57", gs.join("."));
+      if (rnd() < 0.5) o.push("21", pick([1, 2, 3, 4, 1004, 1009, 12]));
+      if (rnd() < 0.4) o.push("32", num(0.4, 2.5));
+      if (rnd() < 0.3) o.push("6", num(-180, 180));
+      if (rnd() < 0.2) o.push("4", 1);
+      if (rnd() < 0.2) o.push("5", 1);
+      if (rnd() < 0.3) o.push("24", pick([-5, -3, -1, 1, 3, 5, 7, 9]));
+      if (rnd() < 0.3) o.push("25", Math.floor(rnd() * 10) - 5);
+      if (rnd() < 0.1) { o.push("131", num(-40, 40)); o.push("132", num(-40, 40)); }
+      parts.push(o.join(","));
+      continue;
+    }
     if (kind < 0.45) {
       const id = pick([1, 1, 1, 8, 8, 103, 35, 36, 10, 13, 48, 200, 201, 11, 12, 38]);
       const o = ["1", id, "2", x, "3", y];
@@ -169,9 +225,23 @@ for (let li = 0; li < sources.length; li++) {
     w.wd_set_official(official ? 1 : 0);
     ctx.__rnd = stream(12345); vm.runInContext("Math.random = __rnd", ctx);
     REC.created.length = 0; ctx.window._animTimer = 0;
+    if (COINS) {
+      // saved coin progress: load once to learn the linked ids, then keep a random part of them
+      lsStore.clear();
+      const T = newLevel(); T.loadLevel(str);
+      const pick = (ids) => ids.filter(() => crnd() < 0.5).map(String);
+      const sIds = pick(T._coinSprites.filter((s) => s._secretCoinId !== undefined).map((s) => s._secretCoinId)), uIds = pick(T._coinSprites.filter((s) => s._userCoinId !== undefined).map((s) => s._userCoinId));
+      if (sIds.length) lsStore.set("gd_secretCoins_the_level", JSON.stringify(sIds));
+      if (uIds.length) lsStore.set("gd_userCoins_the_level", JSON.stringify(uIds));
+      coinSeed = { official, secret: sIds, user: uIds, totalS: Math.floor(crnd() * 5), totalU: Math.floor(crnd() * 5) };
+      lsStore.set("gd_totalsecretcoins", String(coinSeed.totalS)); lsStore.set("gd_totalusercoins", String(coinSeed.totalU));
+      REC.created.length = 0; ctx.window._animTimer = 0;
+      ctx.__rnd = stream(12345); vm.runInContext("Math.random = __rnd", ctx);
+    }
     L.loadLevel(str);
+    if (COINS) { L._scene._totalsecretcoins = coinSeed.totalS; L._scene._totalusercoins = coinSeed.totalU; }
     const padEmitter = (c) => c.kind === "particles" && c.args?.[3]?.lifespan?.min === 250 && c.args?.[3]?.lifespan?.max === 450 && c.args?.[3]?.frequency === 24;
-    realImgs = REC.created.filter((c) => (c.kind === "image" && !c._eeEditorTrigger && !String(c.frameName).startsWith("edit_")) || padEmitter(c));
+    realImgs = REC.created.filter((c) => (c.kind === "image" && !c._eeEditorTrigger && !String(c.frameName).startsWith("edit_")) || padEmitter(c) || (c.kind === "text" && c._eeTextObject));
     ctx.__rnd = stream(777 + li); vm.runInContext("Math.random = __rnd", ctx); globalThis.__random = stream(777 + li);
   } else {
     const objs = ctx.LevelObject.prototype._normalizeTeleportPortals.call(L, lvl.objects);
@@ -220,6 +290,7 @@ for (let li = 0; li < sources.length; li++) {
   const sp = w.wd_alloc(bytes.length);
   new Uint8Array(w.memory.buffer, sp, bytes.length).set(bytes);
   if (REAL) w.wd_visual_seed(12345);
+  if (COINS) { const [kp, kl] = putStr("the_level"), [sp2, sl] = putStr(coinSeed.secret.join(",")), [up, ul] = putStr(coinSeed.user.join(",")); w.wd_coins_config(coinSeed.official ? 1 : 0, 0, 0, kp, kl, sp2, sl, up, ul, coinSeed.totalS, coinSeed.totalU); }
   const n = w.wd_game_load_level(sp, bytes.length);
   if (REAL) w.wd_game_after_load();
   const aptr = w.wd_alloc(Math.max(8, sprites.length * 8));
@@ -262,7 +333,7 @@ for (let li = 0; li < sources.length; li++) {
     groupSpriteIdx = [...new Set(Object.values(jsGroups).flat())].sort((a, b) => a - b);
     const nz = (v) => (Object.is(v, -0) ? 0 : v);
     const frameTable = JSON.parse(text(w.wd_render_frames()));
-    const fields = (c) => [c.x, c.y, c.rotation, c.scaleX, c.scaleY, c.alpha, c.visible, c.active !== false, c.tintv === undefined ? null : c.tintv, c.blend ?? 0, c.kind === "image" ? c.frameName : "__pad_emitter__"];
+    const fields = (c) => [c.x, c.y, c.rotation, c.scaleX, c.scaleY, c.alpha, c.visible, c.active !== false, c.tintv === undefined ? null : c.tintv, c.blend ?? 0, c.kind === "image" ? c.frameName : c.kind === "text" ? `${c.args[4]}|${c.args[3]}` : "__pad_emitter__"];
     const names = ["x", "y", "rotation", "scaleX", "scaleY", "alpha", "visible", "active", "tint", "blend", "frame"];
     spriteCheck = (all) => {
       const rows = rrows();
@@ -279,6 +350,91 @@ for (let li = 0; li < sources.length; li++) {
       return null;
     };
   }
+
+  // COINS=1: coin pickups, commits to localStorage, restarts and the coin sprite looks, versus coins.rs
+  const rstore = new Map(lsStore);
+  const coinCols = REAL && COINS ? cols.filter((c) => c.secretCoinId !== undefined || c.userCoinId !== undefined) : [];
+  const coinKeys = (m) => [...m.keys()].filter((k) => /^gd_(secretCoins|userCoins|totalsecretcoins|totalusercoins)/.test(k)).sort().map((k) => [k, m.get(k)]);
+  let coinOpCount = 0;
+  const coinOps = () => {
+    if (!coinCols.length && crnd() < 0.8) return null;
+    const r = crnd();
+    if (r < 0.55 && coinCols.length) {
+      const c = coinCols[Math.floor(crnd() * coinCols.length)];
+      let ok = !c.activated;
+      if (ok && c.secretCoinId !== undefined && !c._secretCoinCompleted && !L.tryCollectSecretCoin(c)) ok = false;
+      if (ok && c.userCoinId !== undefined && !c._userCoinCompleted && !L.tryCollectUserCoin(c)) ok = false;
+      if (ok) c.activated = true;
+      const rr = w.wd_coins_touch(c.uid);
+      if (!!rr !== ok) return `touch coin ${c.uid}: js=${ok} rust=${!!rr}`;
+    } else if (r < 0.8) {
+      L.commitSecretCoins(); L.commitUserCoins();
+      w.wd_coins_commit();
+      for (const [k, v] of JSON.parse(text(w.wd_coins_outbox()))) rstore.set(k, v);
+      const a = JSON.stringify(coinKeys(lsStore)), b = JSON.stringify(coinKeys(rstore));
+      if (a !== b) return `storage after commit: js=${a} rust=${b}`;
+    } else {
+      for (const c of L.objects) if (c) c.activated = false;
+      L._secretCoinRunCollected.clear(); L._userCoinRunCollected.clear();
+      for (const cs of L._coinSprites) { if (cs) { cs.setVisible(true); cs.setAlpha(1); cs.setScale(cs._coinBaseScale || 1); if (cs._coinWorldY !== undefined) cs.y = 460 - cs._coinWorldY; } }
+      w.wd_game_reset_objects();
+    }
+    coinOpCount++;
+    const rs = JSON.parse(text(w.wd_coins_state()));
+    const toN = (set) => [...set].map(Number);
+    const js = { secretRun: toN(L._secretCoinRunCollected), userRun: toN(L._userCoinRunCollected), secretDone: toN(L._secretCoinCompleted), userDone: toN(L._userCoinCompleted) };
+    if (canon(js) !== canon(rs)) return `coin sets js=${canon(js)} rust=${canon(rs)}`;
+    return spriteCheck(true);
+  };
+  // MIRROR=1: the scene's mirror portal code (toggleMirror, _stepMirror, _applyMirrorEffect) on the real sprites versus mirror.rs
+  const mrnd = stream(4242 + li);
+  const mgs = REAL && MIRROR ? Object.assign(Object.create(MirrorCls.prototype), { _level: L, _cameraX: 0, _mirrorAnimating: false, _mirrorP: 0, _mirrorTarget: false, _mirrorFrom: 0, _mirrorTime: 0, _state: { mirrored: false }, _state2: { mirrored: false }, _bg: { flipX: false, setFlipX() {} }, events: { once() {} }, _mirrorSaved: [] }) : null;
+  if (mgs) w.wd_mirror_enable(1);
+  let mirrorSeen = 0;
+  const mirrorCheck = () => {
+    // random portal touches and animation steps (the same calls on both sides)
+    if (mrnd() < 0.02) { const on = mrnd() < 0.5; const a = mgs.toggleMirror(on), b = w.wd_mirror_toggle(on ? 1 : 0); if (a !== !!b) return `toggleMirror(${on}) js=${a} rust=${b}`; }
+    if (mrnd() < 0.7) { const dt = [1 / 60, 1 / 30, 0.05, 0.4, 0.2][Math.floor(mrnd() * 5)]; mgs._stepMirror(dt); w.wd_mirror_step(dt); }
+    const rs = JSON.parse(text(w.wd_mirror_state()));
+    const js = [mgs._mirrorAnimating ? 1 : 0, mgs._mirrorTarget ? 1 : 0, mgs._mirrorFrom, mgs._mirrorP, mgs._mirrorTime, mgs._state.mirrored ? 1 : 0, mgs._state2.mirrored ? 1 : 0];
+    // (target/from/time are only meaningful once a toggle happened)
+    for (let k = 0; k < 7; k++) { if ((k === 1 || k === 2 || k === 4) && !mgs._mirrorEverToggled && js[0] === 0) continue; if (!same(js[k], rs[k]) && !(js[0] === 0 && (k === 2 || k === 4))) return `state[${k}] js=${js[k]} rust=${rs[k]} (js ${JSON.stringify(js)} rust ${JSON.stringify(rs)})`; }
+    const pj = mgs._mirrorProgress(); w.wd_mirror_cam(cx);
+    if (!same(pj, w.wd_mirror_progress())) return `progress js=${pj} rust=${w.wd_mirror_progress()}`;
+    if (pj <= 0) return null;
+    mirrorSeen++;
+    mgs._cameraX = cx;
+    L.additiveContainer.x = L.container.x = L.topContainer.x = -cx + (L.shakeOffsetX || 0);
+    for (const c of [L.additiveContainer, L.container, L.topContainer]) c.scaleX = 1;
+    mgs._applyMirrorEffect();
+    let bad = null;
+    const srows = JSON.parse(text(w.wd_fx_sprites()));
+    const sk = L.shakeOffsetX || 0;
+    for (let i = 0; i < realImgs.length && !bad; i++) {
+      const c = realImgs[i];
+      if (c.kind !== "image") continue;
+      const top = c._eeLayer === 2;
+      const inRange = top || (c._eeSectionIndex >= L._visMinSec && L._visMinSec >= 0 && c._eeSectionIndex <= L._visMaxSec);
+      if (!inRange) continue; // only what is on screen is drawn
+      const v = JSON.parse(text(w.wd_mirror_view(i)));
+      const rustVisible = !!srows[i][6] && v[4] === 1;
+      const jsVisible = !!c.visible;
+      if (rustVisible !== jsVisible) { bad = `sprite ${i} (${c.frameName}) visible js=${jsVisible} rust=${rustVisible} (p=${pj}, x=${c.x}, layer=${c._eeLayer}, dontFade=${c._eeDontFade}, worldX=${c._eeWorldX})`; break; }
+      if (!jsVisible) continue;
+      // with a flipped container the sprite is drawn at (container.x + scaleX * x); the renderer wants the world x that gives the same screen x
+      const cs = pj >= 1 ? L.container.scaleX : 1;
+      const jx = pj >= 1 ? (L.container.x + cs * c.x) + cx - sk : c.x;
+      const jsx = cs * c.scaleX, jr = cs * c.rotation;
+      const tol = (x, y) => Math.abs(x - y) <= 1e-9 * Math.max(1, Math.abs(x), Math.abs(y));
+      if (!tol(jx, v[0])) bad = `sprite ${i} (${c.frameName}) x js=${jx} rust=${v[0]} (p=${pj} base=${c._eeWorldX} layer=${c._eeLayer})`;
+      else if (!tol(jsx, v[1])) bad = `sprite ${i} scaleX js=${jsx} rust=${v[1]} (p=${pj})`;
+      else if (!tol(jr, v[2])) bad = `sprite ${i} rotation js=${jr} rust=${v[2]} (p=${pj})`;
+      else if (!tol(c.alpha, v[3])) bad = `sprite ${i} alpha js=${c.alpha} rust=${v[3]} (p=${pj})`;
+    }
+    mgs._restoreMirrorTransforms();
+    for (const c of [L.additiveContainer, L.container, L.topContainer]) c.scaleX = 1;
+    return bad;
+  };
 
   const jsState = () => canon({
     offsets: Object.fromEntries(Object.entries(L._groupOffsets).map(([k, v]) => [k, [v.x, v.y]])),
@@ -401,12 +557,14 @@ for (let li = 0; li < sources.length; li++) {
     if (REAL) L.applyColorChannels(cm, true);
     L.checkEnterEffectTriggers(px);
     if (REAL) L.applyEnterEffects(cx);
+    if (BEAST) ctx.window.BeastAnim.update({ _level: L }, dt * 1000);
     } catch (e) { if (/call stack/.test(String(e.message))) { skipped = true; break; } throw e; }
     if (process.env.TRACE) fs.writeSync(2, `js done\n`);
     if (process.env.PHASE) w.wd_trig_phase_limit(frame >= Number(process.env.AT) ? Number(process.env.PHASE) : 1e9);
     // Rust
     w.wd_trig_frame(px, py, cx, cy, dt, dual ? 1 : 0, y2, (h1 ? 1 : 0) | (pr1 ? 2 : 0) | (h2 ? 4 : 0) | (pr2 ? 8 : 0));
     if (REAL) w.wd_fx_enter(cx, px);
+    if (BEAST) w.wd_beast_update(dt * 1000);
     if (died) { L.triggerOnDeath(cm); w.wd_trig_death(); }
     framesTotal++;
     const a = jsState(), b = rustState();
@@ -416,6 +574,8 @@ for (let li = 0; li < sources.length; li++) {
     for (const ch of cmChannels) { const c = cm.getColor(ch); w.wd_trig_cm(ch, cmBuf); const m = new Float64Array(w.memory.buffer, cmBuf, 5); if (!same(c.r, m[0]) || !same(c.g, m[1]) || !same(c.b, m[2]) || !same(cm.getOpacity(ch), m[3]) || !same(cm.getHex(ch), m[4])) { if (process.env.DEBUGCM) console.log(`px=${px} idx js=${L._colorTriggerIdx} ffx=${typeof ffxUsed !== 'undefined' ? ffxUsed : 'none'}`, JSON.stringify(L._colorTriggers.filter((t) => t.x <= px + 1 && (t.tintGround || t.index === ch)).map((t) => ({ x: t.x, idx: t.index, tg: t.tintGround, c: t.color, d: t.duration, copy: t.copy, sp: t.spawnTriggered, touch: t.touchTriggered })))); fail(`frame ${frame} colour channel ${ch}: js ${c.r},${c.g},${c.b} op ${cm.getOpacity(ch)} | rust ${m[0]},${m[1]},${m[2]} op ${m[3]}`); break; } }
     if (levelBad) break;
     if (REAL && process.env.TRACE_SPRITE) { const ti = Number(process.env.TRACE_SPRITE); const c = realImgs[ti]; const r = JSON.parse(text(w.wd_fx_sprites()))[ti]; console.log(`f${frame} cx=${cx.toFixed(1)} js scale=${c.scaleX} last=${c._eeLastOrbScale} active=${c._eeActive} mult=${c._eeEffectMult} | rust scale=${r[3]} frame=${r[10]}`); }
+    if (REAL && COINS && frame % 9 === 0) { const m = coinOps(); if (m) { fail(`frame ${frame} coins: ${m}`); break; } }
+    if (REAL && MIRROR) { const m = mirrorCheck(); if (m) { fail(`frame ${frame} mirror: ${m}`); break; } }
     if (REAL && !process.env.NOSPRITE) { const m = spriteCheck(frame % 60 === 0); if (m) { fail(`frame ${frame} (px=${px.toFixed(1)}) ${m}`); break; } }
     if (a !== b) {
       const ja = JSON.parse(a), jb = JSON.parse(b);
@@ -430,12 +590,17 @@ for (let li = 0; li < sources.length; li++) {
     }
   }
   if (!levelBad && !skipped) { const h = heavy(); if (h) fail(`end ${h}`); }
-  levelsDone++;
+  if (BEAST) { const rb = JSON.parse(text(w.wd_beast_info())); globalThis.__beasts = (globalThis.__beasts || 0) + rb.length; if (rb.length !== L._beastSprites.length) { console.log(`MISMATCH beast count rust=${rb.length} js=${L._beastSprites.length}`); bad++; } }
+  globalThis.__coinOps = (globalThis.__coinOps || 0) + (typeof coinOpCount === "number" ? coinOpCount : 0);
+  levelsDone++; globalThis.__mirrorSeen = (globalThis.__mirrorSeen || 0) + (typeof mirrorSeen === "number" ? mirrorSeen : 0);
   const stats = [L._moveTriggers.length, L._rotateTriggers.length, L._spawnTriggers.length, L._stopTriggers.length, L._toggleTriggers.length, L._followPlayerYTriggers.length, L._followTriggers.length];
   const moved = cols.filter((c) => c.x !== c._eeInitialBaseX || c.y !== c._eeInitialBaseY).length, rotated = cols.filter((c) => c.rotationDegrees !== c._eeInitialRotationDegrees).length, off = cols.filter((c) => c.disabled).length;
   console.log(`${sources[li].label}: ${levelBad ? "MISMATCH" : skipped ? "skipped (the original overflows its stack)" : "ok"}  triggers move/rot/spawn/stop/toggle/followY/follow=${stats.join("/")} colliders=${cols.length} groups=${Object.keys(L._groupColliders).length} frames=${frame} (most at once: moved=${seen.moved} rotated=${seen.rotated} disabled=${seen.disabled} in another section=${seen.resorted})`);
 }
 if (REAL) console.log(`(sprite tints compared: ${globalThis.__tintChecks || 0}, non-null: ${globalThis.__tintSet || 0}, pulsed: ${globalThis.__tintPulsed || 0})`);
 console.log(`(frames with a group pulse running: ${globalThis.__pulseFrames || 0}, with an alpha tween running: ${globalThis.__alphaFrames || 0})`);
+if (BEAST) console.log(`(beasts spawned: ${globalThis.__beasts || 0})`);
+if (COINS) console.log(`(coin operations compared: ${globalThis.__coinOps || 0})`);
+if (MIRROR) console.log(`(frames compared with the mirror effect on: ${globalThis.__mirrorSeen || 0})`);
 console.log(`${levelsDone} levels, ${framesTotal} frames, ${checks} state checks: ${bad ? bad + " MISMATCHED" : "all identical"}`);
 process.exit(bad ? 1 : 0);

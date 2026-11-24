@@ -3,6 +3,9 @@ pub mod js;
 pub mod editor;
 pub mod editor_menu;
 pub mod editor_scene;
+pub mod beast;
+pub mod coins;
+pub mod mirror;
 pub mod popups_a;
 pub mod macrobot;
 pub mod startpos;
@@ -245,6 +248,14 @@ pub unsafe extern "C" fn wd_game_load_level(ptr: *const u8, len: usize) -> usize
     let lvl = level::parse_level(&input);
     let official = *OFFICIAL.lock().unwrap();
     let mut g = game::Game::from_level_official(&lvl, official);
+    if let Some(init) = COINS_INIT.lock().unwrap().clone() {
+        g.coins.enabled = true;
+        g.coins.configure(init);
+        for (uid, (user, id)) in g.coins.link.clone() {
+            let done = g.coins.is_done(user, id);
+            if user { g.cols[uid].user_completed = done; } else { g.cols[uid].secret_completed = done; }
+        }
+    }
     attach_level_sprites(&lvl, &mut g, official);
     let n = g.cols.len();
     *GAME.lock().unwrap() = Some(g);
@@ -684,14 +695,19 @@ fn attach_level_sprites_ed(level: &level::Level, g: &mut game::Game, official: u
     b.pad_emitters = true;
     b.channel_blending = g.settings.channel_blending.clone();
     b.legacy_color_level = g.settings.legacy_color_level;
+    b.secret_done = g.coins.secret_done.clone();
+    b.user_done = g.coins.user_done.clone();
     let mut invisible: Vec<(f64, Vec<usize>)> = Vec::new();
     let mut obj_ranges: Vec<(u32, u32)> = Vec::new();
     for o in &objects {
         let is_trigger = matches!(objects::object_from_id(o.id.unwrap_or(0)), Some(d) if d.ty == Some("trigger"));
         if is_trigger {
+            let linked = b.next_object_id;
             b.next_object_id += 1;
             let start = b.sprites.len();
             if editor { editor_trigger_sprite(atlases, &mut b.sprites, o); }
+            // the text object (id 914) is a "trigger" that draws a bitmap text
+            else if let Some(def) = visual::def_of(o.id.unwrap_or(0)) { if def.get_bool("textObject") == Some(true) { b.spawn_text(o, def, linked); } }
             obj_ranges.push((start as u32, b.sprites.len() as u32));
             continue;
         }
@@ -712,9 +728,24 @@ fn attach_level_sprites_ed(level: &level::Level, g: &mut game::Game, official: u
             anim_names.insert(si, names.iter().map(|n| atlases.find(n).map(|(a, _)| (a.to_string(), n.clone()))).collect());
         }
     }
+    let beasts = std::mem::take(&mut b.beasts);
     drop(b);
+    g.beasts = beast::Beasts::default();
+    for (bi, bst) in beasts.iter().enumerate() { for (_, si) in &bst.parts { g.beasts.of_sprite.insert(*si, bi); } }
+    g.beasts.list = beasts;
     g.attach_sprites(sprites, groups, invisible, channels, emitters, lists, anim_names);
     g.fx.obj_ranges = obj_ranges;
+    // both looks of every secret/user coin (a finished level swaps them)
+    let mut coin_names = Vec::new();
+    for &si in &g.fx.lists.coins.clone() {
+        let s = &g.fx.sprites[si];
+        let user = s.num("_userCoinId").is_some();
+        if !user && s.num("_secretCoinId").is_none() { continue; }
+        let (a, b) = if user { (coins::USER_A, coins::USER_B) } else { (coins::SECRET_A, coins::SECRET_B) };
+        let res = |l: [&str; 4]| -> Vec<Option<(String, String)>> { l.iter().map(|n| atlases.find(n).map(|(at, _)| (at.to_string(), n.to_string()))).collect() };
+        coin_names.push((si, res(a), res(b)));
+    }
+    g.attach_coin_frames(coin_names);
 }
 
 /// JSON of every sprite's mutable state: `[x, y, rotation, scaleX, scaleY, alpha, visible, active]`.
@@ -1093,3 +1124,121 @@ pub extern "C" fn wd_gar_changes() -> usize { out_str(with_ui(|u| { let s = u.ga
 /// Switches the garage tab (tests / host)
 #[no_mangle]
 pub extern "C" fn wd_gar_tab(n: u32) { with_ui(|u| { u.gar_action("GarageTab", n as usize); }); }
+
+
+/// Turns the scene's mirror-portal handling on (the physics test harnesses leave it off).
+#[no_mangle]
+pub extern "C" fn wd_mirror_enable(on: u32) { with_game(|g| g.mirror.enabled = on != 0); }
+/// Tests: force the mirror state (animating, target, from, p, mirrored)
+#[no_mangle]
+pub extern "C" fn wd_mirror_set(animating: u32, target: u32, from: f64, p: f64, mirrored: u32) {
+    with_game(|g| { g.mirror.animating = animating != 0; g.mirror.target = target != 0; g.mirror.from = from; g.mirror.p = p; g.p.mirrored = mirrored != 0; });
+}
+#[no_mangle]
+pub extern "C" fn wd_mirror_progress() -> f64 { with_game(|g| g.mirror_progress()) }
+/// `[x, scaleX, rotation, alpha, visible]` of a level sprite after the mirror effect (tests)
+#[no_mangle]
+pub extern "C" fn wd_mirror_view(si: usize) -> usize { with_game(|g| { let v = g.mirror_view(si); out_str(format!("[{},{},{},{},{}]", v.0, v.1, v.2, v.3, v.4 as u8)) }) }
+/// Tests: the scene's camera (the trigger test harness drives the triggers directly)
+#[no_mangle]
+pub extern "C" fn wd_mirror_cam(x: f64) { with_game(|g| g.camera_x = x); }
+#[no_mangle]
+pub extern "C" fn wd_mirror_toggle(on: u32) -> u32 { with_game(|g| g.toggle_mirror(on != 0) as u32) }
+#[no_mangle]
+pub extern "C" fn wd_mirror_step(dt: f64) { with_game(|g| g.step_mirror(dt)); }
+/// `[animating, target, from, p, time, mirrored, mirrored2]`
+#[no_mangle]
+pub extern "C" fn wd_mirror_state() -> usize { with_game(|g| out_str(format!("[{},{},{},{},{},{},{}]", g.mirror.animating as u8, g.mirror.target as u8, g.mirror.from, g.mirror.p, g.mirror.time, g.p.mirrored as u8, g.p2.mirrored as u8))) }
+
+// ---- coins ----
+static COINS_INIT: Mutex<Option<coins::CoinsInit>> = Mutex::new(None);
+fn id_csv(ptr: *const u8, len: usize) -> Vec<i64> {
+    let s = unsafe { String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned() };
+    s.split(',').filter_map(|v| v.trim().parse::<i64>().ok()).collect()
+}
+/// Turns saved-coin handling on for the next level load: the level key (`currentlevel[2]`), what kind of level it is, the saved
+/// progress as comma separated linked object ids, and the running totals. Never called = the physics harness behaviour.
+#[no_mangle]
+pub unsafe extern "C" fn wd_coins_config(official: u32, stored_user: u32, editor: u32, key: *const u8, key_len: usize, secret: *const u8, secret_len: usize, user: *const u8, user_len: usize, total_secret: f64, total_user: f64) {
+    *COINS_INIT.lock().unwrap() = Some(coins::CoinsInit {
+        official: official != 0, stored_user: stored_user != 0, editor: editor != 0,
+        key: String::from_utf8_lossy(std::slice::from_raw_parts(key, key_len)).into_owned(),
+        secret_done: id_csv(secret, secret_len), user_done: id_csv(user, user_len),
+        total_secret: total_secret as u64, total_user: total_user as u64,
+    });
+}
+/// localStorage writes waiting for the host: JSON `[[key, value], ...]` (cleared)
+#[no_mangle]
+pub extern "C" fn wd_coins_outbox() -> usize {
+    out_str(with_game(|g| {
+        let o = std::mem::take(&mut g.coins.outbox);
+        format!("[{}]", o.iter().map(|(k, v)| format!("[{},{}]", json::str_lit(k), json::str_lit(v))).collect::<Vec<_>>().join(","))
+    }))
+}
+/// `_levelComplete` outside practice mode: save the coins collected this run
+#[no_mangle]
+pub extern "C" fn wd_coins_commit() { with_game(|g| g.commit_coins()); }
+/// Tests: `{"secretRun":[..],"userRun":[..],"secretDone":[..],"userDone":[..]}`
+#[no_mangle]
+pub extern "C" fn wd_coins_state() -> usize {
+    out_str(with_game(|g| { let c = &g.coins; format!("{{\"secretRun\":{:?},\"userRun\":{:?},\"secretDone\":{:?},\"userDone\":{:?}}}", c.secret_run, c.user_run, c.secret_done, c.user_done) }))
+}
+/// Tests: a coin collider is touched (the coin branch of `checkCollisions`, outside practice mode); 1 when it was collected
+#[no_mangle]
+pub extern "C" fn wd_coins_touch(uid: usize) -> u32 {
+    with_game(|g| {
+        if g.cols[uid].activated { return 0; }
+        let col = g.cols[uid].clone();
+        if !g.coins.gate(&col) { return 0; }
+        g.cols[uid].activated = true;
+        1
+    })
+}
+/// Tests: `resetObjects` (coins and everything else)
+#[no_mangle]
+pub extern "C" fn wd_game_reset_objects() { with_game(|g| g.reset_objects()); }
+
+// ---- BeastAnim ----
+/// Hands the host's `<name>_AnimDesc.json` to the beast code (before the level is loaded).
+#[no_mangle]
+pub unsafe extern "C" fn wd_beast_desc_add(name: *const u8, name_len: usize, json: *const u8, json_len: usize) -> u32 {
+    let n = String::from_utf8_lossy(std::slice::from_raw_parts(name, name_len)).into_owned();
+    let j = String::from_utf8_lossy(std::slice::from_raw_parts(json, json_len)).into_owned();
+    beast::add_desc(&n, &j) as u32
+}
+/// Tests: a free-standing beast state (id) kept in slot `slot`
+static BEAST_TEST: Mutex<Vec<Option<beast::BState>>> = Mutex::new(Vec::new());
+#[no_mangle]
+pub extern "C" fn wd_beast_test_new(slot: usize, object_id: f64) -> u32 {
+    let mut v = BEAST_TEST.lock().unwrap();
+    while v.len() <= slot { v.push(None); }
+    v[slot] = beast::BState::create(object_id as i64);
+    v[slot].is_some() as u32
+}
+/// op 0 = advance(dt), 1 = command(animIdx, delay override or NaN), 2 = defaultBase; returns the state JSON
+#[no_mangle]
+pub extern "C" fn wd_beast_test_op(slot: usize, op: u32, a: f64, b: f64) -> usize {
+    let mut v = BEAST_TEST.lock().unwrap();
+    let s = v[slot].as_mut().unwrap();
+    match op { 0 => s.advance(a), 1 => { s.command(a as i64, if b.is_nan() { None } else { Some(b) }); } 2 => s.default_base(), _ => {} }
+    let j = s.json();
+    drop(v);
+    out_str(j)
+}
+/// Tests: `commandMany` over the listed slots
+#[no_mangle]
+pub unsafe extern "C" fn wd_beast_test_many(slots: *const f64, n: usize, anim_idx: f64) {
+    let ids: Vec<usize> = std::slice::from_raw_parts(slots, n).iter().map(|v| *v as usize).collect();
+    let mut v = BEAST_TEST.lock().unwrap();
+    let mut taken: Vec<beast::BState> = ids.iter().map(|&i| v[i].take().unwrap()).collect();
+    { let mut refs: Vec<&mut beast::BState> = taken.iter_mut().collect(); beast::command_many(&mut refs, anim_idx as i64); }
+    for (k, &i) in ids.iter().enumerate() { v[i] = Some(taken[k].clone()); }
+}
+/// JSON of the level's beasts: `[[state, partCount, glowCount, hiddenCount], ...]`
+#[no_mangle]
+pub extern "C" fn wd_beast_info() -> usize {
+    out_str(with_game(|g| format!("[{}]", g.beasts.list.iter().map(|b| format!("[{},{},{},{}]", b.state.json(), b.parts.len(), b.glows.len(), b.hidden.len())).collect::<Vec<_>>().join(","))))
+}
+/// Tests: the beast update step of a frame (`BeastAnim.update`), `delta_ms` of real time
+#[no_mangle]
+pub extern "C" fn wd_beast_update(delta_ms: f64) { with_game(|g| g.beast_update(delta_ms)); }

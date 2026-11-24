@@ -43,15 +43,31 @@ async function main() {
     atlas[name] = { frames, img };
   }));
 
+  // ---- BeastAnim descriptions, mirror portals ----
+  await Promise.all([1, 2, 3, 4, 5].map(async (k) => {
+    const name = `GJBeast0${k}`;
+    try { const [np, nl] = put(name), [jp, jl] = put(await loadText(SHEETS + name + "_AnimDesc.json")); w.wd_beast_desc_add(np, nl, jp, jl); } catch (e) {}
+  }));
+  // `localStorage` writes the game logic asked for (saved coins), as `[[key, value], ...]`
+  const flushStorage = () => { try { for (const [k, v] of JSON.parse(text(w.wd_coins_outbox()))) localStorage.setItem(k, v); } catch (e) {} };
+
   // ---- level (can be switched from the level select) ----
-  let LEVEL_ID = LEVEL, info = {}, bgImg = null, groundImg = null, ground2Img = null, frames = [];
+  let frameNames = [], LEVEL_ID = LEVEL, info = {}, bgImg = null, groundImg = null, ground2Img = null, frames = [];
   const standalone = {}; window.__standalone = standalone;
   const loadLevel = async (id) => loadLevelText(id, await loadText(`../ref/assets/levels/${id}.txt`));
   const loadLevelText = async (id, levelText) => {
     LEVEL_ID = id;
     w.wd_set_official(/^\d{5,}$/.test(id) ? 0 : 1);
     w.wd_visual_seed((Math.random() * 4294967295) >>> 0);
+    {
+      const official = !/^\d{5,}$/.test(id), key = official ? "level_" + id : id;
+      const ls = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } };
+      const ids = (k) => { try { const a = JSON.parse(ls(k, "[]")); return Array.isArray(a) ? a.map(String).join(",") : ""; } catch (e) { return ""; } };
+      const [kp, kl] = put(key), [sp, sl] = put(ids("gd_secretCoins_" + key)), [up, ul] = put(ids("gd_userCoins_" + key));
+      w.wd_coins_config(official ? 1 : 0, key.startsWith("local_") ? 1 : 0, 0, kp, kl, sp, sl, up, ul, parseInt(ls("gd_totalsecretcoins", "0"), 10) || 0, parseInt(ls("gd_totalusercoins", "0"), 10) || 0);
+    }
     { const [p, l] = put(levelText); w.wd_game_load_level(p, l); }
+    w.wd_mirror_enable(1);
     w.wd_game_after_load();
     w.wd_game_restart_level(-1);
     info = JSON.parse(text(w.wd_render_info()));
@@ -64,6 +80,7 @@ async function main() {
     if (params.get("mode")) w.wd_game_set_start(Number(params.get("mode")), Number(params.get("speed") || 0), params.get("mini") ? 1 : 0, params.get("flip") ? 1 : 0, params.get("mirror") ? 1 : 0, params.get("dual") ? 1 : 0); // test hook
     w.wd_game_restart_level(-1);
     const frameTable = JSON.parse(text(w.wd_render_frames()));
+    frameNames = frameTable;
     frames = frameTable.map(([a, f]) => { const at = atlas[a]; const d = at && at.frames[f]; return d ? { img: at.img, d } : null; });
   };
   const levels = await (async () => { try { const src = await loadText("../ref/assets/scripts/game/allLevels.js"); const win = {}; new Function("window", src)(win); return win.allLevels || []; } catch (e) { return []; } })();
@@ -175,6 +192,28 @@ async function main() {
     pv.players[0].hidden = pv.players[1].hidden = pvHidden;
     pv.frame(dt, { ox: -camX, oy: camY, camX, camY, menu: menuMode || !!w.wd_ui_menu_active(), paused, won: won || !!window.__pvForceWon, restart: pvRestart, endX: w.wd_game_scene(5), endY: w.wd_game_scene(4), screenW: W, events: n ? text(n).split("|") : [] });
     pvRestart = false;
+  };
+  // text objects: a frame named `@text` / `<size>|<text>` is drawn with the bitmap font (origin at the centre)
+  const textFrames = new Map();
+  const textFrame = (idx) => {
+    const fn = frameNames[idx];
+    if (!fn || fn[0] !== "@text") return null;
+    let fr = textFrames.get(idx);
+    if (fr !== undefined) return fr;
+    const fnt = fonts.bigFont, bar = fn[1].indexOf("|"), size = Number(fn[1].slice(0, bar)) || 36, str = fn[1].slice(bar + 1);
+    fr = null;
+    if (fnt) {
+      const k = size / fnt.size, lines = str.split("\n"), lh = (fnt.lineHeight || fnt.size) * k;
+      const widths = lines.map((ln) => { let cur = 0, prev = null; for (const ch of ln) { const g = fnt.chars[ch.codePointAt(0)]; if (!g) continue; cur += ((prev !== null ? fnt.kern[prev + "," + ch.codePointAt(0)] || 0 : 0) + g.adv) * k; prev = ch.codePointAt(0); } return cur; });
+      const cw = Math.max(1, Math.ceil(Math.max(0, ...widths)) + 2), ch = Math.max(1, Math.ceil(lh * lines.length) + 2);
+      const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+      const g2 = c.getContext("2d");
+      lines.forEach((ln, li) => { let cur = (cw - widths[li]) / 2, prev = null; for (const chr of ln) { const cp = chr.codePointAt(0), g = fnt.chars[cp]; if (!g) continue; cur += (prev !== null ? fnt.kern[prev + "," + cp] || 0 : 0) * k; g2.drawImage(fnt.img, g.x, g.y, g.w, g.h, cur + g.xo * k, li * lh + g.yo * k, g.w * k, g.h * k); cur += g.adv * k; prev = cp; } });
+      c.src = "text:" + idx;
+      fr = { img: c, d: { frame: { x: 0, y: 0, w: cw, h: ch }, sourceSize: { w: cw, h: ch }, spriteSourceSize: { x: 0, y: 0 } } };
+    }
+    textFrames.set(idx, fr);
+    return fr;
   };
   const fontOf = [null, fonts.bigFont, fonts.goldFont];
   const drawBitmapText = (fnt, str, size, x, y, scale, ox, oy, color) => {
@@ -444,7 +483,7 @@ async function main() {
       const z = buf[33]; ctx.save(); ctx.scale(z, z);
       const ex = -buf[34] / z, ey = -buf[35] / z;
       for (let k = 0; k < count; k++) {
-        const o = base + k * 12; const fr = frames[buf[o]]; if (!fr) continue;
+        const o = base + k * 12; const fr = frames[buf[o]] || textFrame(buf[o]); if (!fr) continue;
         const sx = (buf[o + 1] + ex) * z, sy = (buf[o + 2] + ey) * z; if (sx < -400 || sx > W + 400 || sy < -400 || sy > H + 400) continue;
         drawFrame(fr, buf[o + 1] + ex, buf[o + 2] + ey, buf[o + 3], buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7], buf[o + 8], buf[o + 9]);
       }
@@ -472,7 +511,7 @@ async function main() {
     pv.drawWorld(ox, oy);
     for (; i < count; i++) {
       const o = base + i * 12;
-      const fr = frames[buf[o]]; if (!fr) continue;
+      const fr = frames[buf[o]] || textFrame(buf[o]); if (!fr) continue;
       drawFrame(fr, buf[o + 1] + ox, buf[o + 2] + oy, buf[o + 3], buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7], buf[o + 8], buf[o + 9]);
     }
     pv.drawTop(ox, oy);
@@ -591,7 +630,7 @@ async function main() {
     if (!menuMode) w.wd_ui_hud_update(Math.max(0, Math.min(100, buf[30] * 100)));
     if (!menuMode && !paused) {
       if (!won) { playTime += dt / 1000; if (held && !wasHeld) jumps++; wasHeld = held; }
-      if (!won && w.wd_game_percent(2)) { won = true; winClock = 0; afx.playRaw("endStart_02", 0.8 * afx.userSfx()); try { localStorage.setItem((practiceOn ? "practiceBestPercent_" : "bestPercent_") + "level_" + LEVEL_ID, "100"); } catch (e) {} w.wd_ui_banner(practiceOn ? 1 : 0); }
+      if (!won && w.wd_game_percent(2)) { won = true; winClock = 0; if (!practiceOn) { w.wd_coins_commit(); flushStorage(); } afx.playRaw("endStart_02", 0.8 * afx.userSfx()); try { localStorage.setItem((practiceOn ? "practiceBestPercent_" : "bestPercent_") + "level_" + LEVEL_ID, "100"); } catch (e) {} w.wd_ui_banner(practiceOn ? 1 : 0); }
       if (won) { winClock += dt; if (winClock > 1500 && winClock - dt <= 1500) { pushEndCoins(); const [p, n] = put(MESSAGES[Math.floor(Math.random() * MESSAGES.length)]); w.wd_ui_end_layer(attempts, jumps, playTime, practiceOn ? 1 : 0, p, n); } }
     }
     drawUi();

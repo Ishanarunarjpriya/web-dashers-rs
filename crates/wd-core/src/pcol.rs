@@ -106,6 +106,13 @@ impl<'a> Sim<'a> {
     /// `fx:x,y,type,id,flags` — what `_orbpadHitEffect` needs (flags: 1 secret coin, 2 user coin)
     fn fx_line(c: &Col) -> String { format!("fx:{},{},{},{},{}", c.x, c.y, c.ty, c.id.unwrap_or(-1.0), c.secret_coin as u8 | (c.user_coin as u8) << 1) }
 
+    /// `tryCollectSecretCoin` / `tryCollectUserCoin` (the harnesses answer through `Env` instead)
+    fn coin_gate(&mut self, col: &Col) -> bool {
+        match self.coins.as_deref_mut() {
+            Some(c) => c.gate(col),
+            None => !(col.secret_coin && !col.secret_completed && !self.e.try_collect_secret) && !(col.user_coin && !col.user_completed && !self.e.try_collect_user),
+        }
+    }
     pub fn stop_rotation(&mut self) { self.p.rotate_action_active = false; }
 
     pub fn hit_ground(&mut self, skip_burst: bool) {
@@ -644,9 +651,9 @@ impl<'a> Sim<'a> {
                 if !self.is_activated(&cols[i]) {
                     if cols[i].secret_coin && self.e.practice_mode { continue; }
                     if cols[i].user_coin && self.e.practice_mode { continue; }
-                    if cols[i].secret_coin && !cols[i].secret_completed && !self.e.try_collect_secret { continue; }
-                    if cols[i].user_coin && !cols[i].user_completed && !self.e.try_collect_user { continue; }
+                    if !self.coin_gate(&cols[i]) { continue; }
                     self.set_activated(&mut cols[i], true);
+                    if let Some(c) = self.coins.as_deref_mut() { c.pickups.push(cols[i].uid as usize); }
                     self.vlog.push(Self::fx_line(&cols[i]));
                 }
             } else { match ty {
