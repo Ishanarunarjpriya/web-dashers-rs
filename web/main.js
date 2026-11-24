@@ -1,5 +1,6 @@
 // Browser front end for the Rust port: the game (simulation, triggers, sprite state) runs in wasm, this file only draws what it hands over.
 import { AudioFx } from "./audio_fx.js";
+import { createEndFx } from "./endfx.js";
 const params = new URLSearchParams(location.search);
 const LEVEL = params.get("level") || "1";
 const AUTO = params.get("auto");          // "N": play N frames without a keyboard (headless screenshots), jumping every ~JUMP frames
@@ -194,6 +195,7 @@ async function main() {
   for (const name of ["player_ball_00", "player_dart_00"]) { try { const [json, img] = await Promise.all([loadText(SHEETS + name + ".json"), loadImage(SHEETS + name + ".png")]); const [np, nl] = put(name), [jp, jl] = put(json); w.wd_atlas_add(np, nl, jp, jl); const j = JSON.parse(json); let fr = j.frames || (j.textures && j.textures.flatMap((t) => t.frames)); if (Array.isArray(fr)) fr = Object.fromEntries(fr.map((f) => [f.filename, f])); atlas[name] = { frames: fr, img }; } catch (e) {} }
   await pv.init();
   if (window.__garageInit) await window.__garageInit({ w, put });
+  const endfx = createEndFx({ ctx, atlas, drawFrame, W });
   let pvRestart = true, pvHidden = false;
   const pvStep = (dt) => {
     const camX = w.wd_game_scene(0), camY = w.wd_game_scene(1);
@@ -484,7 +486,8 @@ async function main() {
     const s = Number(params.get("pxs")) || Math.min(2, Math.max(0.5, Math.min((innerWidth || W) / W, (innerHeight || H) / H) * (devicePixelRatio || 1)));
     const nw = Math.max(1, Math.round(W * s)), nh = Math.max(1, Math.round(H * s));
     if (canvas.width !== nw || canvas.height !== nh) { canvas.width = nw; canvas.height = nh; }
-    pxScale = nw / W; ctx.setTransform(pxScale, 0, 0, pxScale, 0, 0); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    const [shx, shy] = endfx.shake();
+    pxScale = nw / W; ctx.setTransform(pxScale, 0, 0, pxScale, shx * pxScale, shy * pxScale); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
   };
   const render = () => {
     fitCanvas();
@@ -507,6 +510,7 @@ async function main() {
       const tint = buf[22] & 0xffffff;
       if (tint !== 0xffffff) { ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = hex(tint); ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = "source-over"; }
     } else { ctx.fillStyle = hex(buf[22]); ctx.fillRect(0, 0, W, H); }
+    endfx.drawBack();
     // level objects (normal layer first, then the player, then the top layer)
     const base = 40 + tiles;
     if (buf[33] > 0) { // level editor: static level seen through the editor camera
@@ -611,7 +615,12 @@ async function main() {
       tm("update", () => w.wd_game_update(1000 / 60, 0)); tm("build", () => w.wd_render_build()); tm("render", () => render()); tm("ui", () => drawUi());
       window.__bench = "BENCH " + JSON.stringify(T) + " sprites=" + new Float64Array(w.memory.buffer, w.wd_render_ptr(), 3)[2]; console.log(window.__bench);
     }
+    if (params.get("endfx")) { // test hook: ?endfx=MS draws the level-complete effects MS milliseconds in
+      endfx.begin({ px: 700, py: 380, main: 0x04ff00, second: 0x00fbff, ldm: false, onText: () => { w.wd_ui_banner(0); }, onEnd: () => {} });
+      for (let ms = 0; ms < Number(params.get("endfx")); ms += 1000 / 60) { endfx.update(1000 / 60); w.wd_ui_step(1000 / 60); }
+    }
     const buf = render();
+    if (params.get("endfx")) { endfx.drawFront(); drawUi(); }
     hud.textContent = `frame ${frames}  x=${buf[3].toFixed(0)}  sprites=${buf[2]} ${window.__bench || ""}`;
     window.__done = true;
     return;
@@ -636,6 +645,7 @@ async function main() {
         if (f === df + dn + (hold || 0)) w.wd_ui_pointer(2, dx1, dy0);
       }
       held = JUMP > 0 && (f % JUMP) < 8;
+      if (params.get("endnear") && f === 1 && !menuMode) w.wd_game_set_end(w.wd_game_scene(0) + 1100); // test hook: the end portal just ahead
       w.wd_ui_step(1000 / 60); w.wd_trig_time(f * 16.6667); w.wd_set_audio_meter(beat(f * 16.6667));
       if (window.WD_EDITOR_ON) w.wd_ed_frame(1000 / 60, edKeys());
       const rr = window.WD_EDITOR_ON ? 0 : w.wd_game_update(1000 / 60, held ? 1 : 0);
@@ -659,15 +669,35 @@ async function main() {
     w.wd_ui_step(dt);
     if (window.WD_EDITOR_ON) w.wd_ed_frame(dt, edKeys()); else if (!paused) step(dt);
     pvStep(paused ? 0 : dt / 1000);
+    if (!won && endfx.active) endfx.reset();
+    if (!paused) endfx.update(dt);
     const buf = render(); camXUi = buf[0]; camYUi = buf[1];
     if (!menuMode && buf[6] && !wasDead) { afx.playEffect("explode_11", { volume: 0.65 * afx.userSfx() }); if (!(practiceOn && !readSettings().practiceMusicSync)) stopSong(); }
     wasDead = !!buf[6];
     if (!menuMode) w.wd_ui_hud_update(Math.max(0, Math.min(100, buf[30] * 100)));
     if (!menuMode && !paused) {
       if (!won) { playTime += dt / 1000; if (held && !wasHeld) jumps++; wasHeld = held; }
-      if (!won && w.wd_game_percent(2)) { won = true; winClock = 0; if (!practiceOn) { w.wd_coins_commit(); flushStorage(); } afx.playRaw("endStart_02", 0.8 * afx.userSfx()); try { localStorage.setItem((practiceOn ? "practiceBestPercent_" : "bestPercent_") + "level_" + LEVEL_ID, "100"); } catch (e) {} w.wd_ui_banner(practiceOn ? 1 : 0); }
-      if (won) { winClock += dt; if (winClock > 1500 && winClock - dt <= 1500) { pushEndCoins(); const [p, n] = put(MESSAGES[Math.floor(Math.random() * MESSAGES.length)]); w.wd_ui_end_layer(attempts, jumps, playTime, practiceOn ? 1 : 0, p, n); } }
+      if (!won && w.wd_game_percent(2)) { // `_levelComplete`: progress is saved at once, the effects and the end layer follow on a timer (endfx.js)
+        won = true; winClock = 0;
+        if (!practiceOn) {
+          w.wd_coins_commit(); flushStorage();
+          try {
+            const lid = "level_" + LEVEL_ID, set = JSON.parse(localStorage.getItem("gd_completedSet") || "[]");
+            if (!set.includes(lid)) { set.push(lid); localStorage.setItem("gd_completedSet", JSON.stringify(set)); localStorage.setItem("gd_completedLevels", String(set.length)); }
+          } catch (e) {}
+        }
+        afx.playRaw("endStart_02", 0.8 * afx.userSfx());
+        try { localStorage.setItem((practiceOn ? "practiceBestPercent_" : "bestPercent_") + "level_" + LEVEL_ID, "100"); } catch (e) {}
+        const lsc = (k, d) => { try { return parseInt(localStorage.getItem(k) || d, 16); } catch (e) { return parseInt(d, 16); } };
+        endfx.begin({
+          px: w.wd_game_scene(5) - w.wd_game_scene(0), py: 460 - w.wd_game_scene(4) + w.wd_game_scene(1),
+          main: lsc("iconMainColor", "04FF00"), second: lsc("iconSecondaryColor", "00FBFF"), ldm: !!readSettings().enableLDM,
+          onText: () => w.wd_ui_banner(practiceOn ? 1 : 0),
+          onEnd: () => { pushEndCoins(); const [p, n] = put(MESSAGES[Math.floor(Math.random() * MESSAGES.length)]); w.wd_ui_end_layer(attempts, jumps, playTime, practiceOn ? 1 : 0, p, n); },
+        });
+      }
     }
+    endfx.drawFront();
     drawUi();
     if (loadingLevel && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);
     handleUi();
