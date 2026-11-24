@@ -84,12 +84,13 @@ async function main() {
     frames = frameTable.map(([a, f]) => { const at = atlas[a]; const d = at && at.frames[f]; return d ? { img: at.img, d } : null; });
   };
   const levels = await (async () => { try { const src = await loadText("../ref/assets/scripts/game/allLevels.js"); const win = {}; new Function("window", src)(win); return win.allLevels || []; } catch (e) { return []; } })();
+  let loadingLevel = false;
   const loadSong = (id) => {
     const entry = levels.find((l) => l[2] === "level_" + id);
     window.__songData = null; songBuf = null;
-    if (AUTO || !entry) return;
+    if (AUTO || !entry) return Promise.resolve();
     const file = entry[4] || String(entry[1]).replaceAll(" ", "");
-    fetch(`../ref/assets/music/${file}.mp3`).then((r) => r.arrayBuffer()).then((ab) => { window.__songData = ab; }).catch(() => {});
+    return fetch(`../ref/assets/music/${file}.mp3`).then((r) => r.arrayBuffer()).then((ab) => { window.__songData = ab; }).catch(() => {});
   };
   let ac = null, analyser = null, gain = null, source = null, songBuf = null;
   await loadLevel(LEVEL);
@@ -142,10 +143,13 @@ async function main() {
   if (params.get("ui") === "settings" && menuMode) { w.wd_ui_set_options(0.6, 1, 1); w.wd_ui_open_settings(); }
 
   // ---- drawing helpers ----
-  const tintCache = new Map();
+  const tintCache = new WeakMap();
   let bgTile = null;
   const tinted = (fr, tint) => {
-    let per = fr.tc; if (!per) per = fr.tc = new Map();
+    // keyed by image object, then by frame rectangle, then by tint: nothing is built per call (the callers make a fresh `fr` object every time)
+    let byFrame = tintCache.get(fr.img); if (!byFrame) tintCache.set(fr.img, byFrame = new Map());
+    const f0 = fr.d.frame, fk = ((f0.x * 8192 + f0.y) * 8192 + f0.w) * 8192 + f0.h;
+    let per = byFrame.get(fk); if (!per) byFrame.set(fk, per = new Map());
     let c = per.get(tint);
     if (c) return c;
     const { x, y, w: fw, h: fh } = fr.d.frame;
@@ -341,9 +345,9 @@ async function main() {
   addEventListener("keydown", down); addEventListener("keyup", up);
   const toGame = (e) => { const r = canvas.getBoundingClientRect(); const sc = Math.min(r.width / W, r.height / H); const ox = r.left + (r.width - W * sc) / 2, oy = r.top + (r.height - H * sc) / 2; return [(e.clientX - ox) / sc, (e.clientY - oy) / sc]; };
   canvas.addEventListener("wheel", (e) => { const [x, y] = toGame(e); w.wd_ui_wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
-  canvas.addEventListener("pointerdown", (e) => { const [x, y] = toGame(e); w.wd_ui_pointer(0, x, y); if (!w.wd_ui_menu_active()) down(e); });
+  canvas.addEventListener("pointerdown", (e) => { if (loadingLevel) return; const [x, y] = toGame(e); w.wd_ui_pointer(0, x, y); if (!w.wd_ui_menu_active()) down(e); });
   addEventListener("pointermove", (e) => { const [x, y] = toGame(e); w.wd_ui_pointer(1, x, y); });
-  addEventListener("pointerup", (e) => { const [x, y] = toGame(e); w.wd_ui_pointer(2, x, y); up(e); });
+  addEventListener("pointerup", (e) => { if (loadingLevel) return; const [x, y] = toGame(e); w.wd_ui_pointer(2, x, y); up(e); });
   let sliding = false, wasDead = false;
   const startPlaying = () => { pvRestart = true; menuMode = false; paused = false; won = false; playTime = 0; jumps = 0; w.wd_ui_close_end(); attempts = 1; practiceOn = false; afx.stopMusic(); w.wd_ui_start_game(); applyOptions(); w.wd_game_begin_slide(); sliding = true; w.wd_ui_hud(); w.wd_ui_hud_pause(0); bump("gd_totalAttempts"); bumpLevel("Attempts"); w.wd_ui_attempt(1, w.wd_game_scene(0)); if (!ac) ensureAudio(); };
   // the slide-in ends: the song starts and the pause button fades in
@@ -418,7 +422,10 @@ async function main() {
       else if (ev === "NextLevel") w.wd_ui_switch(1);
       else if (ev === "PlayLevel") {
         const l = visibleLevels[w.wd_ui_page()];
-        if (l) { const id = l[2].replace("level_", ""); afx.stopMusic(); afx.playEffect("playSound_01", { volume: 1 }); w.wd_ui_close_level_select(); w.wd_menu_mode(0); loadLevel(id).then(() => { loadSong(id); startPlaying(); }); }
+        if (l && !loadingLevel) { // game-scene.js: "Downloading Level Assets...", input off until the level and song are loaded, then sound, close the select, restart into the level
+          const id = l[2].replace("level_", ""); loadingLevel = true;
+          Promise.all([loadText(`../ref/assets/levels/${id}.txt`), loadSong(id)]).then(async ([txt]) => { afx.playEffect("playSound_01", { volume: 1 }); w.wd_ui_close_level_select(); afx.stopMusic(); await loadLevelText(id, txt); w.wd_menu_mode(0); loadingLevel = false; startPlaying(); }).catch((e) => { loadingLevel = false; fail(e); });
+        }
       }
       else if (ev === "Settings") { const g = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }; w.wd_ui_set_options(parseFloat(g("userMusicVol", 1)), parseFloat(g("userSfxVol", 1)), g("menuMusicEnabled", "true") === "true" ? 1 : 0); w.wd_ui_open_settings(); }
       else if (ev === "Volume") { const m = w.wd_ui_option(0), sv = w.wd_ui_option(1); if (gain) gain.gain.value = m * 0.8; try { localStorage.setItem("userMusicVol", m); localStorage.setItem("userSfxVol", sv); } catch (e) {} }
@@ -652,6 +659,7 @@ async function main() {
       if (won) { winClock += dt; if (winClock > 1500 && winClock - dt <= 1500) { pushEndCoins(); const [p, n] = put(MESSAGES[Math.floor(Math.random() * MESSAGES.length)]); w.wd_ui_end_layer(attempts, jumps, playTime, practiceOn ? 1 : 0, p, n); } }
     }
     drawUi();
+    if (loadingLevel && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);
     handleUi();
     frame++; acc += dt; if (acc > 500) { fps = Math.round(frame * 1000 / acc); frame = 0; acc = 0; }
     { const st = { ...OPT_DEFAULTS, ...readSettings() }; if (held && !cpsHeld) cpsTimes.push(now); cpsHeld = held; while (cpsTimes.length && now - cpsTimes[0] > 1000) cpsTimes.shift();
