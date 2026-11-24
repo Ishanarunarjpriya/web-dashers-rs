@@ -143,7 +143,7 @@ async function main() {
   if (params.get("ui") === "settings" && menuMode) { w.wd_ui_set_options(0.6, 1, 1); w.wd_ui_open_settings(); }
 
   // ---- drawing helpers ----
-  const tintCache = new WeakMap();
+  let tintCache = new WeakMap(), tintPixels = 0;
   let bgTile = null;
   const tinted = (fr, tint) => {
     // keyed by image object, then by frame rectangle, then by tint: nothing is built per call (the callers make a fresh `fr` object every time)
@@ -161,7 +161,11 @@ async function main() {
     g.fillRect(0, 0, fw, fh);
     g.globalCompositeOperation = "destination-in";
     g.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
-    if (per.size > 64) per.clear(); // a colour channel that fades makes a new tint every frame
+    tintPixels += fw * fh;
+    if (tintPixels > 48e6) { // ~190 MB of coloured copies at most; start over
+      tintCache = new WeakMap(); tintPixels = fw * fh;
+      tintCache.set(fr.img, byFrame = new Map()); byFrame.set(fk, per = new Map());
+    }
     per.set(tint, c);
     return c;
   };
@@ -331,12 +335,13 @@ async function main() {
     if (window.__songData && !songBuf) songBuf = await ac.decodeAudioData(window.__songData.slice(0));
   };
   const startMusic = (offset) => {
-    if (!ac || !songBuf) return;
+    if (!ac || !songBuf || menuMode) return;
     try { source && source.stop(); } catch (e) {}
     source = ac.createBufferSource(); source.buffer = songBuf; source.connect(gain);
     source.start(0, Math.max(0, Math.min(songBuf.duration - 0.1, offset)));
   };
-  const pollSong = async () => { if (ac && !songBuf && window.__songData) { songBuf = await ac.decodeAudioData(window.__songData.slice(0)); startMusic(info.musicOffset || 0); } };
+  const stopSong = () => { try { source && source.stop(); } catch (e) {} source = null; };
+  const pollSong = async () => { if (ac && !songBuf && window.__songData && !menuMode && !sliding && !paused && !wasDead) { songBuf = await ac.decodeAudioData(window.__songData.slice(0)); startMusic(info.musicOffset || 0); } };
 
   // ---- input ----
   let held = false;
@@ -388,7 +393,12 @@ async function main() {
   };
   const doResume = () => { if (!paused) return; paused = false; w.wd_ui_pause(0, 0, 0, 0, 0); if (ac) ac.resume(); };
   const OPT_DEFAULTS = { noclip: 0, showPercentage: 1, percentDecimals: 0, showHitboxes: 0, progressBar: 0, hitboxTrail: 0, showFPS: 0, hidePauseBtn: 0, hidePracticeUI: 0, solidWaveTrail: 0, noclipAccuracy: 0, hitboxesOnDeath: 0, createObjectIds: 0, showObjectIds: 0, showCPS: 0, speedHack: 1, respawnDelay: 1, macroBot: 0, practiceMusicSync: 0, showGlow: 1, enablePortalGuide: 1, enableOrbGuide: 0, enableMiniIcon: 0, cullDistance: 3 };
-  const readSettings = () => { try { return JSON.parse(localStorage.getItem("gd_settings") || "{}") || {}; } catch (e) { return {}; } };
+  let settingsRaw = null, settingsVal = {};
+  const readSettings = () => { // parsed again only when the stored text changed
+    let raw = null; try { raw = localStorage.getItem("gd_settings"); } catch (e) {}
+    if (raw !== settingsRaw || raw === null) { settingsRaw = raw; try { settingsVal = JSON.parse(raw || "{}") || {}; } catch (e) { settingsVal = {}; } }
+    return settingsVal;
+  };
   // gd_settings -> gameplay (noclip, speed hack, respawn delay, smart start pos) and HUD (percentage, bar, pause button, practice UI)
   const applyOptions = () => {
     const saved = { ...OPT_DEFAULTS, ...readSettings() };
@@ -650,7 +660,7 @@ async function main() {
     if (window.WD_EDITOR_ON) w.wd_ed_frame(dt, edKeys()); else if (!paused) step(dt);
     pvStep(paused ? 0 : dt / 1000);
     const buf = render(); camXUi = buf[0]; camYUi = buf[1];
-    if (!menuMode && buf[6] && !wasDead) afx.playEffect("explode_11", { volume: 0.65 * afx.userSfx() });
+    if (!menuMode && buf[6] && !wasDead) { afx.playEffect("explode_11", { volume: 0.65 * afx.userSfx() }); if (!(practiceOn && !readSettings().practiceMusicSync)) stopSong(); }
     wasDead = !!buf[6];
     if (!menuMode) w.wd_ui_hud_update(Math.max(0, Math.min(100, buf[30] * 100)));
     if (!menuMode && !paused) {
