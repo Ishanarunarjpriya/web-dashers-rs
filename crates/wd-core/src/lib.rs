@@ -902,6 +902,8 @@ pub extern "C" fn wd_ui_ptr() -> *const f64 { with_ui(|u| u.buf.as_ptr()) }
 pub extern "C" fn wd_ui_texts() -> usize { out_str(with_ui(|u| format!("[{}]", u.strings.iter().map(|s| json::str_lit(s)).collect::<Vec<_>>().join(",")))) }
 /// `[[atlas, frame], ...]` table that image nodes index into
 #[no_mangle]
+pub extern "C" fn wd_ui_frames_len() -> usize { UI_FRAMES.lock().unwrap().len() }
+#[no_mangle]
 pub extern "C" fn wd_ui_frames() -> usize { out_str(format!("[{}]", UI_FRAMES.lock().unwrap().iter().map(|(a, f)| format!("[{},{}]", json::str_lit(a), json::str_lit(f))).collect::<Vec<_>>().join(","))) }
 #[no_mangle]
 pub extern "C" fn wd_ui_menu_active() -> u32 { with_ui(|u| u.menu_active as u32) }

@@ -143,9 +143,10 @@ async function main() {
 
   // ---- drawing helpers ----
   const tintCache = new Map();
+  let bgTile = null;
   const tinted = (fr, tint) => {
-    const key = fr.d.frame.x + "," + fr.d.frame.y + "," + fr.d.frame.w + "," + fr.d.frame.h + "," + fr.img.src + "," + tint;
-    let c = tintCache.get(key);
+    let per = fr.tc; if (!per) per = fr.tc = new Map();
+    let c = per.get(tint);
     if (c) return c;
     const { x, y, w: fw, h: fh } = fr.d.frame;
     c = document.createElement("canvas"); c.width = fw; c.height = fh;
@@ -156,8 +157,8 @@ async function main() {
     g.fillRect(0, 0, fw, fh);
     g.globalCompositeOperation = "destination-in";
     g.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
-    if (tintCache.size > 6000) tintCache.clear();
-    tintCache.set(key, c);
+    if (per.size > 64) per.clear(); // a colour channel that fades makes a new tint every frame
+    per.set(tint, c);
     return c;
   };
   const hex = (n) => "#" + (n & 0xffffff).toString(16).padStart(6, "0");
@@ -247,12 +248,14 @@ async function main() {
     ctx.restore();
   };
   let camXUi = 0, camYUi = 0, shakeUi = 0;
+  let uiTable = [], uiTableLen = -1;
   const drawUi = () => {
     const n = w.wd_ui_build(0);
     if (!n) return;
     const ub = new Float64Array(w.memory.buffer, w.wd_ui_ptr(), n * 16);
     const texts = JSON.parse(text(w.wd_ui_texts()));
-    const table = JSON.parse(text(w.wd_ui_frames()));
+    const fl = w.wd_ui_frames_len(); if (fl !== uiTableLen) { uiTable = JSON.parse(text(w.wd_ui_frames())); uiTableLen = fl; }
+    const table = uiTable;
     for (let k = 0; k < n; k++) {
       const o = k * 16, kind = ub[o];
       ctx.save();
@@ -458,7 +461,16 @@ async function main() {
 
   // ---- frame ----
   let last = performance.now(), frame = 0, fps = 0, acc = 0;
+  // Phaser runs with `resolution: 1` and stretches a 1138x640 canvas with CSS, which blurs the HD art; draw at the size it is shown instead.
+  let pxScale = 1;
+  const fitCanvas = () => {
+    const s = Number(params.get("pxs")) || Math.min(2, Math.max(0.5, Math.min((innerWidth || W) / W, (innerHeight || H) / H) * (devicePixelRatio || 1)));
+    const nw = Math.max(1, Math.round(W * s)), nh = Math.max(1, Math.round(H * s));
+    if (canvas.width !== nw || canvas.height !== nh) { canvas.width = nw; canvas.height = nh; }
+    pxScale = nw / W; ctx.setTransform(pxScale, 0, 0, pxScale, 0, 0); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  };
   const render = () => {
+    fitCanvas();
     const n = w.wd_render_build();
     const buf = new Float64Array(w.memory.buffer, w.wd_render_ptr(), n);
     const camX = buf[0], camY = buf[1], count = buf[2] | 0, tiles = buf[18] | 0;
@@ -467,15 +479,16 @@ async function main() {
     // background
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     if (bgImg) {
-      const tint = buf[22];
-      const tile = tinted({ img: bgImg, d: { frame: { x: 0, y: 0, w: bgImg.width, h: bgImg.height } } }, tint);
-      const th = bgImg.height * 2; // mirrored vertically so the tiling is seamless
-      const tx = ((-buf[20] % bgImg.width) + bgImg.width) % bgImg.width;
-      const ty = buf[21];
-      for (let xx = -tx; xx < W; xx += bgImg.width) for (let yy = -(th - ty) % th - th; yy < H; yy += th) {
-        ctx.drawImage(tile, xx, yy);
-        ctx.save(); ctx.translate(0, yy + th); ctx.scale(1, -1); ctx.drawImage(tile, xx, 0); ctx.restore();
+      if (!bgTile || bgTile.src !== bgImg) { // the image above its own mirror (`_createMirroredBackgroundTexture`), made once per level
+        const c = document.createElement("canvas"); c.width = bgImg.width; c.height = bgImg.height * 2;
+        const g = c.getContext("2d"); g.drawImage(bgImg, 0, 0); g.translate(0, c.height); g.scale(1, -1); g.drawImage(bgImg, 0, 0);
+        bgTile = c; bgTile.src = bgImg;
       }
+      const tw = bgTile.width, th = bgTile.height;
+      const tx = ((buf[20] % tw) + tw) % tw, ty = ((buf[21] % th) + th) % th; // a TileSprite shows texture pixel (x + tilePositionX, y + tilePositionY) at its (x, y)
+      for (let xx = -tx; xx < W; xx += tw) for (let yy = -ty; yy < H; yy += th) ctx.drawImage(bgTile, xx, yy);
+      const tint = buf[22] & 0xffffff;
+      if (tint !== 0xffffff) { ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = hex(tint); ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = "source-over"; }
     } else { ctx.fillStyle = hex(buf[22]); ctx.fillRect(0, 0, W, H); }
     // level objects (normal layer first, then the player, then the top layer)
     const base = 40 + tiles;
@@ -576,8 +589,13 @@ async function main() {
       if (params.get("pvend") && f === Number(params.get("pvend"))) { window.__pvForceWon = true; w.wd_game_set_end(w.wd_game_scene(0) + 900); } // test hook
       pvStep(1 / 60);
     }
+    if (params.get("bench")) { // ?auto=N&bench=M: milliseconds per frame of the sim, the sprite build, the canvas draw and the UI draw
+      const M = Number(params.get("bench")), T = {}; const tm = (k, fn) => { const t0 = performance.now(); for (let i = 0; i < M; i++) fn(); T[k] = +((performance.now() - t0) / M).toFixed(3); };
+      tm("update", () => w.wd_game_update(1000 / 60, 0)); tm("build", () => w.wd_render_build()); tm("render", () => render()); tm("ui", () => drawUi());
+      window.__bench = "BENCH " + JSON.stringify(T) + " sprites=" + new Float64Array(w.memory.buffer, w.wd_render_ptr(), 3)[2]; console.log(window.__bench);
+    }
     const buf = render();
-    hud.textContent = `frame ${frames}  x=${buf[3].toFixed(0)}  sprites=${buf[2]}`;
+    hud.textContent = `frame ${frames}  x=${buf[3].toFixed(0)}  sprites=${buf[2]} ${window.__bench || ""}`;
     window.__done = true;
     return;
   }
