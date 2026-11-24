@@ -8,7 +8,7 @@ const JUMP = Number(params.get("jump") || 0);
 const WASM = params.get("wasm") || "wd_core.wasm";
 const SHEETS = "../ref/assets/sheets/";
 const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d");
+const ctx = canvas.getContext("2d", { alpha: false }); // opaque: the browser can skip blending the canvas with the page
 const hud = document.getElementById("hud");
 const W = 1138, H = 640;
 
@@ -20,6 +20,7 @@ const loadJson = async (url) => (await fetch(url)).json();
 const loadText = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(url + " " + r.status); return r.text(); };
 
 async function main() {
+  if (params.get("noclip")) { try { const c = JSON.parse(localStorage.getItem("gd_settings") || "{}"); c.noclip = true; localStorage.setItem("gd_settings", JSON.stringify(c)); } catch (e) {} } // test hook for benchmarks
   // ---- wasm ----
   const { instance } = await WebAssembly.instantiateStreaming(fetch(WASM), { env: { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_acos: Math.acos, js_atan: Math.atan, js_atan2: Math.atan2, js_pow: Math.pow, js_random: Math.random } });
   const w = instance.exports;
@@ -154,14 +155,24 @@ async function main() {
     let c = per.get(tint);
     if (c) return c;
     const { x, y, w: fw, h: fh } = fr.d.frame;
+    const paint = (cv) => {
+      const g = cv.getContext("2d");
+      g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, fw, fh);
+      g.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
+      g.globalCompositeOperation = "multiply";
+      g.fillStyle = "#" + (tint & 0xffffff).toString(16).padStart(6, "0");
+      g.fillRect(0, 0, fw, fh);
+      g.globalCompositeOperation = "destination-in";
+      g.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
+    };
+    if (per.size >= 12) { // a colour that fades (or the menu's rainbow): repaint one canvas instead of making a new one every frame
+      let sc = per.scratch;
+      if (!sc) { sc = per.scratch = document.createElement("canvas"); sc.width = fw; sc.height = fh; sc.tint = -2; }
+      if (sc.tint !== tint) { paint(sc); sc.tint = tint; }
+      return sc;
+    }
     c = document.createElement("canvas"); c.width = fw; c.height = fh;
-    const g = c.getContext("2d");
-    g.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
-    g.globalCompositeOperation = "multiply";
-    g.fillStyle = "#" + (tint & 0xffffff).toString(16).padStart(6, "0");
-    g.fillRect(0, 0, fw, fh);
-    g.globalCompositeOperation = "destination-in";
-    g.drawImage(fr.img, x, y, fw, fh, 0, 0, fw, fh);
+    paint(c);
     tintPixels += fw * fh;
     if (tintPixels > 48e6) { // ~190 MB of coloured copies at most; start over
       tintCache = new WeakMap(); tintPixels = fw * fh;
@@ -498,13 +509,13 @@ async function main() {
   // ---- frame ----
   let last = performance.now(), frame = 0, fps = 0, acc = 0;
   // Phaser runs with `resolution: 1` and stretches a 1138x640 canvas with CSS, which blurs the HD art; draw at the size it is shown instead.
-  let pxScale = 1;
+  let pxScale = 1, resCap = 1.5; // resCap: the most device pixels per game pixel; lowered below when the frame rate drops
   const fitCanvas = () => {
-    const s = Number(params.get("pxs")) || Math.min(2, Math.max(0.5, Math.min((innerWidth || W) / W, (innerHeight || H) / H) * (devicePixelRatio || 1)));
+    const s = Number(params.get("pxs")) || Math.min(resCap, Math.max(0.5, Math.min((innerWidth || W) / W, (innerHeight || H) / H) * (devicePixelRatio || 1)));
     const nw = Math.max(1, Math.round(W * s)), nh = Math.max(1, Math.round(H * s));
     if (canvas.width !== nw || canvas.height !== nh) { canvas.width = nw; canvas.height = nh; }
     const [shx, shy] = endfx.shake();
-    pxScale = nw / W; ctx.setTransform(pxScale, 0, 0, pxScale, shx * pxScale, shy * pxScale); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    pxScale = nw / W; ctx.setTransform(pxScale, 0, 0, pxScale, shx * pxScale, shy * pxScale); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "low"; // plain bilinear, as Phaser; "high" costs a lot per image
   };
   const render = () => {
     fitCanvas();
@@ -685,16 +696,24 @@ async function main() {
   }
   const clicks = (params.get("clicks") || "").split(",").filter(Boolean).map(Number);
   let clickIdx = 0, tick = 0; const cpsTimes = []; let cpsHeld = false;
+  let slowWin = 0, hudText = "";
+  const PROF = !!params.get("prof"); let tp = 0; const P = window.__prof = {};
+  const lp = PROF ? (k) => { const n = performance.now(); P[k] = (P[k] ?? 0) * 0.97 + (n - tp) * 0.03; tp = n; } : () => {};
   const loop = (now) => {
+    if (PROF) { tp = performance.now(); P.frame = (P.frame ?? 16) * 0.97 + (now - last) * 0.03; }
     if (clicks.length && ++tick % 6 === 0 && clickIdx < clicks.length) { const x = clicks[clickIdx++], y = clicks[clickIdx++]; w.wd_ui_pointer(0, x, y); w.wd_ui_pointer(2, x, y); }
     const dt = Math.min(100, now - last); last = now;
     w.wd_ui_step(dt);
     if (window.WD_EDITOR_ON) w.wd_ed_frame(dt, edKeys()); else if (!paused) step(dt);
+    lp("step");
     pvStep(paused ? 0 : dt / 1000);
+    lp("pvStep");
     if (!won && endfx.active) endfx.reset();
     if (!paused) endfx.update(dt);
     endfx.portalUpdate(paused ? 0 : dt, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !window.WD_EDITOR_ON && !readSettings().enableLDM);
+    lp("fx");
     const buf = render(); camXUi = buf[0]; camYUi = buf[1];
+    lp("render");
     if (!menuMode && buf[6] && !wasDead) { afx.playEffect("explode_11", { volume: 0.65 * afx.userSfx() }); if (!(practiceOn && !readSettings().practiceMusicSync)) stopSong(); }
     wasDead = !!buf[6];
     if (!menuMode) w.wd_ui_hud_update(Math.max(0, Math.min(100, buf[30] * 100)));
@@ -724,13 +743,17 @@ async function main() {
         }
       }
     }
+    lp("misc");
     endfx.drawFront();
     drawUi();
+    lp("ui");
     if (loadingLevel && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);
     handleUi();
-    frame++; acc += dt; if (acc > 500) { fps = Math.round(frame * 1000 / acc); frame = 0; acc = 0; }
+    lp("hud0"); frame++; acc += dt; if (acc > 500) { fps = Math.round(frame * 1000 / acc); frame = 0; acc = 0; if (!document.hidden && !loadingLevel) { if (fps < 50 && ++slowWin >= 2 && resCap > 1) { resCap = Math.max(1, resCap - 0.25); slowWin = 0; } else if (fps >= 50) slowWin = 0; } }
     { const st = { ...OPT_DEFAULTS, ...readSettings() }; if (held && !cpsHeld) cpsTimes.push(now); cpsHeld = held; while (cpsTimes.length && now - cpsTimes[0] > 1000) cpsTimes.shift();
-      hud.textContent = (menuMode || w.wd_ui_menu_active()) ? "" : [st.noclip ? "Ignore Damage" : "", st.showFPS ? `FPS: ${fps}` : "", st.showCPS ? `${cpsTimes.length} CPS` : "", st.showHitboxes ? "(hitboxes: not drawn yet)" : ""].filter(Boolean).join("\n"); }
+      const ht = (menuMode || w.wd_ui_menu_active()) ? "" : [st.noclip ? "Ignore Damage" : "", st.showFPS ? `FPS: ${fps}` : "", st.showCPS ? `${cpsTimes.length} CPS` : "", st.showHitboxes ? "(hitboxes: not drawn yet)" : ""].filter(Boolean).join("\n");
+      if (ht !== hudText) { hudText = ht; hud.textContent = ht; } } // touching the DOM every frame forces a layout
+    lp("hud");
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
