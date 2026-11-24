@@ -138,7 +138,7 @@ async function main() {
   if (!START_PLAYING) { w.wd_menu_mode(1); w.wd_ui_main_menu(); }
   else { w.wd_ui_start_game(); w.wd_ui_hud(); bump("gd_totalAttempts"); bumpLevel("Attempts"); w.wd_ui_attempt(1, w.wd_game_scene(0)); }
   let menuMode = !START_PLAYING;
-  let paused = false, attempts = 1, practiceOn = false, won = false, winClock = 0, playTime = 0, jumps = 0, wasHeld = false;
+  let paused = false, attempts = 1, practiceOn = false, won = false, winClock = 0, winStarted = false, playTime = 0, jumps = 0, wasHeld = false;
   const MESSAGES = ["Awesome!", "Good\nJob!", "Well\nDone!", "Impressive!", "Amazing!", "Incredible!", "Skillful!", "Brilliant!", "Not\nbad!", "Warp\nSpeed!", "Challenge\nBreaker!", "Reflex\nMaster!", "I am\nspeechless...", "You are...\nThe One!", "How is this\npossible!?", "You beat\nme..."];
   if (params.get("ui") === "select" && menuMode) { w.wd_ui_open_level_select(); const pg = Number(params.get("page") || -1); if (pg >= 0) for (let k = 0; k < pg; k++) w.wd_ui_switch(1); }
   if (params.get("ui") === "settings" && menuMode) { w.wd_ui_set_options(0.6, 1, 1); w.wd_ui_open_settings(); }
@@ -196,6 +196,7 @@ async function main() {
   await pv.init();
   if (window.__garageInit) await window.__garageInit({ w, put });
   const endfx = createEndFx({ ctx, atlas, drawFrame, W });
+  const iconColor = (k, d) => { try { return parseInt(localStorage.getItem(k) || d, 16); } catch (e) { return parseInt(d, 16); } };
   let pvRestart = true, pvHidden = false;
   const pvStep = (dt) => {
     const camX = w.wd_game_scene(0), camY = w.wd_game_scene(1);
@@ -542,7 +543,9 @@ async function main() {
       const fr = frames[buf[o]]; if (!fr) continue;
       drawFrame(fr, buf[o + 1] + ox, buf[o + 2] + oy, buf[o + 3], buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7], buf[o + 8], buf[o + 9]);
     }
+    endfx.drawWall(ox, oy, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !w.wd_ui_menu_active() && !window.WD_EDITOR_ON);
     pv.drawWorld(ox, oy);
+    endfx.drawPortalParticles(ox, oy);
     for (; i < count; i++) {
       const o = base + i * 12;
       const fr = frames[buf[o]] || textFrame(buf[o]); if (!fr) continue;
@@ -671,30 +674,35 @@ async function main() {
     pvStep(paused ? 0 : dt / 1000);
     if (!won && endfx.active) endfx.reset();
     if (!paused) endfx.update(dt);
+    endfx.portalUpdate(paused ? 0 : dt, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !window.WD_EDITOR_ON && !readSettings().enableLDM);
     const buf = render(); camXUi = buf[0]; camYUi = buf[1];
     if (!menuMode && buf[6] && !wasDead) { afx.playEffect("explode_11", { volume: 0.65 * afx.userSfx() }); if (!(practiceOn && !readSettings().practiceMusicSync)) stopSong(); }
     wasDead = !!buf[6];
     if (!menuMode) w.wd_ui_hud_update(Math.max(0, Math.min(100, buf[30] * 100)));
     if (!menuMode && !paused) {
       if (!won) { playTime += dt / 1000; if (held && !wasHeld) jumps++; wasHeld = held; }
-      if (!won && w.wd_game_percent(2)) { // `_levelComplete`: progress is saved at once, the effects and the end layer follow on a timer (endfx.js)
-        won = true; winClock = 0;
-        if (!practiceOn) {
-          w.wd_coins_commit(); flushStorage();
-          try {
-            const lid = "level_" + LEVEL_ID, set = JSON.parse(localStorage.getItem("gd_completedSet") || "[]");
-            if (!set.includes(lid)) { set.push(lid); localStorage.setItem("gd_completedSet", JSON.stringify(set)); localStorage.setItem("gd_completedLevels", String(set.length)); }
-          } catch (e) {}
+      if (!won && w.wd_game_percent(2)) { won = true; winClock = 0; winStarted = false; } // the player starts flying into the end wall
+      // player.js `playEndAnimation` takes 1000 ms; only when it ends (the player has hit the wall) does `_levelComplete` run
+      if (won && !winStarted) {
+        winClock += dt;
+        if (winClock >= 1000) {
+          winStarted = true;
+          if (!practiceOn) {
+            w.wd_coins_commit(); flushStorage();
+            try {
+              const lid = "level_" + LEVEL_ID, set = JSON.parse(localStorage.getItem("gd_completedSet") || "[]");
+              if (!set.includes(lid)) { set.push(lid); localStorage.setItem("gd_completedSet", JSON.stringify(set)); localStorage.setItem("gd_completedLevels", String(set.length)); }
+            } catch (e) {}
+          }
+          afx.playRaw("endStart_02", 0.8 * afx.userSfx());
+          try { localStorage.setItem((practiceOn ? "practiceBestPercent_" : "bestPercent_") + "level_" + LEVEL_ID, "100"); } catch (e) {}
+          endfx.begin({
+            px: w.wd_game_scene(5) - w.wd_game_scene(0), py: 460 - w.wd_game_scene(4) + w.wd_game_scene(1),
+            main: iconColor("iconMainColor", "04FF00"), second: iconColor("iconSecondaryColor", "00FBFF"), ldm: !!readSettings().enableLDM,
+            onText: () => w.wd_ui_banner(practiceOn ? 1 : 0),
+            onEnd: () => { pushEndCoins(); const [p, n] = put(MESSAGES[Math.floor(Math.random() * MESSAGES.length)]); w.wd_ui_end_layer(attempts, jumps, playTime, practiceOn ? 1 : 0, p, n); },
+          });
         }
-        afx.playRaw("endStart_02", 0.8 * afx.userSfx());
-        try { localStorage.setItem((practiceOn ? "practiceBestPercent_" : "bestPercent_") + "level_" + LEVEL_ID, "100"); } catch (e) {}
-        const lsc = (k, d) => { try { return parseInt(localStorage.getItem(k) || d, 16); } catch (e) { return parseInt(d, 16); } };
-        endfx.begin({
-          px: w.wd_game_scene(5) - w.wd_game_scene(0), py: 460 - w.wd_game_scene(4) + w.wd_game_scene(1),
-          main: lsc("iconMainColor", "04FF00"), second: lsc("iconSecondaryColor", "00FBFF"), ldm: !!readSettings().enableLDM,
-          onText: () => w.wd_ui_banner(practiceOn ? 1 : 0),
-          onEnd: () => { pushEndCoins(); const [p, n] = put(MESSAGES[Math.floor(Math.random() * MESSAGES.length)]); w.wd_ui_end_layer(attempts, jumps, playTime, practiceOn ? 1 : 0, p, n); },
-        });
       }
     }
     endfx.drawFront();

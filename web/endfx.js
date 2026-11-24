@@ -51,6 +51,9 @@ export function createEndFx({ ctx, atlas, drawFrame, W }) {
     at(1500, () => onEnd && onEnd());
   };
 
+  // level.js `createEndPortal`: a wall of 16 squares at the end of the level, a light bar in front of it and particles gathering into it
+  let portal = { parts: [], acc: 0 };
+  const sheet = (name) => { const a = atlas["GJ_WebSheet"]; const d = a && a.frames[name]; return d ? { img: a.img, d } : null; };
   const api = {
     get active() { return active; },
     /** `px, py`: the end portal on screen; colours are the player's main / secondary colour */
@@ -61,6 +64,36 @@ export function createEndFx({ ctx, atlas, drawFrame, W }) {
       makeRays(o.px + 60, o.py, o.main);
       shakeUntil = 1950;
       at(1950, showText);
+    },
+    /** the end wall and its shine, in the level layer (`ox, oy` are the camera offsets the level is drawn with) */
+    drawWall(ox, oy, endX, endY, main, on) {
+      if (!on || !(endX > 0)) return;
+      const x = endX + ox; if (x < -200 || x > W + 400) return;
+      const y = T - endY + oy, sqr = sheet("square_02_001.png"), bar = sheet("gradientBar.png");
+      if (sqr) for (let i = 0; i < 16; i++) drawFrame(sqr, x, y + (i - 8) * 60, -Math.PI / 2, 1, 1, 1, -1, 0, 0);
+      if (bar) drawFrame(bar, x - 58, y, 0, 1, 960 / (bar.d.sourceSize ? bar.d.sourceSize.h : 64), 1, main, 1, 0);
+    },
+    portalUpdate(dtMs, endX, endY, main, on) {
+      const P = portal;
+      if (!on || !(endX > 0)) { P.parts.length = 0; P.acc = 0; return; }
+      P.acc += dtMs;
+      while (P.acc >= 10) {
+        P.acc -= 10;
+        if (P.parts.length >= 100) continue;
+        const ang = (85 + Math.random() * 190) * Math.PI / 180, rad = 320 + (Math.random() * 2 - 1) * 80;
+        const dx = Math.cos(ang) * rad, dy = Math.sin(ang) * rad, life = rnd(200, 1000), d = Math.sqrt(dx * dx + dy * dy) || 1, sp = (d - 20) / (life / 1000);
+        P.parts.push({ x: endX - 30 + dx, y: T - endY + dy, vx: -dx / d * sp, vy: -dy / d * sp, age: 0, life });
+      }
+      const s = dtMs / 1000;
+      P.parts = P.parts.filter((p) => { p.age += dtMs; p.x += p.vx * s; p.y += p.vy * s; return p.age < p.life; });
+      P.main = main;
+    },
+    drawPortalParticles(ox, oy) {
+      const fr = sq(); if (!fr || !portal.parts.length) return;
+      for (const p of portal.parts) {
+        const k = p.age / p.life, sc = 0.75 + (0.125 - 0.75) * k;
+        drawFrame(fr, p.x + ox, p.y + oy, 0, sc, sc, 1 - k, portal.main, 1, 0);
+      }
     },
     reset() { t = 0; active = false; o = null; queue = []; circles = []; parts = []; rays = []; emitters = []; shakeUntil = 0; },
     /** camera shake offset (Phaser: a random point in +-intensity * size each frame) */
