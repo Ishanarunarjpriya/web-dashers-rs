@@ -3,25 +3,20 @@
 // asks the servers (through the same proxies the original uses), turns the answers into JSON for it, and starts a downloaded level.
 (() => {
   const E = window.WD_EVENTS, SECRET = "Wmfd2893gb7";
-  const HOSTS = [
-    "https://gd-proxy.webdashers.workers.dev", "https://cold-grass-d871.gn-math-business.workers.dev", "https://webd.ktrio839.workers.dev",
-    "https://webdashers.webdashersdevelopement.workers.dev", "https://fallbackgdproxy.webdashers.workers.dev", "https://fallback2.webdashers.workers.dev",
-  ];
-  let hostIdx = 0;
+  // The proxy of the Geometry Dash web port (its Cloudflare Worker, see "Geometry Dash Webport/server/cloudflare-worker.js"): GET or POST
+  // `<worker>/?url=<target>` is fetched server side and handed back with CORS headers. It only lets boomlings.com, the GD CDN and Newgrounds through.
+  const PROXY = "https://gd-proxy.theblehlollipop.workers.dev/?url=";
+  const GD = "https://www.boomlings.com/database/";
   for (const [n, f] of [["GJ_button02", "GJ_button_02"], ["loadingCircle", "loadingCircle"], ["GJ_square01", "GJ_square01"]]) window.WD_ASSETS.push([n, `../ref/assets/sprites/${f}.png`]);
 
-  // one form POST, trying the next proxy when one is over its limit or down (index.html does the same around `fetch`)
+  // one form POST to a GD server page through the proxy
   const post = async (path, body) => {
-    let last = null;
-    for (let i = 0; i < HOSTS.length; i++) {
-      const k = (hostIdx + i) % HOSTS.length, ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 12000);
-      try {
-        const r = await fetch(`${HOSTS[k]}/${path}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body, signal: ctrl.signal });
-        if (!r.ok) { last = new Error("HTTP " + r.status); continue; }
-        hostIdx = k; return await r.text();
-      } catch (e) { last = e; } finally { clearTimeout(timer); }
-    }
-    throw last || new Error("offline");
+    const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      const r = await fetch(PROXY + GD + path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body, signal: ctrl.signal });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.text();
+    } finally { clearTimeout(timer); }
   };
   const kv = (str, sep) => { const p = str.split(sep), o = {}; for (let i = 0; i + 1 < p.length; i += 2) o[p[i]] = p[i + 1]; return o; };
   const b64 = (s) => { try { return atob((s || "").replace(/-/g, "+").replace(/_/g, "/")); } catch (e) { return ""; } };
@@ -72,6 +67,7 @@
     if (!raw || raw === "-1" || !raw.includes(":")) return null;
     const m = kv(raw.split("#")[0], ":"), c = (m["35"] || "").trim(), custom = c && c !== "0";
     let author = "Unknown", song = custom ? "Song #" + c : officialName(parseInt(m["12"]) || 0);
+    for (const seg of raw.split("#").slice(1)) { const pm = /^\d+:([^:#|]+):\d+$/.exec(seg); if (pm) { author = pm[1]; break; } }
     try { const r = await fetch(`https://gdbrowser.com/api/level/${m["1"] || id}`); if (r.ok) { const j = await r.json(); if (j.author) author = j.author; if (j.songName) song = j.songName; } } catch (e) {}
     return toLevel(m, author, song);
   };
@@ -170,7 +166,7 @@
         if (custom && custom !== "0") {
           const info = await post("getGJSongInfo.php", `songID=${custom}&secret=${SECRET}`);
           const url = decodeURIComponent((info.split("~|~10~|~")[1] || "").split("~|~")[0]);
-          if (url) { const r = await fetch(HOSTS[hostIdx] + "/audio-proxy?url=" + encodeURIComponent(url)); if (r.ok) songData = await r.arrayBuffer(); }
+          if (url) { const r = await fetch(PROXY + url); if (r.ok) songData = await r.arrayBuffer(); }
         } else { const e = allLevels()[official]; if (e) { const r = await fetch(`../ref/assets/music/${e[4] || String(e[1]).replaceAll(" ", "")}.mp3`); if (r.ok) songData = await r.arrayBuffer(); } }
       } catch (e) { console.warn("song", e); }
       await window.__playOnline({ id: String(l.id), name: l.name, text, songData, offset: parseFloat(m["45"] || "0") || 0 });
