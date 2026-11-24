@@ -240,6 +240,7 @@ pub struct Ui {
     pub gar: crate::garage::Gar,
     pub pb: crate::popups_b::PopB,
     pub em: crate::editor_menu::EdMenu,
+    pub on: crate::online::On,
     pub ed: crate::editor_scene::EditorState,
     pub practice: bool,
     pub attempt: u32,
@@ -289,6 +290,7 @@ impl Ui {
     pub fn step(&mut self, dt_ms: f64) {
         self.pa_step(dt_ms);
         self.gar_step(dt_ms);
+        self.on_step(dt_ms);
         self.ls_step(dt_ms);
         self.ufx_step(dt_ms);
         self.pb_step(dt_ms);
@@ -343,6 +345,12 @@ impl Ui {
 
     pub(crate) fn hit_test(&self, x: f64, y: f64) -> Option<usize> {
         let mut best: Option<(f64, usize)> = None;
+        // the visible window of every scroll area: what lies in its content can only be hit inside it
+        let windows: Vec<(usize, f64, f64, f64, f64)> = self.scrolls.iter().filter_map(|sc| {
+            let z = self.get(sc.zone)?; let (ex, ey, esx, esy) = self.eff(sc.zone);
+            let (w, h) = (z.width * esx.abs(), z.height * esy.abs());
+            Some((sc.content, ex - w * z.ox, ey - h * z.oy, w, h))
+        }).collect();
         for (i, n) in self.nodes.iter().enumerate() {
             let Some(n) = n else { continue };
             if !n.interactive || !n.visible { continue; }
@@ -350,7 +358,18 @@ impl Ui {
             let (w, h) = (n.width * esx.abs() * n.hit_scale, n.height * esy.abs() * n.hit_scale);
             let off = self.yoff(n.tag);
             let (l, t) = (ex - w * n.ox, ey + off - h * n.oy);
-            if w > 0.0 && x >= l && x <= l + w && y >= t && y <= t + h && best.map_or(true, |(d, _)| n.depth >= d) { best = Some((n.depth, i)); }
+            if !(w > 0.0 && x >= l && x <= l + w && y >= t && y <= t + h) { continue; }
+            if !windows.is_empty() && n.scroll.is_none() {
+                let mut p = n.parent; let mut hops = 0;
+                while let Some(pi) = p {
+                    if let Some(&(_, wl, wt, ww, wh)) = windows.iter().find(|w| w.0 == pi) { if !(x >= wl && x <= wl + ww && y >= wt && y <= wt + wh) { p = Some(usize::MAX); } break; }
+                    p = self.get(pi).and_then(|q| q.parent); hops += 1; if hops > 6 { break; }
+                }
+                if p == Some(usize::MAX) { continue; }
+            }
+            // a scroll area catches drags, but a button on its content wins a tap: it ranks just below its buttons
+            let rank = if n.scroll.is_some() { n.depth - 0.05 } else { n.depth };
+            if best.map_or(true, |(d, _)| rank >= d) { best = Some((rank, i)); }
         }
         best.map(|b| b.1)
     }
@@ -855,7 +874,7 @@ impl Ui {
             Action::Stats => { self.pb_open("Stats"); }
             Action::Vault => { self.pb_open("Vault"); }
             Action::Creator => { self.pe_open("Creator"); }
-            Action::Pop(name, arg) => { if !self.pa_action(name, arg) && !self.gar_action(name, arg) && !self.pb_action(name, arg) && !self.pe_action(name, arg) { self.ed_action(name, arg); } }
+            Action::Pop(name, arg) => { if !self.pa_action(name, arg) && !self.gar_action(name, arg) && !self.pb_action(name, arg) && !self.pe_action(name, arg) && !self.po_action(name, arg) { self.ed_action(name, arg); } }
             Action::InfoBox(t) => self.open_info(t),
             Action::InfoClose => self.kill_tag("info_"),
             Action::ToggleMenuMusic => {
@@ -991,6 +1010,7 @@ impl Ui {
 
     /// A typed character for the focused number box: digits and '.', backspace (8), enter (13).
     pub fn key_input(&mut self, code: u32) {
+        if self.on.input { self.on_key(code); return; }
         if self.gar.open { self.gar_key(code); return; }
         let Some(i) = self.opt_focus else { return };
         let integer = self.opt_inputs.get(i).map_or(true, |d| d.integer);

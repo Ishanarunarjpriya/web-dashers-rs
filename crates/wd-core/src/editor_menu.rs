@@ -86,7 +86,7 @@ impl Ui {
     /// back to the list after a delete
     pub fn em_after_delete(&mut self) { self.kill_tag("lv_"); self.em.view = None; self.em.input = 0; self.em_open_my_levels(); }
 
-    fn em_gradient(&mut self, depth: f64, tag: &'static str) {
+    pub(crate) fn em_gradient(&mut self, depth: f64, tag: &'static str) {
         let (sw, sh) = (self.screen_width, 640.0);
         let steps = 80;
         for gi in 0..steps {
@@ -99,19 +99,19 @@ impl Ui {
         }
     }
 
-    fn em_fade_in(&mut self, depth: f64, ms: f64, tag: &'static str) {
+    pub(crate) fn em_fade_in(&mut self, depth: f64, ms: f64, tag: &'static str) {
         let f = self.shape(Kind::Rect, 0.0, 0.0, self.screen_width, 640.0, 0, 1.0, depth, tag);
         self.tween_to(f, &[(Prop::Alpha, 0.0)], ms, Ease::Linear, Then::Destroy);
     }
 
-    fn em_blocker(&mut self, depth: f64, tag: &'static str) -> usize {
+    pub(crate) fn em_blocker(&mut self, depth: f64, tag: &'static str) -> usize {
         let sw = self.screen_width;
         let b = self.shape(Kind::Rect, 0.0, 0.0, sw, 640.0, 0, 0.0, depth, tag);
         { let n = self.node(b); n.interactive = true; n.width = sw; n.height = 640.0; }
         b
     }
 
-    fn em_back_arrow(&mut self, action: Action, depth: f64, tag: &'static str) {
+    pub(crate) fn em_back_arrow(&mut self, action: Action, depth: f64, tag: &'static str) {
         let b = self.image("GJ_GameSheet03", "GJ_arrow_03_001.png", 50.0, 48.0, depth, 1.0);
         { let n = self.node(b); n.flip_x = true; n.flip_y = true; n.rot = std::f64::consts::PI; n.tag = tag; }
         self.make_bouncy(b, 1.0, Cond::Always, action);
@@ -149,14 +149,19 @@ impl Ui {
             let action = match *frame {
                 "GJ_createBtn_001.png" => Some(Action::Pop("EmCreate", 0)),
                 // these open server-backed screens in the original (Saved is the list of saved online levels, not the editor's My Levels)
-                "GJ_savedBtn_001.png" | "GJ_dailyBtn_001.png" | "GJ_weeklyBtn_001.png" | "GJ_eventBtn_001.png" | "GJ_searchBtn_001.png" | "GJ_featuredBtn_001.png" => Some(Action::Pop("EmStub", 0)),
+                "GJ_searchBtn_001.png" => Some(Action::Pop("OnSearchOpen", 0)),
+                "GJ_featuredBtn_001.png" => Some(Action::Pop("OnFeatured", 0)),
+                "GJ_savedBtn_001.png" => Some(Action::Pop("OnSaved", 0)),
+                "GJ_dailyBtn_001.png" => Some(Action::Pop("OnDaily", 0)),
+                "GJ_weeklyBtn_001.png" => Some(Action::Pop("OnDaily", 1)),
+                "GJ_eventBtn_001.png" => Some(Action::Pop("OnDaily", 2)),
                 _ => None,
             };
             match action { Some(a) => self.make_bouncy(b, sc, Cond::Always, a), None => self.lock_gray(b) }
         }
     }
 
-    fn get_tag_count(&self, tag: &str) -> usize { self.nodes.iter().flatten().filter(|n| n.tag.starts_with(tag)).count() }
+    pub(crate) fn get_tag_count(&self, tag: &str) -> usize { self.nodes.iter().flatten().filter(|n| n.tag.starts_with(tag)).count() }
 
     // ---- My Levels ----
     pub fn em_open_my_levels(&mut self) {

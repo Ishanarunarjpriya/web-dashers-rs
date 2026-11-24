@@ -7,6 +7,7 @@ pub mod beast;
 pub mod coins;
 pub mod mirror;
 pub mod popups_a;
+pub mod online;
 pub mod macrobot;
 pub mod startpos;
 pub mod garage;
@@ -1249,3 +1250,19 @@ pub extern "C" fn wd_beast_update(delta_ms: f64) { with_game(|g| g.beast_update(
 /// No-clip statistics shown by the HUD: 0 = accuracy (percent), 1 = deaths
 #[no_mangle]
 pub extern "C" fn wd_noclip_stat(which: u32) -> f64 { with_game(|g| if which == 0 { g.p.nc_accuracy } else { g.p.nc_deaths }) }
+
+// ---- online levels (web/online.js) ----
+#[no_mangle]
+pub unsafe extern "C" fn wd_on_results(ptr: *const u8, len: usize, pages: usize) { let j = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.on_set_results(&j, pages)); }
+#[no_mangle]
+pub unsafe extern "C" fn wd_on_error(ptr: *const u8, len: usize) { let j = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.on_set_error(&j)); }
+#[no_mangle]
+pub unsafe extern "C" fn wd_on_special(ptr: *const u8, len: usize) { let j = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.on_set_special(&j)); }
+#[no_mangle]
+pub extern "C" fn wd_on_query() -> usize { out_str(with_ui(|u| u.on_query())) }
+#[no_mangle]
+pub extern "C" fn wd_on_page() -> usize { with_ui(|u| u.on_page()) }
+#[no_mangle]
+pub extern "C" fn wd_on_kind() -> u32 { with_ui(|u| u.on_kind() as u32) }
+#[no_mangle]
+pub extern "C" fn wd_on_close() { with_ui(|u| { u.kill_tag("on_"); u.on.special = None; u.on.input = false; }); }

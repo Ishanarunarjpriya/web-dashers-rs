@@ -95,6 +95,17 @@ async function main() {
   };
   const levels = await (async () => { try { const src = await loadText("../ref/assets/scripts/game/allLevels.js"); const win = {}; new Function("window", src)(win); return win.allLevels || []; } catch (e) { return []; } })();
   let loadingLevel = false;
+  // an online level (web/online.js): the level text was downloaded, start it like a level picked in the level select
+  window.__playOnline = async (info) => {
+    loadingLevel = true; window.__onlineName = info.name;
+    try {
+      afx.stopMusic(); afx.playEffect("playSound_01", { volume: 1 }); w.wd_on_close();
+      window.__songData = info.songData || null; songBuf = null;
+      await ensureAudio(); if (ac && !songBuf && window.__songData) { try { songBuf = await ac.decodeAudioData(window.__songData.slice(0)); } catch (e) { songBuf = null; } }
+      await loadLevelText(info.id, info.text); w.wd_menu_mode(0);
+      loadingLevel = false; startPlaying();
+    } finally { loadingLevel = false; }
+  };
   const loadSong = (id) => {
     const entry = levels.find((l) => l[2] === "level_" + id);
     window.__songData = null; songBuf = null;
@@ -124,6 +135,7 @@ async function main() {
     const [np, nl] = put(name), [fp, fl] = put(fnt); w.wd_ui_font(np, nl, fp, fl);
   }
   const hidden = ["level_22", "level_67"];
+  window.__allLevels = levels;
   const visibleLevels = levels.filter((l) => !hidden.includes(l[2]));
   const pushLevels = (page) => { const [p, l] = put(JSON.stringify(visibleLevels.map((l) => [l[0], l[1], l[2], l[4] || null]))); w.wd_ui_levels(p, l, Math.max(0, page)); };
   pushLevels(visibleLevels.findIndex((l) => l[2] === "level_" + LEVEL));
@@ -443,7 +455,7 @@ async function main() {
     paused = true; if (ac) ac.suspend();
     { let mm = "true"; try { mm = localStorage.getItem("menuMusicEnabled") || "true"; } catch (e) {} w.wd_ui_set_options(afx.userMusic(), afx.userSfx(), mm === "true" ? 1 : 0); } // the volume sliders start at the saved values
     const entry = levels.find((l) => l[2] === "level_" + LEVEL_ID);
-    const [p, n] = put(entry ? entry[1] : "Level");
+    const [p, n] = put(window.__onlineName && /^\d{5,}$/.test(LEVEL_ID) ? window.__onlineName : (entry ? entry[1] : "Level"));
     w.wd_ui_pause(1, p, n, parseFloat(localStorage.getItem("bestPercent_level_" + LEVEL_ID) || "0"), parseFloat(localStorage.getItem("practiceBestPercent_level_" + LEVEL_ID) || "0"));
   };
   const doResume = () => { if (!paused) return; paused = false; w.wd_ui_pause(0, 0, 0, 0, 0); if (ac) ac.resume(); };
