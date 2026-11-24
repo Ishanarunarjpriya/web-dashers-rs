@@ -66,9 +66,9 @@ export async function showLoading(ctx, SHEETS) {
     text(msg, CX, CY + 187, 30);
     sprite(launch, launchImg, "RobTopLogoBig_001.png", CX, CY - 120, 0.8);
     sprite(web, webImg, "GJ_logo_001.png", CX, CY, 1.1);
-    // where the original puts the Phaser logo (230 x 50 px), the Rust logo
-    const rs = Math.min(230 / rust.width, 50 / rust.height);
-    ctx.save(); ctx.translate(W - 123, 610); ctx.scale(rs, rs); ctx.drawImage(rust, -rust.width / 2, -rust.height / 2); ctx.restore();
+    // the Rust logo takes the corner where the original has the Phaser logo
+    const size = 100, rs = size / rust.height;
+    ctx.save(); ctx.translate(W - 30 - size / 2, H - 28 - size / 2); ctx.scale(rs, rs); ctx.drawImage(rust, -rust.width / 2, -rust.height / 2, rust.width, rust.height); ctx.restore();
   };
   const loop = () => { if (!alive) return; draw(); requestAnimationFrame(loop); };
   requestAnimationFrame(loop);
