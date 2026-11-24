@@ -1,6 +1,7 @@
 // Browser front end for the Rust port: the game (simulation, triggers, sprite state) runs in wasm, this file only draws what it hands over.
 import { AudioFx } from "./audio_fx.js";
 import { createEndFx } from "./endfx.js";
+import { createGL } from "./glr.js";
 const params = new URLSearchParams(location.search);
 const LEVEL = params.get("level") || "1";
 const AUTO = params.get("auto");          // "N": play N frames without a keyboard (headless screenshots), jumping every ~JUMP frames
@@ -8,7 +9,10 @@ const JUMP = Number(params.get("jump") || 0);
 const WASM = params.get("wasm") || "wd_core.wasm";
 const SHEETS = "../ref/assets/sheets/";
 const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d", { alpha: false }); // opaque: the browser can skip blending the canvas with the page
+const ctx = canvas.getContext("2d"); // transparent: the level layer is the WebGL canvas behind it
+const gcanvas = document.getElementById("g");
+let GL = null;
+try { if (new URLSearchParams(location.search).get("gl") !== "0") GL = createGL(gcanvas); } catch (e) { console.warn("WebGL unavailable, drawing everything with canvas 2D", e); }
 const hud = document.getElementById("hud");
 const W = 1138, H = 640;
 
@@ -510,9 +514,10 @@ async function main() {
   let last = performance.now(), frame = 0, fps = 0, acc = 0;
   // Like the original (Phaser `resolution: 1`, FIT): the canvas is 1138x640 and the browser stretches it to the window.
   let pxScale = 1;
+  let glShown = true, shk = [0, 0];
   const fitCanvas = () => {
-    const [shx, shy] = endfx.shake();
-    ctx.setTransform(1, 0, 0, 1, shx, shy);
+    shk = endfx.shake();
+    ctx.setTransform(1, 0, 0, 1, shk[0], shk[1]);
   };
   const render = () => {
     fitCanvas();
@@ -521,6 +526,28 @@ async function main() {
     const camX = buf[0], camY = buf[1], count = buf[2] | 0, tiles = buf[18] | 0;
     const shakeX = buf[31] || 0, shakeY = buf[32] || 0;
     pvHidden = !!buf[27];
+    const useGL = !!GL && !(buf[33] > 0); // the editor view still draws with canvas 2D
+    if (glShown !== useGL) { glShown = useGL; gcanvas.style.visibility = useGL ? "visible" : "hidden"; }
+    if (useGL) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.restore(); }
+    // background
+    if (useGL) {
+      GL.begin(shk[0], shk[1]);
+      if (bgImg) { // the image over its own mirror, tiled (a TileSprite); the tint is a vertex colour
+        const tw = bgImg.width, ih = bgImg.height, th = ih * 2, tint = buf[22] & 0xffffff;
+        const tx = ((buf[20] % tw) + tw) % tw, ty = ((buf[21] % th) + th) % th;
+        for (let xx = -tx; xx < W; xx += tw) for (let yy = -ty; yy < H; yy += th) { GL.image(bgImg, xx, yy, tw, ih, tint, false); GL.image(bgImg, xx, yy + ih, tw, ih, tint, true); }
+      } else GL.quad([0, 0, W, 0, W, H, 0, H], buf[22], 1, false);
+      endfx.drawBack(GL);
+      const base0 = 40 + tiles, ox0 = -camX + shakeX, oy0 = camY + shakeY;
+      for (let k = 0; k < count; k++) {
+        const o = base0 + k * 12;
+        if (buf[o + 10] === 1) break;
+        const fr = frames[buf[o]]; if (!fr) continue;
+        GL.frame(fr, buf[o + 1] + ox0, buf[o + 2] + oy0, buf[o + 3], buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7], buf[o + 8], buf[o + 9]);
+      }
+      endfx.drawWall(ox0, oy0, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !w.wd_ui_menu_active() && !window.WD_EDITOR_ON, GL.frame);
+      GL.end();
+    } else {
     // background
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     if (bgImg) {
@@ -537,6 +564,7 @@ async function main() {
       if (tint !== 0xffffff) { ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = hex(tint); ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = "source-over"; }
     } else { ctx.fillStyle = hex(buf[22]); ctx.fillRect(0, 0, W, H); }
     endfx.drawBack();
+    }
     // level objects (normal layer first, then the player, then the top layer)
     const base = 40 + tiles;
     snapOn = !(buf[33] > 0);
@@ -566,10 +594,11 @@ async function main() {
     for (; i < count; i++) {
       const o = base + i * 12;
       if (buf[o + 10] === 1) break;
+      if (useGL) continue;
       const fr = frames[buf[o]]; if (!fr) continue;
       drawFrame(fr, buf[o + 1] + ox, buf[o + 2] + oy, buf[o + 3], buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7], buf[o + 8], buf[o + 9]);
     }
-    endfx.drawWall(ox, oy, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !w.wd_ui_menu_active() && !window.WD_EDITOR_ON);
+    if (!useGL) endfx.drawWall(ox, oy, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !w.wd_ui_menu_active() && !window.WD_EDITOR_ON);
     pv.drawWorld(ox, oy);
     endfx.drawPortalParticles(ox, oy);
     for (; i < count; i++) {
@@ -744,6 +773,7 @@ async function main() {
     endfx.drawFront();
     drawUi();
     lp("ui");
+    if (PROF && params.get("prof") === "2") { ctx.getImageData(0, 0, 1, 1); lp("flush"); } // forces the queued drawing to finish, so its cost shows up
     if (loadingLevel && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);
     handleUi();
     lp("hud0"); frame++; acc += dt; if (acc > 500) { fps = Math.round(frame * 1000 / acc); frame = 0; acc = 0; }

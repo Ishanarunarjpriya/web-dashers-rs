@@ -66,12 +66,12 @@ export function createEndFx({ ctx, atlas, drawFrame, W }) {
       at(1950, showText);
     },
     /** the end wall and its shine, in the level layer (`ox, oy` are the camera offsets the level is drawn with) */
-    drawWall(ox, oy, endX, endY, main, on) {
+    drawWall(ox, oy, endX, endY, main, on, draw = drawFrame) {
       if (!on || !(endX > 0)) return;
       const x = endX + ox; if (x < -200 || x > W + 400) return;
       const y = T - endY + oy, sqr = sheet("square_02_001.png"), bar = sheet("gradientBar.png");
-      if (sqr) for (let i = 0; i < 16; i++) drawFrame(sqr, x, y + (i - 8) * 60, -Math.PI / 2, 1, 1, 1, -1, 0, 0);
-      if (bar) drawFrame(bar, x - 58, y, 0, 1, 960 / (bar.d.sourceSize ? bar.d.sourceSize.h : 64), 1, main, 1, 0);
+      if (sqr) for (let i = 0; i < 16; i++) draw(sqr, x, y + (i - 8) * 60, -Math.PI / 2, 1, 1, 1, -1, 0, 0);
+      if (bar) draw(bar, x - 58, y, 0, 1, 960 / (bar.d.sourceSize ? bar.d.sourceSize.h : 64), 1, main, 1, 0);
     },
     portalUpdate(dtMs, endX, endY, main, on) {
       const P = portal;
@@ -124,12 +124,17 @@ export function createEndFx({ ctx, atlas, drawFrame, W }) {
       if (!queue.length && !circles.length && !parts.length && !rays.length && !emitters.length && t > 3600) active = false;
     },
     /** the light rays (depth -1: behind the level) */
-    drawBack() {
+    drawBack(g) {
       if (!active) return;
       for (const r of rays) {
         if (r.delay > 0) continue;
         const k = Math.min(1, (r.age || 0) / r.dur), e = quadOut(k), h = 1 + (r.len - 1) * e, w = 2 + (r.w1 - 2) * e, w0 = 2 + (w - 2) / 4;
         const al = r.fade >= 0 && r.fadeDelay <= 0 ? r.alpha * (1 - Math.min(1, r.fade / r.fadeDur)) : r.alpha;
+        if (g) { // WebGL: the four corners of the beam
+          const a = r.angle * Math.PI / 180, co = Math.cos(a), si = Math.sin(a), pts = [];
+          for (const [lx, ly] of [[-w0 / 2, 0], [w0 / 2, 0], [w / 2, h], [-w / 2, h]]) pts.push(r.x + lx * co - ly * si, r.y + lx * si + ly * co);
+          g.quad(pts, r.color, al, true); continue;
+        }
         ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = al; ctx.fillStyle = hex(r.color);
         ctx.translate(r.x, r.y); ctx.rotate(r.angle * Math.PI / 180);
         ctx.beginPath(); ctx.moveTo(-w0 / 2, 0); ctx.lineTo(w0 / 2, 0); ctx.lineTo(w / 2, h); ctx.lineTo(-w / 2, h); ctx.closePath(); ctx.fill();

@@ -41,6 +41,8 @@ pub struct Fx {
     /// `_sectionContainers.length`
     pub container_len: u64,
     pub emitters: Vec<usize>,
+    /// sprites of the top layer (they are drawn whatever section they are in)
+    pub top_sprites: Vec<usize>,
     pub lists: crate::visual::SpriteLists,
     /// the frames each animated sprite cycles through, as indices into `frames` (None = no such texture)
     pub anim_frames: BTreeMap<usize, Vec<Option<u32>>>,
@@ -165,6 +167,7 @@ impl Game {
         fx.visible_by_channel = None;
         fx.watch.clear();
         fx.index_built = false;
+        fx.top_sprites = sprites.iter().enumerate().filter(|(_, s)| s.num("_eeLayer") == Some(2.0)).map(|(i, _)| i).collect();
         fx.sprites = sprites;
         fx.sections = sections;
         fx.sections_len = sections_len;
@@ -827,8 +830,18 @@ impl Game {
         let mut order: Vec<(u8, f64, f64, usize)> = Vec::new();
         // the main menu hides the level's containers (game-scene.js: `container.setVisible(false)`): only background and ground show
         let hidden = self.fx.menu_mode && !self.fx.editor_mode;
-        for si in 0..self.fx.sprites.len() {
-            if hidden { break; }
+        // the sprites that can be drawn: those of the visible sections plus the top layer (the editor shows everything)
+        let cand: Vec<usize> = if self.fx.editor_mode { (0..self.fx.sprites.len()).collect() } else if hidden { Vec::new() } else {
+            let mut c: Vec<usize> = Vec::new();
+            if self.fx.vis_min >= 0 {
+                for sec in self.fx.vis_min..=self.fx.vis_max {
+                    if let Some(l) = self.fx.sections.get(&(sec as u64)) { c.extend(l.iter().copied().filter(|&si| self.fx.sprites[si].num("_eeLayer") != Some(2.0))); }
+                }
+            }
+            c.extend(self.fx.top_sprites.iter().copied());
+            c
+        };
+        for si in cand {
             let s = &self.fx.sprites[si];
             if !s.visible || s.alpha <= 0.0 || s.flag("_isEmitter") { continue; }
             let layer = s.num("_eeLayer").unwrap_or(1.0);
@@ -841,7 +854,7 @@ impl Game {
             }
             order.push((top as u8, self.sprite_depth(si), s.num("_eeSpawnOrder").unwrap_or(0.0), si));
         }
-        order.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)).then(a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal)));
+        order.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)).then(a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal)).then(a.3.cmp(&b.3))); // ties keep sprite order, as the stable sort over all sprites did
         let gf = self.fx.ground_frame.clone();
         let mut buf = std::mem::take(&mut self.fx.render_buf);
         buf.clear();

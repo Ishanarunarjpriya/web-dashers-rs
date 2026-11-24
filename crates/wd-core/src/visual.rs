@@ -32,12 +32,47 @@ pub struct Sprite {
     pub flip_y: bool,
     pub tint: Option<f64>,
     pub blend: i32,
-    pub props: BTreeMap<&'static str, Val>,
+    pub props: Props,
+}
+
+/// Property bag of a sprite. A sorted map of string keys spent a third of the frame in `memcmp`; this keeps a hash with each key, so a lookup
+/// compares numbers and only touches the text of the one entry that matches. `iter` still goes in key order, as the map did.
+#[derive(Clone, Debug, Default)]
+pub struct Props(Vec<(u64, &'static str, Val)>);
+
+#[inline]
+fn key_hash(k: &str) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for b in k.bytes() { h = (h ^ b as u64).wrapping_mul(0x100000001b3); }
+    h
+}
+
+impl Props {
+    #[inline]
+    pub fn get(&self, k: &str) -> Option<&Val> {
+        let h = key_hash(k);
+        self.0.iter().find(|e| e.0 == h && e.1 == k).map(|e| &e.2)
+    }
+    pub fn contains_key(&self, k: &str) -> bool { self.get(k).is_some() }
+    pub fn insert(&mut self, k: &'static str, v: Val) {
+        let h = key_hash(k);
+        match self.0.iter_mut().find(|e| e.0 == h && e.1 == k) { Some(e) => e.2 = v, None => self.0.push((h, k, v)) }
+    }
+    pub fn remove(&mut self, k: &str) {
+        let h = key_hash(k);
+        if let Some(i) = self.0.iter().position(|e| e.0 == h && e.1 == k) { self.0.remove(i); }
+    }
+    /// (key, value) in key order
+    pub fn iter(&self) -> Vec<(&'static str, &Val)> {
+        let mut v: Vec<(&'static str, &Val)> = self.0.iter().map(|e| (e.1, &e.2)).collect();
+        v.sort_by(|a, b| a.0.cmp(b.0));
+        v
+    }
 }
 
 impl Sprite {
     pub fn new(atlas: &str, frame: &str, x: f64, y: f64) -> Sprite {
-        Sprite { atlas: atlas.into(), frame: frame.into(), x, y, rotation: 0.0, scale_x: 1.0, scale_y: 1.0, alpha: 1.0, visible: true, active: true, flip_x: false, flip_y: false, tint: None, blend: 0, props: BTreeMap::new() }
+        Sprite { atlas: atlas.into(), frame: frame.into(), x, y, rotation: 0.0, scale_x: 1.0, scale_y: 1.0, alpha: 1.0, visible: true, active: true, flip_x: false, flip_y: false, tint: None, blend: 0, props: Props::default() }
     }
     pub fn num(&self, k: &str) -> Option<f64> { match self.props.get(k) { Some(Val::Num(n)) => Some(*n), _ => None } }
     pub fn flag(&self, k: &str) -> bool { matches!(self.props.get(k), Some(Val::Bool(true))) }
@@ -1049,7 +1084,7 @@ impl<'a> Builder<'a> {
 pub fn sprites_json(sprites: &[Sprite]) -> String {
     let items: Vec<String> = sprites.iter().map(|s| {
         let mut props = String::new();
-        for (k, v) in &s.props {
+        for (k, v) in s.props.iter() {
             let val = match v { Val::Num(n) => num(*n), Val::Bool(b) => b.to_string(), Val::Str(t) => str_lit(t), Val::Arr(a) => format!("[{}]", a.iter().map(|x| num(*x)).collect::<Vec<_>>().join(",")), Val::List(l) => format!("[{}]", l.iter().map(|x| str_lit(x)).collect::<Vec<_>>().join(",")) };
             props.push_str(&format!(",{}:{}", str_lit(k), val));
         }
