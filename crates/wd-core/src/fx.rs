@@ -20,6 +20,7 @@ pub struct Fx {
     pub sections: BTreeMap<u64, Vec<usize>>,
     /// `_sections.length` (a JS array: only indices below 2^32 - 1 extend it)
     pub sections_len: u64,
+    pub top_sprites: Vec<usize>,
     pub group_sprites: BTreeMap<i64, Vec<usize>>,
     /// per sprite: the unique positive group ids (`_getObjectGroupIds`)
     pub ids: Vec<Vec<i64>>,
@@ -167,6 +168,7 @@ impl Game {
         fx.index_built = false;
         fx.sprites = sprites;
         fx.sections = sections;
+        fx.top_sprites = (0..fx.sprites.len()).filter(|&i| fx.sprites[i].num("_eeLayer") == Some(2.0)).collect();
         fx.sections_len = sections_len;
         fx.group_sprites = group_sprites;
         fx.ids = ids;
@@ -827,8 +829,17 @@ impl Game {
         let mut order: Vec<(u8, f64, f64, usize)> = Vec::new();
         // the main menu hides the level's containers (game-scene.js: `container.setVisible(false)`): only background and ground show
         let hidden = self.fx.menu_mode && !self.fx.editor_mode;
-        for si in 0..self.fx.sprites.len() {
-            if hidden { break; }
+        let cands: Vec<usize> = if hidden { Vec::new() } else if self.fx.editor_mode { (0..self.fx.sprites.len()).collect() } else {
+            let mut c = self.fx.top_sprites.clone();
+            if self.fx.vis_min >= 0 && self.fx.vis_max >= self.fx.vis_min {
+                for (_, list) in self.fx.sections.range(self.fx.vis_min as u64..=self.fx.vis_max.max(0) as u64) {
+                    c.extend(list.iter().copied().filter(|&si| self.fx.sprites[si].num("_eeLayer") != Some(2.0)));
+                }
+            }
+            c.sort_unstable();
+            c
+        };
+        for si in cands {
             let s = &self.fx.sprites[si];
             if !s.visible || s.alpha <= 0.0 || s.flag("_isEmitter") { continue; }
             let layer = s.num("_eeLayer").unwrap_or(1.0);
