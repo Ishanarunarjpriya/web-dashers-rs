@@ -757,7 +757,7 @@ impl Ui {
 
     // ---- pause overlay (`_buildPauseOverlay`) ----
     /// game-scene.js `_applyLockedGray`: greyscale plus the tint 0xafafaf
-    pub fn lock_gray(&mut self, i: usize) { let n = self.node(i); n.gray = true; n.tint = 0xafafaf; }
+    pub fn lock_gray(&mut self, i: usize) { let n = self.node(i); n.gray = true; n.tint = 0xafafaf; if matches!(n.kind, Kind::Text) { n.color = 0xafafaf; } }
 
     pub fn open_pause(&mut self) {
         if self.paused { return; }

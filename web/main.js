@@ -371,12 +371,16 @@ async function main() {
       } else if (kind === 2) { ctx.fillStyle = hex(ub[o + 14]); ctx.fillRect(ub[o + 1], ub[o + 2], ub[o + 12], ub[o + 13]); }
       else if (kind === 3) { ctx.fillStyle = hex(ub[o + 14]); ctx.beginPath(); ctx.roundRect(ub[o + 1], ub[o + 2], ub[o + 12], ub[o + 13], ub[o + 15]); ctx.fill(); }
       else if (kind === 5) {
-        const img = standalone[texts[ub[o + 11]]];
+        const key = texts[ub[o + 11]], slash = key.indexOf("/");
+        let img = null, fx = 0, fy = 0, iw = 0, ih = 0;
+        if (slash > 0) { const at = atlas[key.slice(0, slash)], d = at && at.frames[key.slice(slash + 1)]; if (d) { img = at.img; fx = d.frame.x; fy = d.frame.y; iw = d.frame.w; ih = d.frame.h; } } // a frame of an atlas
+        else { img = standalone[key]; if (img) { iw = img.width; ih = img.height; } }
         if (img) {
           const x0 = ub[o + 1], y0 = ub[o + 2], W2 = ub[o + 12], H2 = ub[o + 13], b = ub[o + 15], tint = ub[o + 14];
-          const src = tint >= 0 && tint !== 0xffffff ? tinted({ img, d: { frame: { x: 0, y: 0, w: img.width, h: img.height } } }, tint) : img;
-          const iw = img.width, ih = img.height;
-          const xs = [0, b, iw - b, iw], ys = [0, b, ih - b, ih];
+          const grayN = !!(ub[o + 8] & 16), prep = grayN || (tint >= 0 && tint !== 0xffffff); // greyscale nodes and tinted ones are drawn from a prepared copy of the frame
+          const src = grayN ? grayTinted({ img, d: { frame: { x: fx, y: fy, w: iw, h: ih } } }, tint) : prep ? tinted({ img, d: { frame: { x: fx, y: fy, w: iw, h: ih } } }, tint) : img;
+          const sx0 = prep ? 0 : fx, sy0 = prep ? 0 : fy;
+          const xs = [sx0, sx0 + b, sx0 + iw - b, sx0 + iw], ys = [sy0, sy0 + b, sy0 + ih - b, sy0 + ih];
           const xd = [x0, x0 + b, x0 + W2 - b, x0 + W2].map(snapPx), yd = [y0, y0 + b, y0 + H2 - b, y0 + H2].map(snapPx);
           for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) ctx.drawImage(src, xs[i], ys[j], xs[i + 1] - xs[i], ys[j + 1] - ys[j], xd[i], yd[j], xd[i + 1] - xd[i], yd[j + 1] - yd[j]);
         }

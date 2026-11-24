@@ -1253,7 +1253,7 @@ pub extern "C" fn wd_noclip_stat(which: u32) -> f64 { with_game(|g| if which == 
 
 // ---- online levels (web/online.js) ----
 #[no_mangle]
-pub unsafe extern "C" fn wd_on_results(ptr: *const u8, len: usize, pages: usize) { let j = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.on_set_results(&j, pages)); }
+pub unsafe extern "C" fn wd_on_results(ptr: *const u8, len: usize, total: f64, offset: f64, count: f64) { let j = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.on_set_results(&j, total as i64, offset as i64, count as i64)); }
 #[no_mangle]
 pub unsafe extern "C" fn wd_on_error(ptr: *const u8, len: usize) { let j = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.on_set_error(&j)); }
 #[no_mangle]
@@ -1266,3 +1266,5 @@ pub extern "C" fn wd_on_page() -> usize { with_ui(|u| u.on_page()) }
 pub extern "C" fn wd_on_kind() -> u32 { with_ui(|u| u.on_kind() as u32) }
 #[no_mangle]
 pub extern "C" fn wd_on_close() { with_ui(|u| { u.kill_tag("on_"); u.on.special = None; u.on.input = false; }); }
+#[no_mangle]
+pub extern "C" fn wd_on_diff() -> usize { out_str(with_ui(|u| u.on_diff_param())) }
