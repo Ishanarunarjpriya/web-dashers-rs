@@ -369,6 +369,19 @@ impl<'a> Sim<'a> {
         self.p.rotation = slerp2d(self.p.rotation, target, t);
     }
 
+    /// player.js `updateShipRotation(delta)`: the ship turns towards the direction it moved in this frame (`delta` in 60 Hz frames)
+    pub fn update_ship_rotation(&mut self, delta: f64) {
+        let dy = -(self.p.y - self.p.last_y);
+        let one = speed_portal::ONE_TIMES;
+        let active = if self.g.player_speed.is_finite() { self.g.player_speed } else { one };
+        let dx = delta * 10.3860036 * (active / one);
+        if dx * dx + dy * dy >= delta * 0.6 {
+            let target = m::atan2(dy, dx);
+            let t = (delta * 1.0).min(0.15 * delta);
+            self.p.rotation = slerp2d(self.p.rotation, target, t);
+        }
+    }
+
     pub(crate) fn orb_touching(&self, require_unconsumed: bool) -> bool {
         if require_unconsumed && self.p.orb_activation_consumed_for_press { return false; }
         self.e.orb_touch

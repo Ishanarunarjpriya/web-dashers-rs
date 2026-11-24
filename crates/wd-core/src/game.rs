@@ -824,6 +824,8 @@ impl Game {
         let pos = crate::triggers::Pos { player_x: self.e.player_world_x, player_y: self.p.y, camera_x: self.camera_x, camera_y: self.camera_y };
         let dual_alive = self.e.is_dual && !self.p2.is_dead;
         let input = crate::triggers::Input { p1_hold: self.p.up_key_down, p1_press: self.p.up_key_pressed, p2_hold: dual_alive && self.p2.up_key_down, p2_press: dual_alive && self.p2.up_key_pressed };
+        if self.p.is_flying { self.sim_for(false, |s| s.update_ship_rotation(q)); }
+        if self.e.is_dual && self.p2.is_flying && !self.p2.is_dead { self.sim_for(true, |s| s.update_ship_rotation(q)); }
         self.trigger_frame(pos, if dual_alive { Some(self.p2.y) } else { None }, delta_ms / 1000.0, input);
         if self.mirror.enabled { self.step_mirror(delta_ms / 1000.0); }
         false

@@ -453,7 +453,7 @@ impl Ui {
         self.pb.kb_ph = ph_t; self.pb.kb_typed = typed; self.pb.kb_cursor = cur;
         self.pb.kb_search_ui = ui;
         let opt = self.pb_image(root, tag, d, "GJ_GameSheet03", "GJ_optionsBtn02_001.png", pw / 2.0 - 45.0, tab_y, 0.8);
-        self.node(opt).tint = 0xafafaf;
+        self.lock_gray(opt);
         let th = self.pb_rect(root, tag, d + 0.2, Kind::Rect, list_w / 2.0 - 4.0, list_top, 7.0, 30.0, 0xffffff, 0.45, 0.0);
         { let n = self.node(th); n.ox = 0.5; n.oy = 0.0; }
         self.pb.kb_thumb = th;

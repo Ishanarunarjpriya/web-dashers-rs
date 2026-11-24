@@ -127,7 +127,7 @@ impl Ui {
         let back = self.image("GJ_GameSheet03", "GJ_arrow_03_001.png", 50.0, 48.0, 104.0, 1.0);
         self.make_bouncy(back, 1.0, Cond::Always, Action::Pop("GarageClose", 0)); self.node(back).tag = "gar_ui";
         let shards = self.image("GJ_GameSheet03", "GJ_shardsBtn_001.png", 60.0, 165.0, 104.0, 1.0);
-        { let n = self.node(shards); n.tint = 0xafafaf; n.tag = "gar_ui"; }
+        self.node(shards).tag = "gar_ui"; self.lock_gray(shards);
         // fading line under the preview
         let (line_y, pad) = (210.0, 230.0);
         let (ls, le) = (pad, sw - pad);

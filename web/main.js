@@ -191,6 +191,22 @@ async function main() {
   };
   let snapOn = false;
   const snapPx = (v) => Math.round(v * pxScale) / pxScale;
+  // Phaser's ColorMatrix grayscale(1) is saturate(-1): every channel becomes the average of r, g and b; then the tint multiplies
+  const grayCache = new WeakMap();
+  const grayTinted = (fr, tint) => {
+    let by = grayCache.get(fr.img); if (!by) grayCache.set(fr.img, by = new Map());
+    const f = fr.d.frame, key = ((f.x * 8192 + f.y) * 8192 + f.w) * 8192 + f.h + ":" + tint;
+    let c = by.get(key); if (c) return c;
+    c = document.createElement("canvas"); c.width = f.w; c.height = f.h;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(fr.img, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+    const im = g.getImageData(0, 0, f.w, f.h), px = im.data;
+    const tr = tint >= 0 ? ((tint >> 16) & 255) / 255 : 1, tg = tint >= 0 ? ((tint >> 8) & 255) / 255 : 1, tb = tint >= 0 ? (tint & 255) / 255 : 1;
+    for (let i = 0; i < px.length; i += 4) { const a = (px[i] + px[i + 1] + px[i + 2]) / 3; px[i] = a * tr; px[i + 1] = a * tg; px[i + 2] = a * tb; }
+    g.putImageData(im, 0, 0);
+    by.set(key, c);
+    return c;
+  };
   const hex = (n) => "#" + (n & 0xffffff).toString(16).padStart(6, "0");
   const drawFrame = (fr, x, y, rot, sx, sy, alpha, tint, blend, flips) => {
     const d = fr.d, f = d.frame;
@@ -326,6 +342,7 @@ async function main() {
           const tint = ub[o + 7], crop = ub[o + 12];
           const cw = crop > 0 ? Math.min(crop, d.frame.w) : d.frame.w;
           if (crop > d.frame.w && a === "") { for (let tx2 = 0; tx2 < crop; tx2 += d.frame.w) { const pw = Math.min(d.frame.w, crop - tx2); ctx.drawImage(img, 0, 0, pw, d.frame.h, dx + tx2, dy, pw, d.frame.h); } }
+          else if (fl & 16) { const tc = grayTinted(fr, tint); ctx.drawImage(tc, 0, 0, cw, d.frame.h, dx, dy, cw, d.frame.h); }
           else if (tint >= 0 && tint !== 0xffffff) { const tc = tinted(fr, tint); ctx.drawImage(tc, 0, 0, cw, d.frame.h, dx, dy, cw, d.frame.h); }
           else ctx.drawImage(img, d.frame.x, d.frame.y, cw, d.frame.h, dx, dy, cw, d.frame.h);
         }

@@ -131,7 +131,7 @@ impl Ui {
         let vault = self.image("GJ_GameSheet03", "GJ_lock_open_001.png", 1095.0, 40.0, 104.0, 1.0);
         self.node(vault).tag = "cm_"; self.make_bouncy(vault, 1.0, Cond::Always, Action::Popup("SecretVault"));
         let door = self.image("GJ_GameSheet03", "secretDoorBtn_closed_001.png", 1095.0, 601.0, 104.0, 1.0);
-        { let n = self.node(door); n.tag = "cm_"; n.tint = 0x8a8a8a; }
+        self.node(door).tag = "cm_"; self.lock_gray(door);
         self.em_back_arrow(Action::Pop("EmBack", 0), 104.0, "cm_");
         let buttons = ["GJ_createBtn_001.png", "GJ_savedBtn_001.png", "GJ_highscoreBtn_001.png", "GJ_challengeBtn_001.png", "GJ_versusBtn_001.png", "GJ_mapBtn_001.png", "GJ_dailyBtn_001.png",
             "GJ_weeklyBtn_001.png", "GJ_eventBtn_001.png", "GJ_gauntletsBtn_001.png", "GJ_featuredBtn_001.png", "GJ_listsBtn_001.png", "GJ_pathsBtn_001.png", "GJ_mapPacksBtn_001.png", "GJ_searchBtn_001.png"];
@@ -152,7 +152,7 @@ impl Ui {
                 "GJ_savedBtn_001.png" | "GJ_dailyBtn_001.png" | "GJ_weeklyBtn_001.png" | "GJ_eventBtn_001.png" | "GJ_searchBtn_001.png" | "GJ_featuredBtn_001.png" => Some(Action::Pop("EmStub", 0)),
                 _ => None,
             };
-            match action { Some(a) => self.make_bouncy(b, sc, Cond::Always, a), None => self.node(b).tint = 0xafafaf }
+            match action { Some(a) => self.make_bouncy(b, sc, Cond::Always, a), None => self.lock_gray(b) }
         }
     }
 
@@ -223,7 +223,7 @@ impl Ui {
         self.make_bouncy(new, 0.95, Cond::Always, Action::Pop("EmNew", 0));
         let imp = self.image("GJ_GameSheet04", "GJ_importBtn_001.png", 50.0, sh - 55.0 - 90.0, 107.0, 0.95); self.node(imp).tag = "my_";
         self.make_bouncy(imp, 0.95, Cond::Always, Action::Pop("EmImport", 0));
-        let up = self.image("GJ_GameSheet03", "GJ_myServerBtn_001.png", 60.0, sh - 60.0, 107.0, 0.95); { let n = self.node(up); n.tag = "my_"; n.tint = 0xafafaf; }
+        let up = self.image("GJ_GameSheet03", "GJ_myServerBtn_001.png", 60.0, sh - 60.0, 107.0, 0.95); self.node(up).tag = "my_"; self.lock_gray(up);
         self.em_back_arrow(Action::Pop("EmMyBack", 0), 107.0, "my_");
     }
 

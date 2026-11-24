@@ -27,6 +27,8 @@ pub struct Node {
     pub flip_x: bool, pub flip_y: bool,
     pub tint: i64,
     pub additive: bool,
+    /// Phaser `postFX.addColorMatrix().grayscale(1)`: drawn in grey (each channel the average of the three), then tinted
+    pub gray: bool,
     pub color: i64,
     pub w: f64, pub h: f64, pub radius: f64,
     pub width: f64, pub height: f64,   // texture frame size (image) — what Phaser calls `.width/.height`
@@ -51,7 +53,7 @@ pub struct Node {
 impl Node {
     pub(crate) fn new(kind: Kind) -> Node {
         Node { kind, atlas: String::new(), frame: String::new(), text: String::new(), font: String::new(), font_size: 0.0, x: 0.0, y: 0.0, sx: 1.0, sy: 1.0, rot: 0.0, alpha: 1.0, depth: 0.0,
-            visible: true, ox: 0.5, oy: 0.5, flip_x: false, flip_y: false, tint: -1, additive: false, color: 0xffffff, w: 0.0, h: 0.0, radius: 0.0, width: 0.0, height: 0.0,
+            visible: true, ox: 0.5, oy: 0.5, flip_x: false, flip_y: false, tint: -1, additive: false, gray: false, color: 0xffffff, w: 0.0, h: 0.0, radius: 0.0, width: 0.0, height: 0.0,
             interactive: false, hit_scale: 1.0, bouncy: None, pressed: false, action: Action::None, tag: "", crop_w: 0.0, world: false, parent: None, drag: None, scroll: None }
     }
 }
@@ -646,7 +648,7 @@ impl Ui {
         for (frame, x, action, tag) in [("GJ_optionsBtn_001.png", centre_x + 92.0, Action::Settings, "settings"), ("GJ_statsBtn_001.png", centre_x + 202.0, Action::Stats, "stats"),
                                         ("GJ_achBtn_001.png", centre_x - 19.0, Action::None, "ach"), ("GJ_ngBtn_001.png", centre_x + 312.0, Action::Popup("Newgrounds"), "ng")] {
             let i = self.image("GJ_GameSheet03", frame, x, 550.0, 30.0, 1.0);
-            if tag == "ach" { self.node(i).tint = 0x808080; }
+            if tag == "ach" { self.lock_gray(i); }
             self.make_bouncy(i, 1.0, Cond::MenuActive, action); self.node(i).tag = tag;
         }
         let play = self.image("GJ_GameSheet04", "GJ_playBtn_001.png", sw / 2.0, 320.0, 30.0, 1.0);
@@ -735,6 +737,9 @@ impl Ui {
     }
 
     // ---- pause overlay (`_buildPauseOverlay`) ----
+    /// game-scene.js `_applyLockedGray`: greyscale plus the tint 0xafafaf
+    pub fn lock_gray(&mut self, i: usize) { let n = self.node(i); n.gray = true; n.tint = 0xafafaf; }
+
     pub fn open_pause(&mut self) {
         if self.paused { return; }
         self.paused = true;
@@ -1239,7 +1244,7 @@ impl Ui {
             if matches!(n.kind, Kind::Nine | Kind::Rect | Kind::RoundRect | Kind::Clip) && n.parent.is_some() { ew *= esx; eh *= esy; er *= esx; ex -= ew * n.ox; ey -= eh * n.oy; esx = 1.0; esy = 1.0; }
             self.buf.extend_from_slice(&[
                 match n.kind { Kind::Image => 0.0, Kind::Text => 1.0, Kind::Rect => 2.0, Kind::RoundRect => 3.0, Kind::Circle => 4.0, Kind::Nine => 5.0, Kind::Clip => 6.0, Kind::ClipEnd => 7.0 },
-                ex, ey + yoff, esx, esy, n.rot, n.alpha, n.tint as f64, (n.flip_x as u8 | (n.flip_y as u8) << 1 | (n.additive as u8) << 2 | (n.world as u8) << 3) as f64, n.ox, n.oy,
+                ex, ey + yoff, esx, esy, n.rot, n.alpha, n.tint as f64, (n.flip_x as u8 | (n.flip_y as u8) << 1 | (n.additive as u8) << 2 | (n.world as u8) << 3 | (n.gray as u8) << 4) as f64, n.ox, n.oy,
                 ti, match n.kind { Kind::Text => n.font_size, Kind::Image => n.crop_w, _ => ew }, if n.kind == Kind::Image { fi } else { eh }, if n.kind == Kind::Nine { n.tint as f64 } else { n.color as f64 }, if n.kind == Kind::Text { match n.font.as_str() { "bigFont" => 1.0, "goldFont" => 2.0, _ => 0.0 } } else { er },
             ]);
         }
