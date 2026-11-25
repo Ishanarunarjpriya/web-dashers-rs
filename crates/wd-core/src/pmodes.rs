@@ -158,6 +158,7 @@ impl<'a> Sim<'a> {
     pub fn exit_spider_mode(&mut self) {
         if !self.p.is_spider { return; }
         self.p.is_spider = false;
+        self.p.spider_orb_hold = false;
         self.p.y_velocity = 0.0;
         self.p.on_ground = false;
         self.p.can_jump = false;

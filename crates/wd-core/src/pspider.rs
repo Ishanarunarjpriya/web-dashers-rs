@@ -1,6 +1,6 @@
 //! Spider jump update (player.js `_updateSpiderJump` and its teleport-search helpers).
 use crate::jsmath as m;
-use crate::pcol::Col;
+use crate::pcol::{Col, T_SLOPE};
 use crate::physics::{gd_trunc, Sim, P};
 
 struct Bounds { left: f64, right: f64, lower: f64, upper: f64 }
@@ -56,9 +56,15 @@ impl<'a> Sim<'a> {
             if f < self.p.y { best = Some(f); }
         }
         for o in cols {
-            if o.ty != 0.0 { continue; }
-            let b = search_bounds(o);
+            if o.ty != 0.0 && o.ty != T_SLOPE { continue; }
+            let mut b = search_bounds(o);
             if world_x + x_pad <= b.left || world_x - x_pad >= b.right { continue; }
+            if o.ty == T_SLOPE {
+                let slope_x = b.left.max(b.right.min(world_x));
+                let Some(slope_y) = o.slope_surface_y(slope_x) else { continue };
+                let offset = player_size / m::cos(m::atan(o.h / o.w)) - player_size;
+                if o.slope_solid_below { b.upper = b.upper.min(slope_y + offset); } else { b.lower = b.lower.max(slope_y - offset); }
+            }
             if going_up {
                 let under = b.lower;
                 if under <= self.p.y + 0.5 { continue; }
@@ -77,6 +83,14 @@ impl<'a> Sim<'a> {
         let player_size = if self.p.is_mini { 18.0 } else { 30.0 };
         let grav_amt = P * 0.6;
         let can_teleport = self.p.can_jump || self.p.on_ground || self.p.on_ceiling;
+        if self.p.spider_orb_hold {
+            if !self.p.up_key_down {
+                self.p.spider_orb_hold = false;
+            } else if can_teleport {
+                self.p.spider_orb_hold = false;
+                self.p.up_key_pressed = true;
+            }
+        }
         let prioritize_orb = self.should_prioritize_ground_orb_input();
         if !prioritize_orb && self.p.up_key_pressed && can_teleport {
             self.p.up_key_pressed = false;

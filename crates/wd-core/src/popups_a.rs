@@ -271,7 +271,7 @@ impl Ui {
             ("Made by RobTop Games", 0.8, "goldFont"), ("Lead Developers:", 0.9, "bigFont"), ("breadbb, PinkDev, rohanis0000,", 0.7, "goldFont"), ("Lasokar, and aloaf", 0.7, "goldFont"),
             ("Former Developers:", 0.9, "bigFont"), ("bog, AntiMatter, and arbstro", 0.7, "goldFont"), ("Contributors:", 0.9, "bigFont"), ("t0nchi7, Itzar, zainojdaf,", 0.7, "goldFont"),
             ("Ameth7st, and CoraBitz", 0.7, "goldFont"), ("we love you cora <3", 0.4, "bigFont"), ("Playtesters:", 0.9, "bigFont"), ("Ameth7st, Altruist,", 0.7, "goldFont"),
-            ("and ", 0.7, "goldFont"), ("© 2026 RobTop Games. All rights reserved.", 0.4, "Arial"),
+            ("and Piefaceluke", 0.7, "goldFont"), ("© 2026 RobTop Games. All rights reserved.", 0.4, "Arial"),
         ];
         let total: f64 = entries.iter().map(|e| (32.0 * e.1).round() + 10.0).sum();
         let (content, _si) = self.scroll_area(root, 0.0, ay, aw, ah, total, 1000.4, "pa_cr");
@@ -306,9 +306,9 @@ impl Ui {
         let g2 = self.shape(Kind::RoundRect, box_l + bb, box_t + bb, box_w - bb * 2.0, box_h - bb * 2.0, 0x844022, 1.0, 1000.41, "pa_news"); { let n = self.node(g2); n.radius = 16.0; n.parent = Some(root); }
         let (view_t, view_h) = (box_t + bb, box_h - bb * 2.0);
         // page 1: the template entry
-        let date = "November 13th, 2026";
-        let title = "MEGA UPDATE - V2.0";
-        let notes = ["V2.0 Mega Update. me (rohanis0000) and PinkDev have combined our updates into 1 huge update for more content for you guys to play with.", "This update includes:", "2.2 icons", "Fixed robot and spider icons/layering", "More colors for the icon kit", "Custom icons", "The Vault and Vault of Secrets", "A new update menu (News)", "Custom keybinds", "3D textures fixed", "MANY, MANY BUG FIXES", "2.209 UI updates", "Daily Levels", "Weekly Demons", "Event Levels", "Level Stats", "Progress Bar", "Startpos Revamp", "Fixed/Added a lot of triggers", "Texture fixes", "Object warping", "Mirror portal transitions", "Minor QOL additions", "and more i think i prolly forgot ngl"];
+        let date = "November 23rd, 2026";
+        let title = "Minor Bug Fix Update - V2.01";
+        let notes = ["A bunch of bugs have been fixed plus minor changes and additions.", "This update includes:", "- Revamped Create Menu UI", "- Fixed some physics and gameplay bugs", "- Revamped Stats Menu", "- Seperated UI from game-scene (now ui-scene) (MAINLY FOR DEVELOPERS)", "- Fixed dash orb cancelling", "- Fixed levels seeming broken for a split moment before fully loading", "- and more i dont remember"];
         let pad_x = 30.0;
         let text_x = box_l + bb + pad_x;
         let text_w = box_w - bb * 2.0 - pad_x - 44.0;

@@ -189,6 +189,7 @@ slots! {
         pub last_ground_pos_y: f64 = 0.0,
         pub last_blue_pad_tick: Option<f64> = None,
         pub robot_hold_timer: f64 = 0.0,
+        pub spider_orb_hold: bool = false,
         pub spider_teleport_pending: bool = false,
         pub spider_teleport_anim_timer: f64 = 0.0,
         pub spider_flash_timer: f64 = 0.0,
@@ -554,12 +555,16 @@ impl<'a> Sim<'a> {
     pub fn update_jump(&mut self, dt: f64, cols: &[crate::pcol::Col]) {
         if let Some(v) = self.p.pending_velocity.take() { self.p.y_velocity = v; }
         if self.p.is_dashing {
-            if !self.p.up_key_down || self.p.on_ground {
+            if !self.p.up_key_down {
                 self.p.is_dashing = false;
                 self.p.dash_y_velocity = 0.0;
                 self.p.y_velocity = 0.0;
             } else {
                 self.p.y_velocity = self.p.dash_y_velocity;
+                if self.is_dash_spinning() {
+                    self.p.on_ground = false;
+                    self.p.on_ceiling = false;
+                }
                 return;
             }
         }

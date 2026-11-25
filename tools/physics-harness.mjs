@@ -51,12 +51,12 @@ this.tpOffset = ({ ${src.slice(tp, tpEnd).trim()} })._getTeleportPortalYOffset;
   const q0 = gs.indexOf("  _quantizeDelta("), q1 = gs.indexOf("  update(_0x54fa47, deltaTime) {");
   const b0 = gs.indexOf("  _pushButton(ignoreMacro = false) {"), b1 = gs.indexOf("  _initMacroBot() {");
   const u0 = gs.indexOf("    let quantizedDelta = this._quantizeDelta(deltaTime);"), u1 = gs.indexOf("    if (!this._endCameraOverride) {", u0);
-  const e0 = gs.indexOf("  _getDualSharedSignature(state) {"), e1 = gs.indexOf("  _getMirrorXOffset(xOffset)"), f0 = gs.indexOf("  _enableDualMode() {"), f1 = gs.indexOf("  _showNewBest() {");
+  const e0 = gs.indexOf("  _getDualSharedSignature(state) {"), e1 = gs.indexOf("  _getMirrorXOffset(xOffset)"), f0 = gs.indexOf("  _enableDualMode() {"), f1 = gs.indexOf("  _triggerEndPortal() {");
   const led = read("core/level-editor.js"), l0 = led.indexOf("  _applyLevelStartOptions() {"), l1 = led.indexOf("  _closeEditorStartOptionsPopup() {");
   const c0 = gs.indexOf("  _updateCameraY("), c1 = gs.indexOf("  _quantizeDelta(");
   const k0 = gs.indexOf("    if (!this._endCameraOverride) {\n      const cameraOffsetX = this._playerWorldX - centerX;"), k1 = gs.indexOf("    this._level.applyShakeToOffsets?.(this.time.now);", k0);
   const w0 = gs.indexOf("    if (!this._levelWon && !this._state.isDead && this._level.endXPos > 0) {"), w1 = gs.indexOf("    if (this._levelWon) {", w0);
-  const r0 = gs.indexOf("  _respawnFromCheckpoint() {"), r1 = gs.indexOf("  _hasBlockingOverlay() {");
+  const r0 = gs.indexOf("  _respawnFromCheckpoint() {"), r1 = gs.indexOf("  _createMirroredBackgroundTexture(");
   const pm0 = gs.indexOf("class PracticeMode {"), pm1 = gs.indexOf("class MacroBot {");
   ctx.PracticeMode = vm.runInContext(gs.slice(pm0, pm1) + "\nPracticeMode", ctx);
   const sceneMethods = vm.runInContext(`(class { ${gs.slice(r0, r1)}\n ${gs.slice(c0, c1)}\n _cameraBlock(quantizedDelta) {\n${gs.slice(k0, k1)}\n}\n _winCheck() {\n${gs.slice(w0, w1)}\n}\n ${led.slice(l0, l1)}\n ${gs.slice(q0, q1)}\n ${gs.slice(b0, b1)}\n ${gs.slice(e0, e1)}\n ${gs.slice(f0, f1)}\n _physicsBlock(deltaTime) {\n${gs.slice(u0, u1)}\n return quantizedDelta;\n} })`, ctx).prototype;
@@ -86,7 +86,7 @@ this.tpOffset = ({ ${src.slice(tp, tpEnd).trim()} })._getTeleportPortalYOffset;
     slope_riding: ["o", "_slopeRiding"], slope_exit_grace: ["o", "_slopeExitGrace"], slope_entry_x: ["o", "_slopeEntryX"],
     last_land_object: ["o", "_lastLandObject"], last_x_offset: ["o", "_lastXOffset"], ignore_teleport_until_clear: ["o", "_ignoreTeleportUntilClear"],
     nc_total_frames: ["nc", "totalFrames"], nc_death_frames: ["nc", "deathFrames"], nc_deaths: ["nc", "deaths"], nc_accuracy: ["nc", "accuracy"],
-    last_blue_pad_tick: ["p", "_lastBluePadTick"], robot_hold_timer: ["p", "_robotHoldTimer"], spider_teleport_pending: ["p", "_spiderTeleportPending"], spider_teleport_noclip_death_pending: ["p", "_spiderTeleportNoclipDeathPending"],
+    last_blue_pad_tick: ["p", "_lastBluePadTick"], robot_hold_timer: ["p", "_robotHoldTimer"], spider_orb_hold: ["p", "_spiderOrbHold"], spider_teleport_pending: ["p", "_spiderTeleportPending"], spider_teleport_noclip_death_pending: ["p", "_spiderTeleportNoclipDeathPending"],
     spider_teleport_anim_timer: ["p", "_spiderTeleportAnimTimer"], spider_flash_timer: ["p", "_spiderFlashTimer"], spider_flash_duration: ["p", "_spiderFlashDuration"],
     gd_last_slope_obj: ["o", "_gdLastSlopeObj"], gd_last_slope_top: ["o", "_gdLastSlopeTop"], gd_last_slope_y_pos: ["o", "_gdLastSlopeYPos"],
     gd_last_slope_steepness: ["o", "_gdLastSlopeSteepness"], gd_last_slope_up: ["o", "_gdLastSlopeUp"], gd_slope_rotation: ["o", "_gdSlopeRotation"],
@@ -150,11 +150,11 @@ this.tpOffset = ({ ${src.slice(tp, tpEnd).trim()} })._getTeleportPortalYOffset;
       setFlyMode: (...args) => log("fly:" + JSON.stringify(args)),
       tryCollectSecretCoin: () => vals["e.try_collect_secret"] !== 0, tryCollectUserCoin: () => vals["e.try_collect_user"] !== 0, _coinSprites: [], _orbSprites: [],
     };
-    for (const k of ["setCubeVisible", "setShipVisible", "setBallVisible", "setWaveVisible", "setBirdVisible", "setSpiderVisible", "setRobotVisible", "_playPortalShine", "_orbpadHitEffect",
+    for (const k of ["_syncModeIcons", "setCubeVisible", "setShipVisible", "setBallVisible", "setWaveVisible", "setBirdVisible", "setSpiderVisible", "setRobotVisible", "_playPortalShine", "_orbpadHitEffect",
       "playGravityEffect", "spawnPortalCircle", "_makeportalguide", "_markActivatedOrbSprites", "_primeSpiderAnimationFrame", "_primeRobotAnimationFrame", "_hideRobotJumpFlame", "_spawnSpiderTeleportEffects"]) o[k] = () => {};
     for (const k of ["_streak", "_waveTrail", "_particleEmitter", "_flyParticleEmitter", "_flyParticle2Emitter", "_shipDragEmitter"]) o[k] = anyStub;
     o._playerLayers = [];
-    o.killPlayer = function () { if (this.p.isDead || this._scene?._macroBot?.playing) return; this.p.isDead = true; o.__log.push("kill"); };
+    o.killPlayer = function () { if (this.p.isDead || this._scene?._macroBot?.playing) return; this.p.isDead = true; this.p.isDashing = false; this.p.dashYVelocity = 0; o.__log.push("kill"); };
     const W = ctx.window;
     W.slopeJumpBoost = vals["g.slope_jump_boost"] !== 0; W.slopeRampTime = vals["g.slope_ramp_time"]; W.slopeRampFloor = vals["g.slope_ramp_floor"];
     W.slopeLaunchNum = vals["g.slope_launch_num"]; W.slopeLaunchCap = vals["g.slope_launch_cap"]; W.slopeLaunchGain = vals["g.slope_launch_gain"];

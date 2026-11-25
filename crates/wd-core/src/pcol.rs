@@ -17,7 +17,7 @@ const T_SOLID: f64 = 0.0;
 const T_HAZARD: f64 = 1.0;
 const T_DBLOCK: f64 = 2.0;
 const T_SBLOCK: f64 = 3.0;
-const T_SLOPE: f64 = 4.0;
+pub const T_SLOPE: f64 = 4.0;
 const T_PAD: f64 = 5.0;
 const T_RING: f64 = 6.0;
 const T_COIN: f64 = 7.0;
@@ -117,13 +117,21 @@ impl<'a> Sim<'a> {
     }
     pub fn stop_rotation(&mut self) { self.p.rotate_action_active = false; }
 
+    /// `_isDashSpinning`: a dash orb in the plain cube form
+    pub fn is_dash_spinning(&self) -> bool {
+        let p = &self.p;
+        p.is_dashing && !p.is_flying && !p.is_ball && !p.is_wave && !p.is_ufo && !p.is_spider && !p.is_robot && !p.is_swing
+    }
+
     pub fn hit_ground(&mut self, skip_burst: bool) {
+        let dash_sliding = self.is_dash_spinning();
+        let skip_burst = skip_burst || dash_sliding;
         self.p.slope_launch_spin = false;
         let burst = !skip_burst && !self.p.on_ground;
         if !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo { self.p.last_ground_y = self.p.y; }
         self.p.y_velocity = 0.0;
-        self.p.on_ground = true;
-        self.p.can_jump = true;
+        self.p.on_ground = !dash_sliding;
+        self.p.can_jump = !dash_sliding;
         self.p.is_jumping = false;
         self.p.queued_hold = false;
         if self.p.is_ball {
@@ -138,13 +146,15 @@ impl<'a> Sim<'a> {
         } else if self.p.is_wave {
             self.p.rotation = 0.0;
         }
-        self.stop_rotation();
+        if !dash_sliding { self.stop_rotation(); }
         if burst && !self.p.is_flying && !self.p.is_wave && !self.p.is_spider { self.vlog.push(format!("land:{}", self.p.gravity_flipped as u8)); }
     }
 
     pub fn kill_player(&mut self) {
         if self.p.is_dead || self.e.macro_playing { return; }
         self.p.is_dead = true;
+        self.p.is_dashing = false;
+        self.p.dash_y_velocity = 0.0;
         self.log.push("kill".into());
     }
 
@@ -598,6 +608,7 @@ impl<'a> Sim<'a> {
                             if orb_id == Some(1330.0) {
                                 orb_vel = if o_ship { -28.0 } else if o_ufo { -22.4 } else if o_spider { -33.0 } else { -30.0 };
                                 self.p.gd_accel = true;
+                                if o_spider && self.p.up_key_down { self.p.spider_orb_hold = true; }
                             } else {
                                 let base;
                                 if orb_id == Some(141.0) {
@@ -705,6 +716,7 @@ impl<'a> Sim<'a> {
                     return;
                 }
                 t if t == T_SOLID => {
+                    left = rl; right = rr; top = rt; bottom = rb;
                     let solid_size = if self.p.is_wave { wave_hit } else { player_size };
                     let a146 = players_y - solid_size + gamemode_addition;
                     let a869 = players_last_y - solid_size + gamemode_addition;
@@ -906,15 +918,16 @@ impl<'a> Sim<'a> {
         let ceil2 = self.e.ceiling_y;
         if !teleported_this_step {
             if let Some(c) = ceil2 {
-                if self.p.y >= c - eff && !is_cube {
-                    self.p.y = c - eff;
-                    self.hit_ground(false);
-                    self.p.on_ceiling = true;
+                if self.p.y >= c - eff {
+                    if self.p.gravity_flipped || !is_cube {
+                        self.p.y = c - eff;
+                        self.hit_ground(false);
+                        self.p.on_ceiling = true;
+                    } else if self.p.y_velocity > 0.5 || self.p.y > c - eff {
+                        if self.g.no_clip { self.p.died_this_frame = true; } else { self.kill_player(); return; }
+                    }
                 }
             }
-        }
-        if self.p.y > 1890.0 * 4.0 {
-            if self.g.no_clip { self.p.died_this_frame = true; } else { self.kill_player(); return; }
         }
         if self.p.ignore_teleport_until_clear && !touching_teleport_during_ignore { self.p.ignore_teleport_until_clear = false; }
         if snapped_slope_this_frame {

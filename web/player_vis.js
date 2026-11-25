@@ -773,7 +773,7 @@
         for (const v of players) {
           if (v.index === 1 && players[0].s[25] === 0) continue;
           const E = v.em, dsq = (n, x, y, s, a, t, add) => drawSquare(n, x, y, s, a, t, add);
-          { const t0 = performance.now(); streakDraw(v, ox, oy); waveDraw(v, ox, oy); const P = window.__prof; if (P) { P.wvT = (P.wvT || 0) * 0.95 + (performance.now() - t0) * 0.05; P.wvN = v.wave.pts.length; } }
+          { const t0 = performance.now(); streakDraw(v, ox, oy); const P = window.__prof; if (P) { P.wvT = (P.wvT || 0) * 0.95 + (performance.now() - t0) * 0.05; P.wvN = v.wave.pts.length; } }
           E.ground.draw(dsq, ox, oy); E.fly.draw(dsq, ox, oy); E.fly2.draw(dsq, ox, oy); E.drag.draw(dsq, ox, oy);
           this.drawFx(v, ox, oy, false);
           const items = v.items.slice().sort((a, b) => a.depth - b.depth || a.order - b.order);
@@ -789,6 +789,7 @@
       // after the top layer: landing dust, effect circles
       drawTop(ox, oy, o) {
         for (const v of players) {
+          if (v.index === 1 && players[0].s[25] === 0) { /* the second player is not shown */ } else { const t0 = performance.now(); waveDraw(v, ox, oy); const P = window.__prof; if (P) { P.wvT = (P.wvT || 0) * 0.95 + (performance.now() - t0) * 0.05; P.wvN = v.wave.pts.length; } } // the wave trail lives in the level's top container now
           const dsq = (n, x, y, s, a, t, add) => drawSquare(n, x, y, s, a, t, add);
           v.em.land1.draw(dsq, ox, oy); v.em.land2.draw(dsq, ox, oy);
           this.drawFx(v, ox, oy, true, o);

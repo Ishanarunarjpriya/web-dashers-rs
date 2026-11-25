@@ -26,7 +26,7 @@ pub fn reset_object(p: &mut Player, world_x: f64) {
     p.gd_slope_rotation = 0.0; p.slope_launch_spin = false; p.prev_slope_obj = None; p.prev_slope_angle = f64::NAN; p.active_slope_obj = None;
     p.active_slope_angle = None; p.on_slope_angle = None; p.slope_entry_x = None;
     p.rotate_action_active = false; p.rotate_action_time = 0.0; p.rotation = 0.0;
-    p.robot_hold = false; p.robot_hold_timer = 0.0;
+    p.robot_hold = false; p.robot_hold_timer = 0.0; p.spider_orb_hold = false;
     p.last_collision_world_x = if world_x.is_finite() { Some(world_x) } else { None };
     p.last_collision_world_y = if p.y.is_finite() { Some(p.y) } else { None };
     p.ignore_teleport_until_clear = false;
@@ -90,13 +90,17 @@ impl<'a> Sim<'a> {
     /// `_ensureDualFlyBounds(centerY)`; `center_y` is `None` for the call without an argument (JS `null`, which `Number()` turns into 0).
     pub fn ensure_dual_fly_bounds(&mut self, center_y: Option<f64>) {
         if !self.e.is_dual { return; }
-        let span = F;
+        let full_span = F;
+        let has_ship_wave = { let (p1, p2) = self.pair(); p1.is_flying || p1.is_wave || p2.is_flying || p2.is_wave };
+        let span = if has_ship_wave { full_span } else { full_span - A };
         let floor = self.e.fly_floor_y.unwrap_or(0.0);
         let ceiling = self.e.fly_ceiling_y.unwrap_or(0.0);
         let current = if floor.is_finite() && ceiling.is_finite() { Some(ceiling - floor) } else { None };
         if current.is_none() || (current.unwrap() - span).abs() > 0.01 || !self.e.fly_ground_active {
-            let cy = match center_y { None => 0.0, Some(v) => v };
-            let y = if cy.is_finite() { cy } else { let py = self.primary_y(); if py.is_finite() { py } else { 30.0 } };
+            let y = match (center_y, self.e.fly_floor_y) {
+                (None, Some(fl)) if fl.is_finite() && self.e.fly_ground_active => fl + span / 2.0,
+                _ => { let cy = match center_y { Some(v) => v, None => self.primary_y() }; cy + (span - full_span) / 2.0 }
+            };
             self.level_fly(true, y, Some(span), None);
         }
     }
@@ -293,11 +297,11 @@ impl<'a> Sim<'a> {
         self.e.is_dual = false;
         self.e.dual_ball_overlap_resolved = false;
         self.e.dual_ball_spawn_lock = false;
-        { let p2 = self.pair().1; p2.is_dead = true; p2.up_key_down = false; p2.up_key_pressed = false; p2.queued_hold = false; }
+        { let p2 = self.pair().1; p2.is_dead = true; p2.up_key_down = false; p2.up_key_pressed = false; p2.queued_hold = false; p2.is_dashing = false; p2.dash_y_velocity = 0.0; }
         self.refresh_fly_bounds_after_dual();
     }
 
-    fn balls_overlapping(&mut self) -> bool {
+    pub fn balls_overlapping(&mut self) -> bool {
         if !self.e.is_dual { return false; }
         let (p1, p2) = self.pair();
         if p1.is_dead || p2.is_dead || !p1.is_ball || !p2.is_ball { return false; }
@@ -329,8 +333,10 @@ impl<'a> Sim<'a> {
             return false;
         }
         if self.e.dual_ball_spawn_lock {
-            let (p1, p2) = self.pair();
-            p2.gravity_flipped = !p1.gravity_flipped;
+            let (same, target) = { let (p1, p2) = self.pair(); (p2.gravity_flipped == p1.gravity_flipped, !p1.gravity_flipped) };
+            if same {
+                self.run_as(true, |s| { s.flip_gravity(target, 1.0); s.p.on_ceiling = false; });
+            }
             self.e.dual_ball_overlap_resolved = true;
             return false;
         }

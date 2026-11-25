@@ -603,14 +603,16 @@ impl Game {
             self.space_was_down = jump_held;
             if self.mb.playing { self.macro_step(); }
             let input = self.p.clone();
+            let both_balls_before = self.e.is_dual && self.p.is_ball && self.p2.is_ball;
             let grav_before = self.p.gravity_flipped;
             let shared_before = dual_shared_signature(&self.p);
             self.update_jump(false, vertical);
             self.p.y += self.p.y_velocity * vertical;
             self.check_collisions(false, self.e.player_world_x - self.g.center_x);
             let grav_changed = self.e.is_dual && self.p.gravity_flipped != grav_before;
+            let wave_gravity_sync = grav_changed && self.p.is_wave && self.p2.is_wave;
             let mut synced = false;
-            if self.e.is_dual && dual_shared_signature(&self.p) != shared_before {
+            if self.e.is_dual && !wave_gravity_sync && dual_shared_signature(&self.p) != shared_before {
                 let o = SyncOpts { skip_ball_input: grav_changed && self.p.is_ball && input.up_key_pressed, skip_spider_input: grav_changed && self.p.is_spider && input.up_key_pressed, force: false };
                 synced = self.sim_for(false, |s| s.sync_globals_from_primary(o));
             }
@@ -634,11 +636,13 @@ impl Game {
                 if !self.p2.queued_hold { self.p.queued_hold = false; }
                 if self.p2.orb_activation_consumed_for_press { self.p.orb_activation_consumed_for_press = true; }
                 self.p2.y += self.p2.y_velocity * vertical;
+                if wave_gravity_sync { self.sim_for(false, |s| s.sync_globals_from_primary(SyncOpts::default())); }
                 self.check_collisions(true, self.e.player_world_x - self.g.center_x - horizontal);
                 if self.e.is_dual && !self.p2.is_dead && dual_shared_signature(&self.p2) != shared_before2 {
                     let o = SyncOpts { skip_ball_input: ball_in, skip_spider_input: spider_in, force: false };
                     self.sim_for(true, |s| s.sync_globals_from_secondary(o));
                 }
+                if !both_balls_before && self.sim_for(false, |s| s.balls_overlapping()) { self.e.dual_ball_spawn_lock = true; }
                 self.sim_for(false, |s| s.resolve_dual_ball_overlap());
                 if self.e.is_dual && self.p2.is_dead && !self.p.is_dead { self.sim_for(true, |s| s.kill_secondary_target_primary()); }
                 if self.e.is_dual && self.p.is_dead && !self.p2.is_dead { self.sim_for(false, |s| s.kill_secondary()); }
