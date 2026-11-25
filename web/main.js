@@ -807,10 +807,18 @@ async function main() {
     if (w.wd_macro_state() === 2 && !paused && !won) t("Botted", cpsY + (S.showCPS ? 20 : 0), 0xff0000);
     ctx.restore();
   };
+  // Phaser's `smoothStep` (TimeStep.smoothDelta): the frame time is the mean of the last 10, so a 200 Hz display does not make motion jitter with its timer
+  const deltaHist = new Array(10).fill(1000 / 60); let deltaIdx = 0;
+  const smoothDelta = (t) => {
+    if (t > 200) t = Math.min(deltaHist[deltaIdx], 200);
+    deltaHist[deltaIdx] = t; deltaIdx = (deltaIdx + 1) % 10;
+    let sum = 0; for (let i = 0; i < 10; i++) sum += deltaHist[i];
+    return sum / 10;
+  };
   const loop = (now) => {
     if (PROF) { tp = performance.now(); P.frame = (P.frame ?? 16) * 0.97 + (now - last) * 0.03; }
     if (clicks.length && ++tick % 6 === 0 && clickIdx < clicks.length) { const x = clicks[clickIdx++], y = clicks[clickIdx++]; w.wd_ui_pointer(0, x, y); w.wd_ui_pointer(2, x, y); }
-    const dt = Math.min(100, now - last); last = now;
+    const dt = Math.min(100, smoothDelta(Math.max(0, now - last))); last = now;
     w.wd_ui_step(dt);
     if (window.WD_EDITOR_ON) w.wd_ed_frame(dt, edKeys()); else if (!paused) step(dt);
     lp("step");

@@ -463,8 +463,12 @@
       const t = ((p3x - p1x) * d2y - (p3y - p1y) * d2x) / den, tc = Math.max(-3, Math.min(3, t));
       xs[i] = p1x + d1x * tc; ys[i] = p1y + d1y * tc;
     };
+    // a triangle that always winds the same way, so overlapping ones in one path add up instead of cancelling
+    const tri = (c, ax, ay, bx, by, cx, cy) => { c.moveTo(ax, ay); if ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax) >= 0) { c.lineTo(bx, by); c.lineTo(cx, cy); } else { c.lineTo(cx, cy); c.lineTo(bx, by); } c.closePath(); };
+    const edgeBuf = { n: 0 };
     const buildEdges = (pts, halfW) => {
-      const n = pts.length, ux = new Float64Array(n), uy = new Float64Array(n), lx = new Float64Array(n), ly = new Float64Array(n), nx = new Float64Array(n), ny = new Float64Array(n);
+      const n = pts.length; if (edgeBuf.n < n) { const m = Math.max(n, edgeBuf.n * 2, 256); for (const k of ["ux", "uy", "lx", "ly", "nx", "ny"]) edgeBuf[k] = new Float64Array(m); edgeBuf.n = m; }
+      const { ux, uy, lx, ly, nx, ny } = edgeBuf; // reused every call: this runs three times a frame while the wave trail is on screen
       for (let i = 0; i < n - 1; i++) { const dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y, len = Math.sqrt(dx * dx + dy * dy) || 1; nx[i] = -dy / len; ny[i] = dx / len; }
       for (let i = 0; i < n; i++) {
         const p = pts[i]; let a, b;
@@ -484,14 +488,24 @@
       const n = pts.length; if (n < 2) return;
       const { ux, uy, lx, ly } = buildEdges(pts, halfW);
       ctx.save(); ctx.globalCompositeOperation = additive ? "lighter" : "source-over"; ctx.fillStyle = "#" + (color & 0xffffff).toString(16).padStart(6, "0");
+      // the trail fades from its tail: segments are ordered by age, so runs of (nearly) equal alpha share one path and one fill
+      const STEPS = 32; let cur = -1, open = false;
+      const flush = () => { if (open) { ctx.fill(); open = false; } };
       for (let i = 0; i < n - 1; i++) {
-        const alpha = Math.max(0, 1 - (pts[i].age + pts[i + 1].age) * 0.5) * baseAlpha;
-        if (alpha <= 0.01) continue;
-        ctx.globalAlpha = alpha;
-        ctx.beginPath(); ctx.moveTo(ux[i] + ox, uy[i] + oy); ctx.lineTo(ux[i + 1] + ox, uy[i + 1] + oy); ctx.lineTo(lx[i] + ox, ly[i] + oy); ctx.closePath(); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(ux[i + 1] + ox, uy[i + 1] + oy); ctx.lineTo(lx[i + 1] + ox, ly[i + 1] + oy); ctx.lineTo(lx[i] + ox, ly[i] + oy); ctx.closePath(); ctx.fill();
+        const a = Math.max(0, 1 - (pts[i].age + pts[i + 1].age) * 0.5);
+        if (a * baseAlpha <= 0.01) continue;
+        const q = Math.max(1, Math.round(a * STEPS));
+        if (q !== cur) { flush(); cur = q; ctx.globalAlpha = q / STEPS * baseAlpha; ctx.beginPath(); open = true; }
+        tri(ctx, ux[i] + ox, uy[i] + oy, ux[i + 1] + ox, uy[i + 1] + oy, lx[i] + ox, ly[i] + oy);
+        tri(ctx, ux[i + 1] + ox, uy[i + 1] + oy, lx[i + 1] + ox, ly[i + 1] + oy, lx[i] + ox, ly[i] + oy);
       }
+      flush();
       ctx.restore();
+    };
+    window.__waveBench = (n, reps, draw) => { // test hook: a zig-zag trail of n points, drawn reps times; returns ms per draw of the three ribbons
+      const pts = []; for (let i = 0; i < n; i++) pts.push({ x: 100 + i * 1.5, y: 300 + (Math.floor(i / 40) % 2 ? 1 : -1) * ((i % 40) * 1.5), age: 1 - i / n });
+      const t0 = performance.now(); for (let r = 0; r < reps; r++) { ribbon(pts, 14, 0x00ff66, 0.22, 0, 0, true); ribbon(pts, 7, 0x00ff66, 0.95, 0, 0, false); ribbon(pts, 2, 0xffffff, 0.5, 0, 0, false); }
+      return (performance.now() - t0) / reps;
     };
     const waveUpdate = (v, deltaArg, camX, mini) => {
       const Wt = v.wave; if (!Wt.pos) return;
@@ -759,7 +773,7 @@
         for (const v of players) {
           if (v.index === 1 && players[0].s[25] === 0) continue;
           const E = v.em, dsq = (n, x, y, s, a, t, add) => drawSquare(n, x, y, s, a, t, add);
-          streakDraw(v, ox, oy); waveDraw(v, ox, oy);
+          { const t0 = performance.now(); streakDraw(v, ox, oy); waveDraw(v, ox, oy); const P = window.__prof; if (P) { P.wvT = (P.wvT || 0) * 0.95 + (performance.now() - t0) * 0.05; P.wvN = v.wave.pts.length; } }
           E.ground.draw(dsq, ox, oy); E.fly.draw(dsq, ox, oy); E.fly2.draw(dsq, ox, oy); E.drag.draw(dsq, ox, oy);
           this.drawFx(v, ox, oy, false);
           const items = v.items.slice().sort((a, b) => a.depth - b.depth || a.order - b.order);
