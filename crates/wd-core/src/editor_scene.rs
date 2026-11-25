@@ -42,6 +42,7 @@ pub struct EditorState {
     pub pt: bool, pub pt_paused: bool, pub pt_press: bool,
     pub pm: bool, pub pm_glow_check: usize, pub glow: bool,
     pub ls: crate::editor_ui::EdLs, pub ls_open: bool, pub ho: crate::editor_ui::EdHo, pub so_open: bool, pub so_checks: Vec<(usize, &'static str)>,
+    pub layer_idx: usize, pub layer_nodes: [usize; 6],
     pub songs: Vec<String>, pub song_id: i64, pub pending_song: Option<(i64, String)>,
     pub fields: crate::editor_fields::EdFields,
     pub cp: crate::editor_color::EdCp,
@@ -139,7 +140,8 @@ impl Ui {
         if self.ed.dirty { self.ed_rebuild_view(); self.ed.dirty = false; }
         let (cx, cy, z) = (self.ed.cam_x, self.ed.cam_y, self.ed.zoom);
         let sel = self.ed.sel.clone(); let tint = self.ed.sel_tint; let glow = self.ed.glow;
-        crate::with_game(|g| { g.fx.ed_glow = glow; g.editor_set_selection(&sel, tint); g.editor_view(cx, cy, z); });
+        let dim = self.ed_layer_dim();
+        crate::with_game(|g| { g.fx.ed_glow = glow; g.editor_set_dim(&dim); g.editor_set_selection(&sel, tint); g.editor_view(cx, cy, z); });
         // zoom text fades out
         if self.ed.zoom_clock > 0.0 {
             self.ed.zoom_clock -= dt;
@@ -220,6 +222,17 @@ impl Ui {
         self.make_bouncy(zi, 0.9, Cond::Always, Action::Pop("EdZoom", 1));
         let zo = self.ed_img("GJ_GameSheet03", "GJ_zoomOutBtn_001.png", 48.0, sh / 2.0 + 55.0, 0.9);
         self.make_bouncy(zo, 0.9, Cond::Always, Action::Pop("EdZoom", 0));
+        // the layer selector under the side buttons (`_editorLayerSelector`)
+        {
+            let (lx, ly) = (sw - 48.0 - 75.0, 120.0 + 275.0);
+            let bg = self.shape(Kind::RoundRect, lx - 30.0, ly - 22.0, 60.0, 43.0, 0x000000, 0.4, GUI, "ed_g"); self.node(bg).radius = 10.0;
+            let t = self.text_node("bigFont", 25.0, "All", lx, ly, GUI + 0.1, 0.5, 0.5, 1.0); self.node(t).tag = "ed_g";
+            let first = self.ed_img("GJ_GameSheet03", "GJ_arrow_02_001.png", lx - 90.0, ly, 0.45); self.node(first).alpha = 0.5; self.make_bouncy(first, 0.42, Cond::Always, Action::Pop("EdLayer", 0));
+            let prev = self.ed_img("GJ_GameSheet03", "GJ_arrow_03_001.png", lx - 55.0, ly, 0.55); self.make_bouncy(prev, 0.55, Cond::Always, Action::Pop("EdLayer", 1));
+            let next = self.ed_img("GJ_GameSheet03", "GJ_arrow_03_001.png", lx + 55.0, ly, 0.55); self.node(next).flip_x = true; self.make_bouncy(next, 0.55, Cond::Always, Action::Pop("EdLayer", 2));
+            let last = self.ed_img("GJ_GameSheet03", "GJ_arrow_02_001.png", lx + 90.0, ly, 0.45); self.node(last).flip_x = true; self.node(last).alpha = 0.5; self.make_bouncy(last, 0.42, Cond::Always, Action::Pop("EdLayer", 3));
+            self.ed.layer_nodes = [bg, t, first, prev, next, last];
+        }
         // playtest
         let pp = self.ed_img("GJ_GameSheet03", "GJ_playEditorBtn_001.png", 48.0, sh / 2.0 - 110.0, 1.1);
         self.make_bouncy(pp, 1.1, Cond::Always, Action::Pop("EdPlaytest", 0));
@@ -449,6 +462,7 @@ impl Ui {
             "EdDeselect" => { self.ed_clear_selection(); true }
             "EdPause" | "EdPm" | "EdPmGlow" => self.ed_pm_action(name, arg),
             "EdNoop" => true,
+            "EdLayer" => { self.ed_layer_step(arg); true }
             n if n == "EdEditObject" || n == "EdGroup" || n.starts_with("EdGp") || n == "EdOpClose" => self.ed_objects_action(name, arg),
             n if n.starts_with("EdNum") => self.ed_fields_action(name, arg),
             n if n.starts_with("EdTf") => self.ed_trig_action(name, arg),
@@ -770,5 +784,41 @@ impl Ui {
             } else { self.ed.last_trail[k] = Some((px, py)); }
         }
         if dead { self.ed_pt_stop(true); } else if won { self.ed_pt_stop(false); }
+    }
+}
+
+// ---- editor layers (`_getEditorLayerOptions`, `_setEditorActiveLayerIndex`, `_applyEditorLayerFilter`) ----
+impl Ui {
+    /// the options: all layers, then 0 .. the highest layer any object uses
+    fn ed_layer_options(&self) -> Vec<Option<i64>> {
+        let mut max = 0i64;
+        for o in &self.ed.level.objects { for l in [o.o.editor_layer, o.o.editor_layer2].into_iter().flatten() { if l > max { max = l; } } }
+        let mut v = vec![None];
+        for l in 0..=max { v.push(Some(l)); }
+        v
+    }
+
+    fn ed_layer_step(&mut self, which: usize) {
+        let n = self.ed_layer_options().len();
+        let cur = self.ed.layer_idx as i64;
+        let next = match which { 0 => 0, 1 => cur - 1, 2 => cur + 1, _ => n as i64 - 1 };
+        self.ed.layer_idx = next.max(0).min(n as i64 - 1) as usize;
+        self.ed_layer_label();
+    }
+
+    pub(crate) fn ed_layer_label(&mut self) {
+        let opts = self.ed_layer_options();
+        self.ed.layer_idx = self.ed.layer_idx.min(opts.len() - 1);
+        let t = self.ed.layer_nodes[1];
+        let s = match opts[self.ed.layer_idx] { None => "All".to_string(), Some(l) => l.to_string() };
+        if let Some(n) = self.nodes.get_mut(t).and_then(|n| n.as_mut()) { n.text = s; }
+    }
+
+    /// the objects outside the active layer
+    fn ed_layer_dim(&mut self) -> Vec<usize> {
+        let opts = self.ed_layer_options();
+        let Some(active) = opts.get(self.ed.layer_idx).copied().flatten() else { return Vec::new() };
+        self.ed_layer_label();
+        self.ed.level.objects.iter().enumerate().filter(|(_, o)| o.o.editor_layer.unwrap_or(0) != active && o.o.editor_layer2.unwrap_or(0) != active).map(|(i, _)| i).collect()
     }
 }

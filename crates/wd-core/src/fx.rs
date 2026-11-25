@@ -63,6 +63,8 @@ pub struct Fx {
     pub editor_mode: bool,
     /// the editor shows glow sprites only when `showEditorGlow` is on
     pub ed_glow: bool,
+    /// editor layer filter: sprites that do not match the active layer are drawn at a quarter of their opacity
+    pub ed_dim: Vec<bool>,
     pub ed_cam: (f64, f64, f64),
     pub ed_tint: Vec<f64>,
     /// per level object: its sprites `start..end` (editor hit-testing and selection)
@@ -898,7 +900,7 @@ impl Game {
             let (mx, msx, mrot, malpha, _) = self.mirror_view(si);
             let edt = if self.fx.editor_mode { self.fx.ed_tint.get(si).copied().unwrap_or(-1.0) } else { -1.0 };
             buf.extend_from_slice(&[
-                self.fx.sprite_frame[si] as f64, mx, s.y, mrot, msx, s.scale_y, malpha,
+                self.fx.sprite_frame[si] as f64, mx, s.y, mrot, msx, s.scale_y, if self.fx.editor_mode && self.fx.ed_dim.get(si).copied().unwrap_or(false) { malpha * 0.25 } else { malpha },
                 if edt >= 0.0 { edt } else { s.tint.unwrap_or(-1.0) }, s.blend as f64, (s.flip_x as u8 | ((s.flip_y as u8) << 1)) as f64, top as f64, 0.0,
             ]);
         }
@@ -1070,6 +1072,12 @@ impl Game {
     }
 
     /// Selected objects are tinted; `sel` are object indexes.
+    /// the objects the layer filter dims (`_applyEditorLayerFilter`)
+    pub fn editor_set_dim(&mut self, dim: &[usize]) {
+        self.fx.ed_dim = vec![false; self.fx.sprites.len()];
+        for &o in dim { if let Some(&(a, b)) = self.fx.obj_ranges.get(o) { for si in a..b { if let Some(t) = self.fx.ed_dim.get_mut(si as usize) { *t = true; } } } }
+    }
+
     pub fn editor_set_selection(&mut self, sel: &[usize], tint: f64) {
         self.fx.ed_tint = vec![-1.0; self.fx.sprites.len()];
         for &o in sel { if let Some(&(a, b)) = self.fx.obj_ranges.get(o) { for si in a..b { if let Some(t) = self.fx.ed_tint.get_mut(si as usize) { *t = tint; } } } }
