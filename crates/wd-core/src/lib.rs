@@ -5,6 +5,8 @@ pub mod editor;
 pub mod editor_menu;
 pub mod editor_scene;
 pub mod editor_pause;
+pub mod editor_ui;
+pub mod editor_fields;
 pub mod beast;
 pub mod coins;
 pub mod mirror;
@@ -1071,6 +1073,20 @@ pub extern "C" fn wd_ed_frame(dt: f64, keys: u32) { with_ui(|u| u.ed_frame(dt, k
 /// Playtest state for the host: 0 event counter (changes on start / stop / pause / resume), 1 active, 2 paused, 3 start position x (for the music offset).
 #[no_mangle]
 pub extern "C" fn wd_ed_pt(which: u32) -> f64 { with_ui(|u| match which { 0 => u.ed.pt_event as f64, 1 => u.ed.pt as u8 as f64, 2 => u.ed.pt_paused as u8 as f64, _ => u.ed.pt_music }) }
+/// The names of the official songs, `["Stereo Madness", ...]` (`window.allLevels[i][1]`), and the song id of the level being edited.
+#[no_mangle]
+pub unsafe extern "C" fn wd_ed_set_songs(ptr: *const u8, len: usize, song_id: f64) {
+    let s = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned();
+    let names: Vec<String> = jsonread::parse(&s).ok().and_then(|j| j.arr().map(|a| a.iter().filter_map(|v| v.str().map(String::from)).collect())).unwrap_or_default();
+    with_ui(|u| { u.ed.songs = names; u.ed.song_id = song_id as i64; });
+}
+/// The song picked in the level settings: id (NaN when none) and its name.
+#[no_mangle]
+pub extern "C" fn wd_ed_pending_song() -> f64 { with_ui(|u| u.ed.pending_song.as_ref().map_or(f64::NAN, |p| p.0 as f64)) }
+#[no_mangle]
+pub extern "C" fn wd_ed_pending_song_name() -> usize { out_str(with_ui(|u| u.ed.pending_song.as_ref().map(|p| p.1.clone()).unwrap_or_default())) }
+#[no_mangle]
+pub extern "C" fn wd_ed_clear_pending_song() { with_ui(|u| u.ed.pending_song = None); }
 /// `window.showEditorGlow`: the glow sprites of the editor view
 #[no_mangle]
 pub extern "C" fn wd_ed_set_glow(on: u32) { with_ui(|u| u.ed.glow = on != 0); }
@@ -1078,7 +1094,7 @@ pub extern "C" fn wd_ed_set_glow(on: u32) { with_ui(|u| u.ed.glow = on != 0); }
 pub extern "C" fn wd_ed_glow() -> u32 { with_ui(|u| u.ed.glow as u32) }
 /// Test hook: 0 starts, 1 pauses / resumes, 2 stops the playtest.
 #[no_mangle]
-pub extern "C" fn wd_ed_playtest(op: u32) { with_ui(|u| match op { 0 => u.ed_pt_start(), 1 => u.ed_pt_toggle_pause(), 3 => u.ed_pm_open(), _ => u.ed_pt_stop(false) }); }
+pub extern "C" fn wd_ed_playtest(op: u32) { with_ui(|u| match op { 0 => u.ed_pt_start(), 1 => u.ed_pt_toggle_pause(), 3 => u.ed_pm_open(), 4 => u.ed_ls_open(), 5 => u.ed_ls_action("EdSoOpen", 0).then_some(()).unwrap_or(()), 6 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 2); } 7 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 0); } _ => u.ed_pt_stop(false) }); }
 /// Trail segments and death crosses: flat rows of 6 (kind, x0, y0, x1, y1, colour); returns the number of rows (read through `wd_ed_marks_ptr`).
 static ED_MARKS: Mutex<Vec<f64>> = Mutex::new(Vec::new());
 #[no_mangle]

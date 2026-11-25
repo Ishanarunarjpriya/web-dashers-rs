@@ -35,6 +35,8 @@ pub struct Node {
     pub interactive: bool,
     pub hit_scale: f64,
     pub bouncy: Option<(f64, f64, Cond)>,
+    /// how far a bouncy button grows while pressed (1.26 unless the button says otherwise)
+    pub press: f64,
     pub pressed: bool,
     pub action: Action,
     pub tag: &'static str,
@@ -54,7 +56,7 @@ impl Node {
     pub(crate) fn new(kind: Kind) -> Node {
         Node { kind, atlas: String::new(), frame: String::new(), text: String::new(), font: String::new(), font_size: 0.0, x: 0.0, y: 0.0, sx: 1.0, sy: 1.0, rot: 0.0, alpha: 1.0, depth: 0.0,
             visible: true, ox: 0.5, oy: 0.5, flip_x: false, flip_y: false, tint: -1, additive: false, gray: false, color: 0xffffff, w: 0.0, h: 0.0, radius: 0.0, width: 0.0, height: 0.0,
-            interactive: false, hit_scale: 1.0, bouncy: None, pressed: false, action: Action::None, tag: "", crop_w: 0.0, world: false, parent: None, drag: None, scroll: None }
+            interactive: false, hit_scale: 1.0, bouncy: None, press: 1.26, pressed: false, action: Action::None, tag: "", crop_w: 0.0, world: false, parent: None, drag: None, scroll: None }
     }
 }
 
@@ -591,7 +593,7 @@ impl Ui {
                 if self.cond_ok(cond) {
                     self.node(i).pressed = true;
                     self.kill_tweens(i);
-                    self.tween_to(i, &[(Prop::ScaleX, bx * 1.26), (Prop::ScaleY, by * 1.26)], 300.0, Ease::BounceOut, Then::Nothing);
+                    self.tween_to(i, &[(Prop::ScaleX, bx * self.get(i).map_or(1.26, |n| n.press)), (Prop::ScaleY, by * self.get(i).map_or(1.26, |n| n.press))], 300.0, Ease::BounceOut, Then::Nothing);
                 }
             }
         }
@@ -1010,6 +1012,7 @@ impl Ui {
 
     /// A typed character for the focused number box: digits and '.', backspace (8), enter (13).
     pub fn key_input(&mut self, code: u32) {
+        if self.ed.on && self.ed_key(code) { return; }
         if self.on.input { self.on_key(code); return; }
         if self.gar.open { self.gar_key(code); return; }
         let Some(i) = self.opt_focus else { return };

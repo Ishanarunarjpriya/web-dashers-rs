@@ -55,20 +55,20 @@
       localStorage.setItem(key, value);
     }
   };
-  window.WD_ED_SONG = window.WD_ED_SONG || {}; // { id, name } picked in the level settings, kept until the next save
   const saveEditor = (wd) => {
     const id = window.__edId; const levels = read(); const l = levels.find((x) => x.createdId === id);
     if (!l) return true;
     l.levelString = wd.text(wd.w.wd_ed_level_string()); l.lastModified = Date.now();
-    const pend = window.WD_ED_SONG;
-    if (pend.id !== undefined) { l.songId = pend.id; l.song = pend.name || l.song; }
+    const pid = wd.w.wd_ed_pending_song(); // the song picked in the level settings (`_editorPendingSongId`)
+    if (!Number.isNaN(pid)) { l.songId = pid; l.song = wd.text(wd.w.wd_ed_pending_song_name()) || l.song; }
     try { setWithRecovery("created_levels", JSON.stringify(levels)); }
     catch (e) { console.error("Failed to save editor level", e); alert("Could not save this level because browser storage is full. Free up browser storage and try again."); return false; }
-    window.WD_ED_SONG = {};
+    wd.w.wd_ed_clear_pending_song();
     return true;
   };
   // back to the main page: the level view of this level opens again (and starts when it was "Save and Play")
   const leave = (play) => { try { sessionStorage.setItem("wd_ed_return", JSON.stringify({ id: window.__edId, play: !!play })); } catch (e) {} location.reload(); };
+  E['Pop("EdArt", 0)'] = E['Pop("EdArt", 1)'] = () => { window.__edArtDirty = true; }; // background or ground changed in the level settings
   E['Pop("EdPm", 1)'] = (ev, wd) => { if (saveEditor(wd)) leave(true); };
   E['Pop("EdPm", 2)'] = (ev, wd) => { if (saveEditor(wd)) leave(false); };
   E['Pop("EdPm", 3)'] = (ev, wd) => { saveEditor(wd); };

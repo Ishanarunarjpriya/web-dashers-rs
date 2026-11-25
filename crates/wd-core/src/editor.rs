@@ -197,6 +197,58 @@ fn base64url(b: &[u8]) -> String {
 pub struct EdLevel { pub settings: String, pub objects: Vec<EdObj> }
 
 impl EdLevel {
+    /// `_editorSettingsToMap`: the `key,value,key,value` list in its order
+    pub fn pairs(&self) -> Vec<(String, String)> {
+        let parts: Vec<&str> = self.settings.split(',').collect();
+        let mut v = Vec::new();
+        let mut i = 0;
+        while i + 1 < parts.len() { v.push((parts[i].to_string(), parts[i + 1].to_string())); i += 2; }
+        v
+    }
+    pub fn put_pairs(&mut self, p: &[(String, String)]) { self.settings = p.iter().map(|(k, v)| format!("{},{}", k, v)).collect::<Vec<_>>().join(","); }
+    pub fn get_str(&self, key: &str) -> Option<String> { self.pairs().into_iter().rev().find(|(k, _)| k == key).map(|(_, v)| v) }
+    /// `_getEditorStartValue`
+    pub fn get_i(&self, key: &str, fallback: i64) -> i64 { self.get_str(key).and_then(|v| parse_int(&v)).unwrap_or(fallback) }
+    /// `_setEditorStartValueDraft`: replaces the value in place, or appends the key
+    pub fn set_str(&mut self, key: &str, value: &str) {
+        let mut p = self.pairs();
+        let mut found = false;
+        for e in p.iter_mut() { if e.0 == key { e.1 = value.to_string(); found = true; } }
+        if !found { p.push((key.to_string(), value.to_string())); }
+        self.put_pairs(&p);
+    }
+    /// `_getEditorColorChannel`: the colour of a channel from `kS38`, the legacy keys or the colour manager's initial one
+    pub fn color_channel(&self, ch: i64) -> Option<(i64, i64, i64)> {
+        let entry = |e: &str| -> (i64, i64, i64, i64) {
+            let parts: Vec<&str> = e.split('_').collect();
+            let mut m = std::collections::BTreeMap::new();
+            let mut i = 0;
+            while i + 1 < parts.len() { m.insert(parts[i].to_string(), parts[i + 1].to_string()); i += 2; }
+            let g = |k: &str, d: i64| m.get(k).and_then(|v| parse_int(v)).filter(|v| *v != 0 || k != "6").unwrap_or(d);
+            (m.get("6").and_then(|v| parse_int(v)).unwrap_or(0), m.get("1").and_then(|v| parse_int(v)).unwrap_or(255), m.get("2").and_then(|v| parse_int(v)).unwrap_or(255), { let _ = g; m.get("3").and_then(|v| parse_int(v)).unwrap_or(255) })
+        };
+        if let Some(k) = self.get_str("kS38") {
+            for e in k.split('|').filter(|e| !e.is_empty()) { let (c, r, g, b) = entry(e); if c == ch { return Some((r, g, b)); } }
+        }
+        let legacy = match ch { 1000 => Some("kS29"), 1001 => Some("kS30"), _ => None };
+        if let Some(k) = legacy.and_then(|k| self.get_str(k)).filter(|v| !v.is_empty()) { let (_, r, g, b) = entry(&k); return Some((r, g, b)); }
+        None
+    }
+    /// `_setEditorColorChannelDraft` (the settings part)
+    pub fn set_color_channel(&mut self, ch: i64, (r, g, b): (i64, i64, i64)) {
+        let make = |c: i64| format!("1_{}_2_{}_3_{}_6_{}_5_0_7_0", r, g, b, c);
+        let mut entries: Vec<String> = self.get_str("kS38").map(|k| k.split('|').filter(|e| !e.is_empty()).map(String::from).collect()).unwrap_or_default();
+        let mut replaced = false;
+        for e in entries.iter_mut() {
+            let parts: Vec<&str> = e.split('_').collect();
+            let mut i = 0; let mut c = 0;
+            while i + 1 < parts.len() { if parts[i] == "6" { c = parse_int(parts[i + 1]).unwrap_or(0); } i += 2; }
+            if c == ch { *e = make(ch); replaced = true; break; }
+        }
+        if !replaced { entries.push(make(ch)); }
+        self.set_str("kS38", &entries.join("|"));
+        if ch == 1000 { self.set_str("kS29", &make(1000)); } else if ch == 1001 { self.set_str("kS30", &make(1001)); }
+    }
     /// Same decompress + split as `parseLevel`, keeping each object's property order.
     pub fn parse(level_string: &str) -> EdLevel {
         let text = level::decompress(level_string).unwrap_or_else(|| level_string.to_string());

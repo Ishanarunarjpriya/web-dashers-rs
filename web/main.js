@@ -534,6 +534,11 @@ async function main() {
     w.wd_ui_start_game(); w.wd_menu_mode(0); menuMode = false; won = false;
     const [p, n] = put(levelString), [ip, il] = put(createdId || "");
     w.wd_ed_open(p, n, ip, il);
+    try { // the official song names and the song of this level for the level settings
+      const rec = (window.WD_ED ? window.WD_ED.read() : []).find((x) => x.createdId === createdId);
+      const [sp, sl] = put(JSON.stringify((window.__allLevels || []).map((l) => l[1])));
+      w.wd_ed_set_songs(sp, sl, rec && Number.isFinite(rec.songId) ? rec.songId : -1);
+    } catch (e) {}
     try { w.wd_ed_set_glow(JSON.parse(localStorage.getItem("gd_settings") || "{}").showEditorGlow ? 1 : 0); } catch (e) {} // `window.showEditorGlow` (off by default)
     window.WD_EDITOR_ON = true;
   };
@@ -843,6 +848,7 @@ async function main() {
       if (params.get("endnear") && f === 1 && !menuMode) w.wd_game_set_end(w.wd_game_scene(0) + 1100); // test hook: the end portal just ahead
       w.wd_ui_step(1000 / 60); if (!window.WD_EDITOR_ON) { w.wd_trig_time(f * 16.6667); w.wd_set_audio_meter(beat(f * 16.6667)); } // the editor view does not step the triggers
       if (window.WD_EDITOR_ON && params.get("edpt") && f >= Number(params.get("edpt")) && !window.__edptDone) { window.__edptDone = true; w.wd_ed_playtest(0); } // test hook: start the playtest at this frame
+      if (window.WD_EDITOR_ON && params.get("edop") && f >= Number(params.get("edop")) && !window.__edopDone) { window.__edopDone = true; w.wd_ed_playtest(Number(params.get("edopn") || 4)); } // test hook: open a popup (4 level settings, 5 start options, 6 background picker, 7 speed picker)
       if (window.WD_EDITOR_ON && params.get("edpm") && f >= Number(params.get("edpm")) && !window.__edpmDone) { window.__edpmDone = true; w.wd_ed_playtest(3); } // test hook: open the pause menu
       if (window.WD_EDITOR_ON) { edPtStep(); w.wd_ed_frame(1000 / 60, edKeys() | (held ? 16 : 0)); }
       if (window.WD_EDITOR_ON && w.wd_ed_pt(1)) pvStep(1 / 60);
@@ -894,7 +900,18 @@ async function main() {
     if (clicks.length && ++tick % 6 === 0 && clickIdx < clicks.length) { const x = clicks[clickIdx++], y = clicks[clickIdx++]; w.wd_ui_pointer(0, x, y); w.wd_ui_pointer(2, x, y); }
     const dt = Math.min(100, smoothDelta(Math.max(0, now - last))); last = now;
     w.wd_ui_step(dt);
-    if (window.WD_EDITOR_ON) { edPtStep(); w.wd_ed_frame(dt, edKeys()); } else if (!paused) step(dt);
+    if (window.WD_EDITOR_ON) {
+      edPtStep(); w.wd_ed_frame(dt, edKeys());
+      if (window.__edArtDirty) { // the background or ground picked in the level settings: the images follow
+        window.__edArtDirty = false;
+        const inf = JSON.parse(text(w.wd_render_info()));
+        const gi = String((parseInt(inf.ground || "00", 10) || 0) + 1).padStart(2, "0");
+        Promise.all([loadImage(`../ref/assets/game-bg/game_bg_${inf.background || "01"}_001-hd.png`).catch(() => null), loadImage(`../ref/assets/game-ground/groundSquare_${gi}_001.png`).catch(() => null), loadImage(`../ref/assets/game-ground/groundSquare_${gi}_2_001.png`).catch(() => null)]).then(([b, g1, g2]) => {
+          bgImg = b; groundImg = g1; ground2Img = g2; standalone["groundSquare_main"] = g1; standalone["groundSquare_second"] = g2;
+          w.wd_render_setup(g1 ? g1.width : 1012, g2 ? 1 : 0, b ? b.height : 0);
+        });
+      }
+    } else if (!paused) step(dt);
     lp("step");
     pvStep(paused ? 0 : dt / 1000);
     lp("pvStep");
