@@ -105,15 +105,20 @@ async function main() {
   const levels = await (async () => { try { const src = await loadText("../ref/assets/scripts/game/allLevels.js"); const win = {}; new Function("window", src)(win); return win.allLevels || []; } catch (e) { return []; } })();
   let loadingLevel = false;
   // an online level (web/online.js): the level text was downloaded, start it like a level picked in the level select
+  // a black cover over everything (the scene's `fadeOut` rectangle / camera fade); `fadeTo` resolves when it got there
+  let fadeA = 0, fade = null;
+  const fadeTo = (to, ms) => new Promise((res) => { if (ms <= 0) { fadeA = to; fade = null; res(); } else fade = { from: fadeA, to, t0: performance.now(), ms, res }; });
+  const stepFade = (now) => { if (!fade) return; const k = Math.min(1, (now - fade.t0) / fade.ms); fadeA = fade.from + (fade.to - fade.from) * k; if (k >= 1) { const r = fade.res; fade = null; r(); } };
+  window.__onlinePress = () => { afx.stopMusic(); afx.playEffect("playSound_01", { volume: 1 }); };
   window.__playOnline = async (info) => {
-    loadingLevel = true; window.__onlineName = info.name;
+    loadingLevel = true; window.__onlineName = info.name; window.__onlineActive = true;
     try {
-      afx.stopMusic(); afx.playEffect("playSound_01", { volume: 1 }); w.wd_on_close();
+      await fadeTo(1, 150); w.wd_on_close(); // `_closePlayMenu(false, restart)`: the screen goes black in 150 ms, then the scene restarts into the level
       window.__songData = info.songData || null; songBuf = null;
       await ensureAudio(); if (ac && !songBuf && window.__songData) { try { songBuf = await ac.decodeAudioData(window.__songData.slice(0)); } catch (e) { songBuf = null; } }
       await loadLevelText(info.id, info.text); w.wd_menu_mode(0);
-      loadingLevel = false; startPlaying();
-    } finally { loadingLevel = false; }
+      loadingLevel = false; startPlaying(); fadeA = 0; fade = null; // the restarted scene has no cover
+    } finally { loadingLevel = false; fade = null; fadeA = 0; }
   };
   const loadSong = (id) => {
     const entry = levels.find((l) => l[2] === "level_" + id);
@@ -531,7 +536,7 @@ async function main() {
       else if (ev === "PlayLevel") {
         const l = visibleLevels[w.wd_ui_page()];
         if (l && !loadingLevel) { // game-scene.js: "Downloading Level Assets...", input off until the level and song are loaded, then sound, close the select, restart into the level
-          const id = l[2].replace("level_", ""); loadingLevel = true;
+          const id = l[2].replace("level_", ""); loadingLevel = true; window.__onlineActive = false;
           Promise.all([loadText(`../ref/assets/levels/${id}.txt`), loadSong(id)]).then(async ([txt]) => { await ensureAudio(); if (ac && !songBuf && window.__songData) songBuf = await ac.decodeAudioData(window.__songData.slice(0)); afx.playEffect("playSound_01", { volume: 1 }); w.wd_ui_close_level_select(); afx.stopMusic(); await loadLevelText(id, txt); w.wd_menu_mode(0); loadingLevel = false; startPlaying(); }).catch((e) => { loadingLevel = false; fail(e); });
         }
       }
@@ -554,7 +559,17 @@ async function main() {
       else if (ev === "Pause") doPause();
       else if (ev === "PauseResume") doResume();
       else if (ev === "PauseReplay") { doResume(); w.wd_ui_close_end(); won = false; w.wd_game_restart_current(); restarted(); }
-      else if (ev === "PauseMenu") { afx.playEffect("quitSound_01"); sliding = false; doResume(); won = false; w.wd_ui_close_end(); if (source) { try { source.stop(); } catch (e) {} } menuMode = true; w.wd_menu_mode(1); w.wd_ui_main_menu_again(); afx.enterMenu(); }
+      else if (ev === "PauseMenu") { // the pause menu quits at once; the level-complete menu fades out for 400 ms and back in (`fadeInFromBlack`)
+        const fromEnd = won;
+        afx.playEffect("quitSound_01");
+        const back = () => {
+          sliding = false; doResume(); won = false; w.wd_ui_close_end(); if (source) { try { source.stop(); } catch (e) {} } menuMode = true; w.wd_menu_mode(1); w.wd_ui_main_menu_again(); afx.enterMenu();
+          // back where the level was picked: the play menu of an online level, the level select for the main levels (`_onlineReturnToPlayMenu`, `_mainLevelReturnToSelect`)
+          if (window.__onlineActive) { const i = w.wd_on_reopen(); if (i >= 0) { const h = window.WD_EVENTS[`Pop("OnView", ${i})`]; if (h) h("", { w, put, text, params }); } }
+          else { const idx = visibleLevels.findIndex((l) => l[2] === "level_" + LEVEL_ID); if (idx >= 0) { pushLevels(idx); pushProgress(); w.wd_ui_open_level_select(); } }
+        };
+        if (fromEnd) { afx.stopMusic(); fadeTo(1, 400).then(() => { back(); return fadeTo(0, 400); }); } else back();
+      }
       else if (ev === "PausePractice") { practiceOn = !practiceOn; w.wd_game_practice(0); w.wd_ui_practice(practiceOn ? 1 : 0); doResume(); doPause(); }
       else if (ev === "Checkpoint") { if (practiceOn) w.wd_game_practice(1); }
       else if (ev === "ClearCheckpoint") { if (practiceOn) w.wd_game_practice(2); }
@@ -866,7 +881,9 @@ async function main() {
     drawUi();
     lp("ui");
     if (PROF && params.get("prof") === "2") { ctx.getImageData(0, 0, 1, 1); lp("flush"); } // forces the queued drawing to finish, so its cost shows up
-    if (loadingLevel && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);
+    if (loadingLevel && !window.__onlineActive && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);
+    stepFade(now);
+    if (fadeA > 0) { ctx.save(); ctx.globalAlpha = Math.min(1, fadeA); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.restore(); }
     handleUi();
     lp("hud0");
     fpsAcc += dt; fpsFrames++; // game-scene.js: "FPS: n", refreshed every 250 ms

@@ -496,6 +496,24 @@ impl Ui {
     }
 
     // ---- the play menu (`_openPlayMenu`) ----
+    /// the play button while the level downloads: tinted 0x666666 and dead, restored when the start failed (`playBtnLoading`)
+    pub fn on_play_busy(&mut self, busy: bool) {
+        for slot in self.nodes.iter_mut() { if let Some(n) = slot {
+            if matches!(n.action, Action::Pop("OnPlay", _)) { n.tint = if busy { 0x666666 } else { -1 }; n.interactive = !busy; }
+        } }
+    }
+
+    /// Coming back from a played online level: the play menu of that level opens again (`_onlineReturnToPlayMenu`), with its list behind it.
+    /// Returns the list index, or -1 when no level was open.
+    pub fn on_reopen(&mut self) -> i64 {
+        let Some(i) = self.on.view else { return -1 };
+        if i >= self.on.levels.len() { return -1; }
+        self.kill_tag("on_");
+        if self.on.kind != 3 { self.on_open_list(); }
+        self.on_open_menu(i);
+        i as i64
+    }
+
     pub fn on_open_menu(&mut self, idx: usize) {
         let Some(l) = self.on.levels.get(idx).cloned() else { return };
         self.kill_tag("on_m");

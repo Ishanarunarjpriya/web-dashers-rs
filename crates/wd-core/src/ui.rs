@@ -1226,6 +1226,7 @@ impl Ui {
     pub fn close_pause(&mut self) { self.kill_tag("pause"); self.paused = false; }
 
     /// `_startGame`: everything slides/shrinks away; the game proper starts afterwards.
+    /// `_startGame` after the scene restart (`_instantLevelStart`): the menu pieces are destroyed on the spot, no slide-out tweens
     pub fn start_game_dismiss(&mut self) {
         if !self.menu_active { return; }
         self.menu_active = false;
@@ -1235,12 +1236,12 @@ impl Ui {
             let Some(n) = self.get(i) else { continue };
             let (tag, height, y) = (n.tag, n.height, n.y);
             match tag {
-                "play" | "garage" | "creator" => self.tween_to(i, &[(Prop::ScaleX, 0.01), (Prop::ScaleY, 0.01)], 200.0, Ease::QuadIn, Then::Destroy),
-                "decor" => self.tween_to(i, &[(Prop::Y, sh + 100.0), (Prop::Alpha, 0.0)], 200.0, Ease::QuadIn, Then::Destroy),
-                "rob" | "news" => self.tween_to(i, &[(Prop::Y, sh + height)], 300.0, Ease::QuadIn, Then::Destroy),
-                "copyright" => self.tween_to(i, &[(Prop::Y, 680.0)], 300.0, Ease::QuadIn, Then::Destroy),
-                "fs" | "info" | "beta" | "logo" => self.tween_to(i, &[(Prop::Y, -height)], 300.0, Ease::QuadIn, Then::Destroy),
-                "social" => self.tween_to(i, &[(Prop::Y, sh + 64.0)], 300.0, Ease::QuadIn, Then::Destroy),
+                "play" | "garage" | "creator" => self.nodes[i] = None,
+                "decor" => self.nodes[i] = None,
+                "rob" | "news" => self.nodes[i] = None,
+                "copyright" => self.nodes[i] = None,
+                "fs" | "info" | "beta" | "logo" => self.nodes[i] = None,
+                "social" => self.nodes[i] = None,
                 "settings" | "stats" | "ach" | "ng" => { self.node(i).visible = false; let _ = y; }
                 _ => {}
             }

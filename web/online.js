@@ -125,7 +125,8 @@
   const saveLevel = (l, extra = {}) => {
     try {
       const key = "gd_saved_online_levels", all = JSON.parse(localStorage.getItem(key) || "[]");
-      if (all.some((s) => String(s.id).replace(/^online_/, "") === String(l.id))) return;
+      const have = all.find((s) => String(s.id).replace(/^online_/, "") === String(l.id));
+      if (have) { if (!have.levelString && extra.levelString) { have.levelString = extra.levelString; have.officialSong = extra.officialSong; have.songOffset = extra.songOffset; localStorage.setItem(key, JSON.stringify(all)); } return; }
       all.unshift({ id: String(l.id), name: l.name || "Online Level", author: l.author || "Unknown", customSongID: l.customSong || null, songName: l.songName || "Unknown", difficulty: l.difficulty || 0, downloads: l.downloads || 0, likes: l.likes || 0, stars: l.stars || 0, coins: l.coins || 0, length: l.length || 0, featured: !!l.featured, epic: l.epic || 0, savedAt: Date.now(), levelString: null, ...extra });
       localStorage.setItem(key, JSON.stringify(all));
     } catch (e) {}
@@ -168,22 +169,38 @@
     } catch (e) { fail(wd, e); }
   };
 
-  // downloads a level and starts it: the level string is base64 + gzip (the core reads it as it is)
+  // custom songs are kept in IndexedDB once downloaded (the original's `SongDB`)
+  const songDb = () => new Promise((res, rej) => { const r = indexedDB.open("wd_songs", 1); r.onupgradeneeded = () => r.result.createObjectStore("songs"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const songGet = async (id) => { try { const db = await songDb(); return await new Promise((res) => { const q = db.transaction("songs").objectStore("songs").get(String(id)); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch (e) { return null; } };
+  const songPut = async (id, buf) => { try { const db = await songDb(); db.transaction("songs", "readwrite").objectStore("songs").put(buf, String(id)); } catch (e) {} };
+
+  // `_playSelectedOnlineLevel`: the level from the saved list when it is there, else downloaded; the song; then the start
   const playOnline = async (wd, l) => {
     if (window.__onlineBusy) return; window.__onlineBusy = true;
+    let started = false;
+    window.__onlinePress && window.__onlinePress(); // music off and the play sound, the moment the button is pressed
+    wd.w.wd_on_play_busy(1);
     try {
-      const m = await download(l), text = m["4"];
-      const official = parseInt(m["12"]) || 0, custom = (m["35"] || "").trim();
-      saveLevel(l, { levelString: text, officialSong: official });
+      let text = null, official = 0, custom = "", offset = 0;
+      try { const c = JSON.parse(ls("gd_saved_online_levels") || "[]").find((s) => String(s.id).replace(/^online_/, "") === String(l.id)); if (c && c.levelString) { text = c.levelString; official = c.officialSong || 0; custom = c.customSongID || ""; offset = c.songOffset || 0; } } catch (e) {}
+      if (!text) {
+        const m = await download(l);
+        text = m["4"]; official = parseInt(m["12"]) || 0; custom = (m["35"] || "").trim(); offset = parseFloat(m["45"] || "0") || 0;
+        saveLevel(l, { levelString: text, officialSong: official, songOffset: offset });
+      }
       let songData = null;
       try {
         if (custom && custom !== "0") {
-          const info = await post("getGJSongInfo.php", `songID=${custom}&secret=${SECRET}`);
-          const url = decodeURIComponent((info.split("~|~10~|~")[1] || "").split("~|~")[0]);
-          if (url) { const r = await fetch(PROXY + url); if (r.ok) songData = await r.arrayBuffer(); }
+          songData = await songGet(custom);
+          if (!songData) {
+            const info = await post("getGJSongInfo.php", `songID=${custom}&secret=${SECRET}`);
+            const url = decodeURIComponent((info.split("~|~10~|~")[1] || "").split("~|~")[0]);
+            if (url) { const r = await fetch(PROXY + url); if (r.ok) { songData = await r.arrayBuffer(); songPut(custom, songData.slice(0)); } }
+          }
         } else { const e = allLevels()[official]; if (e) { const r = await fetch(`../ref/assets/music/${e[4] || String(e[1]).replaceAll(" ", "")}.mp3`); if (r.ok) songData = await r.arrayBuffer(); } }
       } catch (e) { console.warn("song", e); }
-      await window.__playOnline({ id: String(l.id), name: l.name, text, songData, offset: parseFloat(m["45"] || "0") || 0 });
-    } catch (e) { fail(wd, e); } finally { window.__onlineBusy = false; }
+      await window.__playOnline({ id: String(l.id), name: l.name, text, songData, offset });
+      started = true;
+    } catch (e) { fail(wd, e); } finally { window.__onlineBusy = false; if (!started) wd.w.wd_on_play_busy(0); }
   };
 })();

@@ -1267,6 +1267,10 @@ pub extern "C" fn wd_on_kind() -> u32 { with_ui(|u| u.on_kind() as u32) }
 #[no_mangle]
 pub extern "C" fn wd_on_close() { with_ui(|u| { u.kill_tag("on_"); u.on.special = None; u.on.input = false; }); }
 #[no_mangle]
+pub extern "C" fn wd_on_play_busy(on: u32) { with_ui(|u| u.on_play_busy(on != 0)); }
+#[no_mangle]
+pub extern "C" fn wd_on_reopen() -> i32 { with_ui(|u| u.on_reopen() as i32) }
+#[no_mangle]
 pub extern "C" fn wd_on_diff() -> usize { out_str(with_ui(|u| u.on_diff_param())) }
 #[no_mangle]
 pub unsafe extern "C" fn wd_on_song(np: *const u8, nl: usize, ap: *const u8, al: usize) {
