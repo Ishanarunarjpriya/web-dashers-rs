@@ -1011,6 +1011,9 @@ pub unsafe extern "C" fn wd_em_levels(ptr: *const u8, len: usize) { let j = Stri
 pub extern "C" fn wd_em_open_my_levels() { with_ui(|u| u.em_open_my_levels()); }
 #[no_mangle]
 pub unsafe extern "C" fn wd_em_open_new(ptr: *const u8, len: usize) { let j = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.em_open_new(&j)); }
+/// Closes the creator screens (level view, My Levels, creator menu), as when a created level starts.
+#[no_mangle]
+pub extern "C" fn wd_em_close() { with_ui(|u| { u.kill_tag("cm_"); u.kill_tag("my_"); u.kill_tag("lv_"); u.em.view = None; u.em.input = 0; }); }
 #[no_mangle]
 pub extern "C" fn wd_em_after_delete() { with_ui(|u| u.em_after_delete()); }
 #[no_mangle]
@@ -1053,7 +1056,13 @@ fn editor_trigger_sprite(atlases: &visual::Atlases, sprites: &mut Vec<visual::Sp
 pub(crate) fn atlas_for_frame(frame: &str) -> Option<String> { ATLASES.lock().ok()?.as_ref()?.find(frame).map(|(a, _)| a.to_string()) }
 
 /// Rebuilds the editor's view game from the editor level (keeps the ground/background set up by the host).
+/// Bumped whenever the editor view is rebuilt: its table of sprite images (`wd_render_frames`) is a new one.
+static ED_FRAMES_VER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+#[no_mangle]
+pub extern "C" fn wd_ed_frames_ver() -> u32 { ED_FRAMES_VER.load(std::sync::atomic::Ordering::Relaxed) }
+
 pub(crate) fn editor_rebuild(level: &level::Level) {
+    ED_FRAMES_VER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let old = GAME.lock().unwrap().take();
     let mut g = game::Game::from_level_official(level, 2);
     attach_level_sprites_ed(level, &mut g, 2, true);

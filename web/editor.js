@@ -82,7 +82,7 @@
       if (l.songId > 0 && window.__songById) songData = await window.__songById(l.songId);
       else { const e = (window.__allLevels || []).find((x) => x[1] === l.song); if (e) { const r = await fetch(`../ref/assets/music/${e[4] || String(e[1]).replaceAll(" ", "")}.mp3`); if (r.ok) songData = await r.arrayBuffer(); } }
     } catch (e) { console.warn("song", e); }
-    window.__playOnline({ id: String(l.createdId), name: l.levelName, text: l.levelString, songData, offset: 0 });
+    window.__playOnline({ id: String(l.createdId), name: l.levelName, text: l.levelString, songData, offset: 0, created: l.createdId });
   };
   // after leaving the editor: the level view of the level that was open
   (() => {

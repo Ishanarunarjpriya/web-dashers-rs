@@ -71,7 +71,14 @@ async function main() {
   const flushStorage = () => { try { for (const [k, v] of JSON.parse(text(w.wd_coins_outbox()))) localStorage.setItem(k, v); } catch (e) {} };
 
   // ---- level (can be switched from the level select) ----
-  let frameNames = [], LEVEL_ID = LEVEL, info = {}, bgImg = null, groundImg = null, ground2Img = null, frames = [];
+  // the sprite images of the level in the game (`wd_render_frames` lists them by index); the editor builds a new table whenever it rebuilds its view
+  let frameNames = [], edFramesVer = -1;
+  function loadFrameTable() {
+    const frameTable = JSON.parse(text(w.wd_render_frames()));
+    frameNames = frameTable;
+    frames = frameTable.map(([a, f]) => { const at = atlas[a]; const d = at && at.frames[f]; return d ? { img: at.img, d } : null; });
+  }
+  let LEVEL_ID = LEVEL, info = {}, bgImg = null, groundImg = null, ground2Img = null, frames = [];
   const standalone = {}; window.__standalone = standalone;
   const loadLevel = async (id) => loadLevelText(id, await loadText(`../ref/assets/levels/${id}.txt`));
   const loadLevelText = async (id, levelText) => {
@@ -100,9 +107,7 @@ async function main() {
     w.wd_render_setup(groundImg ? groundImg.width : 1012, ground2Img ? 1 : 0, bgImg ? bgImg.height : 0);
     if (params.get("mode")) w.wd_game_set_start(Number(params.get("mode")), Number(params.get("speed") || 0), params.get("mini") ? 1 : 0, params.get("flip") ? 1 : 0, params.get("mirror") ? 1 : 0, params.get("dual") ? 1 : 0); // test hook
     w.wd_game_restart_level(-1);
-    const frameTable = JSON.parse(text(w.wd_render_frames()));
-    frameNames = frameTable;
-    frames = frameTable.map(([a, f]) => { const at = atlas[a]; const d = at && at.frames[f]; return d ? { img: at.img, d } : null; });
+    loadFrameTable();
   };
   const levels = await (async () => { try { const src = await loadText("../ref/assets/scripts/game/allLevels.js"); const win = {}; new Function("window", src)(win); return win.allLevels || []; } catch (e) { return []; } })();
   let loadingLevel = false;
@@ -115,7 +120,7 @@ async function main() {
   window.__playOnline = async (info) => {
     loadingLevel = true; window.__onlineName = info.name; window.__onlineActive = true;
     try {
-      await fadeTo(1, 150); w.wd_on_close(); // `_closePlayMenu(false, restart)`: the screen goes black in 150 ms, then the scene restarts into the level
+      await fadeTo(1, 150); w.wd_on_close(); w.wd_em_close(); window.__createdPlayId = info.created || null; // a created level: quitting goes back to its level view // `_closePlayMenu(false, restart)`: the screen goes black in 150 ms, then the scene restarts into the level
       window.__songData = info.songData || null; songBuf = null;
       await ensureAudio(); if (ac && !songBuf && window.__songData) { try { songBuf = await ac.decodeAudioData(window.__songData.slice(0)); } catch (e) { songBuf = null; } }
       await loadLevelText(info.id, info.text); w.wd_menu_mode(0);
@@ -579,7 +584,8 @@ async function main() {
     const back = () => {
       sliding = false; doResume(); won = false; w.wd_ui_close_end(); if (source) { try { source.stop(); } catch (e) {} } menuMode = true; w.wd_menu_mode(1); w.wd_ui_main_menu_again(); afx.enterMenu();
       // back where the level was picked: the play menu of an online level, the level select for the main levels (`_onlineReturnToPlayMenu`, `_mainLevelReturnToSelect`)
-      if (window.__onlineActive) { const i = w.wd_on_reopen(); if (i >= 0) { const h = window.WD_EVENTS[`Pop("OnView", ${i})`]; if (h) h("", { w, put, text, params }); } }
+      if (window.__createdPlayId) { const id = window.__createdPlayId; window.__createdPlayId = null; if (window.WD_ED) { window.WD_ED.push({ w, put, text }); const [p, n] = put(id); w.wd_em_open_new(p, n); } }
+      else if (window.__onlineActive) { const i = w.wd_on_reopen(); if (i >= 0) { const h = window.WD_EVENTS[`Pop("OnView", ${i})`]; if (h) h("", { w, put, text, params }); } }
       else { const idx = visibleLevels.findIndex((l) => l[2] === "level_" + LEVEL_ID); if (idx >= 0) { pushLevels(idx); pushProgress(); w.wd_ui_open_level_select(); } }
     };
     if (fromEnd) { afx.stopMusic(); fadeTo(1, 400).then(() => { back(); return fadeTo(0, 400); }); } else back();
@@ -871,7 +877,7 @@ async function main() {
       if (window.WD_EDITOR_ON && params.get("edpt") && f >= Number(params.get("edpt")) && !window.__edptDone) { window.__edptDone = true; w.wd_ed_playtest(0); } // test hook: start the playtest at this frame
       if (window.WD_EDITOR_ON && params.get("edop") && f >= Number(params.get("edop")) && !window.__edopDone) { window.__edopDone = true; w.wd_ed_playtest(Number(params.get("edopn") || 4)); } // test hook: open a popup (4 level settings, 5 start options, 6 background picker, 7 speed picker)
       if (window.WD_EDITOR_ON && params.get("edpm") && f >= Number(params.get("edpm")) && !window.__edpmDone) { window.__edpmDone = true; w.wd_ed_playtest(3); } // test hook: open the pause menu
-      if (window.WD_EDITOR_ON) { edPtStep(); w.wd_ed_frame(1000 / 60, edKeys() | (held ? 16 : 0)); }
+      if (window.WD_EDITOR_ON) { edPtStep(); w.wd_ed_frame(1000 / 60, edKeys() | (held ? 16 : 0)); { const v = w.wd_ed_frames_ver(); if (v !== edFramesVer) { edFramesVer = v; loadFrameTable(); } } }
       if (window.WD_EDITOR_ON && w.wd_ed_pt(1)) pvStep(1 / 60);
       const rr = window.WD_EDITOR_ON ? 0 : w.wd_game_update(1000 / 60, held ? 1 : 0);
       pollSlide();
@@ -923,6 +929,7 @@ async function main() {
     w.wd_ui_step(dt);
     if (window.WD_EDITOR_ON) {
       edPtStep(); w.wd_ed_frame(dt, edKeys());
+      { const v = w.wd_ed_frames_ver(); if (v !== edFramesVer) { edFramesVer = v; loadFrameTable(); } }
       if (window.__edArtDirty) { // the background or ground picked in the level settings: the images follow
         window.__edArtDirty = false;
         const inf = JSON.parse(text(w.wd_render_info()));
