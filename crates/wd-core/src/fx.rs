@@ -16,6 +16,8 @@ pub struct InvisibleEntry { pub x: f64, pub sprites: Vec<usize>, pub alpha: f64,
 #[derive(Default, Debug)]
 pub struct Fx {
     pub sprites: Vec<Sprite>,
+    /// per sprite, for `sprite_hidden` without property lookups: -2 top layer (never hidden), -1 no section, else the section index
+    pub hide_key: Vec<i64>,
     /// `_sections`: sprite indices per 400-wide section
     pub sections: BTreeMap<u64, Vec<usize>>,
     /// `_sections.length` (a JS array: only indices below 2^32 - 1 extend it)
@@ -122,8 +124,9 @@ impl Game {
         // the group lists the trigger code walks: unique sprites in registration order
         let mut group_anchors: BTreeMap<i64, Vec<usize>> = BTreeMap::new();
         for (g, list) in &group_sprites {
-            let mut uniq: Vec<usize> = Vec::new();
-            for &si in list { if !uniq.contains(&si) { uniq.push(si); } }
+            let mut uniq: Vec<usize> = Vec::with_capacity(list.len());
+            let mut seen: std::collections::HashSet<usize, std::hash::BuildHasherDefault<crate::fasthash::FastHasher>> = Default::default();
+            for &si in list { if seen.insert(si) { uniq.push(si); } }
             group_anchors.insert(*g, uniq);
         }
         self.trig.anchors = anchors;
@@ -135,17 +138,23 @@ impl Game {
         fx.channel_sprites = channel_sprites;
         fx.emitters = emitters;
         {
-            let mut ids: std::collections::HashMap<(String, String), u32> = std::collections::HashMap::new();
+            // frame numbers: one entry per distinct (atlas, frame) pair; the keys borrow the sprites' names, so nothing is copied per sprite
+            let mut ids: crate::fasthash::FastMap<(&str, &str), u32> = Default::default();
             let mut frames: Vec<(String, String)> = Vec::new();
             let mut sprite_frame = Vec::with_capacity(sprites.len());
             for s in &sprites {
-                let key = (s.atlas.clone(), s.frame.clone());
-                let id = *ids.entry(key.clone()).or_insert_with(|| { frames.push(key); (frames.len() - 1) as u32 });
+                let key = (s.atlas.as_str(), s.frame.as_str());
+                let id = match ids.get(&key) { Some(&id) => id, None => { frames.push((s.atlas.clone(), s.frame.clone())); let id = (frames.len() - 1) as u32; ids.insert(key, id); id } };
                 sprite_frame.push(id);
             }
             let mut anim_frames: BTreeMap<usize, Vec<Option<u32>>> = BTreeMap::new();
+            let mut extra: crate::fasthash::FastMap<(String, String), u32> = Default::default(); // names that no sprite uses by itself (animation frames)
             for (si, names) in anim_names {
-                let ids2: Vec<Option<u32>> = names.into_iter().map(|n| n.map(|key| *ids.entry(key.clone()).or_insert_with(|| { frames.push(key); (frames.len() - 1) as u32 }))).collect();
+                let ids2: Vec<Option<u32>> = names.into_iter().map(|n| n.map(|key| {
+                    if let Some(&id) = ids.get(&(key.0.as_str(), key.1.as_str())) { return id; }
+                    if let Some(&id) = extra.get(&key) { return id; }
+                    frames.push(key.clone()); let id = (frames.len() - 1) as u32; extra.insert(key, id); id
+                })).collect();
                 anim_frames.insert(si, ids2);
             }
             fx.frames = frames;
@@ -168,6 +177,7 @@ impl Game {
         fx.watch.clear();
         fx.index_built = false;
         fx.top_sprites = sprites.iter().enumerate().filter(|(_, s)| s.num("_eeLayer") == Some(2.0)).map(|(i, _)| i).collect();
+        fx.hide_key = sprites.iter().map(|s| if s.num("_eeLayer") == Some(2.0) { -2 } else { s.num("_eeSectionIndex").map_or(-1, |v| v as i64) }).collect();
         fx.sprites = sprites;
         fx.sections = sections;
         fx.sections_len = sections_len;
@@ -246,7 +256,7 @@ impl Game {
     /// `_applyGroupedSpriteTransform`
     pub(crate) fn apply_sprite_transform(&mut self, si: usize) {
         if !self.fx.sprites[si].active { return; }
-        let ids = self.fx.ids[si].clone();
+        let ids = std::mem::take(&mut self.fx.ids[si]); // put back below: no copy per sprite per frame
         let (initial_x, initial_y, init_rot, vis_x0, vis_y0, beast) = {
             let s = &self.fx.sprites[si];
             let ix = s.num("_eeInitialWorldX").or_else(|| s.num("_origWorldX")).unwrap_or(s.x);
@@ -272,6 +282,7 @@ impl Game {
                 fy = cy + dx * s + dy * c;
             }
         }
+        self.fx.ids[si] = ids;
         let s = &mut self.fx.sprites[si];
         if !beast {
             let (mut vx, mut vy) = (vis_x0, vis_y0);
@@ -306,6 +317,7 @@ impl Game {
         let list = self.fx.sections.entry(next).or_default();
         if !list.contains(&si) { list.push(si); }
         self.fx.sprites[si].set_num("_eeSectionIndex", next as f64);
+        if let Some(k) = self.fx.hide_key.get_mut(si) { if *k != -2 { *k = next as i64; } }
         self.fx.color_dirty = true;
         // `_placeFlatSprite` puts a sprite of a hidden section into that section's (new) container
         if self.fx.sprites[si].num("_eeLayer") != Some(2.0) {
@@ -392,10 +404,9 @@ impl Game {
     /// `anchorSprite.parentContainer.visible === false`
     pub fn sprite_container_hidden(&self, si: usize) -> bool { self.sprite_hidden(si) }
     fn sprite_hidden(&self, si: usize) -> bool {
-        if self.fx.sprites[si].num("_eeLayer") == Some(2.0) { return false; } // the top container is always shown
-        match self.fx.sprites[si].num("_eeSectionIndex") {
-            Some(sec) => { let sec = sec as i64; sec < self.fx.vis_min || sec > self.fx.vis_max }
-            None => false,
+        match self.fx.hide_key.get(si) {
+            Some(&k) if k >= 0 => k < self.fx.vis_min || k > self.fx.vis_max,
+            _ => false, // the top container is always shown; a sprite without a section is not culled
         }
     }
 

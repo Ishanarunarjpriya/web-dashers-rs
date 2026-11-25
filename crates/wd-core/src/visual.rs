@@ -48,6 +48,8 @@ fn key_hash(k: &str) -> u64 {
 }
 
 impl Props {
+    /// a sprite carries a few dozen properties: room for them up front saves the repeated regrowth while a level loads
+    pub fn with_capacity(n: usize) -> Props { Props(Vec::with_capacity(n)) }
     #[inline]
     pub fn get(&self, k: &str) -> Option<&Val> {
         let h = key_hash(k);

@@ -85,10 +85,12 @@ async function main() {
       const [kp, kl] = put(key), [sp, sl] = put(ids("gd_secretCoins_" + key)), [up, ul] = put(ids("gd_userCoins_" + key));
       w.wd_coins_config(official ? 1 : 0, key.startsWith("local_") ? 1 : 0, 0, kp, kl, sp, sl, up, ul, parseInt(ls("gd_totalsecretcoins", "0"), 10) || 0, parseInt(ls("gd_totalusercoins", "0"), 10) || 0);
     }
-    { const [p, l] = put(levelText); w.wd_game_load_level(p, l); }
+    window.__loadBench = (n) => { const t0 = performance.now(); for (let k = 0; k < n; k++) { const [p, l] = put(levelText); w.wd_game_load_level(p, l); w.wd_game_after_load(); w.wd_game_restart_level(-1); } return (performance.now() - t0) / n; }; // test hook
+    const T = [performance.now()];
+    { const [p, l] = put(levelText); w.wd_game_load_level(p, l); } T.push(performance.now());
     w.wd_mirror_enable(1);
-    w.wd_game_after_load();
-    w.wd_game_restart_level(-1);
+    w.wd_game_after_load(); T.push(performance.now());
+    w.wd_game_restart_level(-1); T.push(performance.now()); window.__loadT = T.slice(1).map((v, i) => +(v - T[i]).toFixed(1)); // test hook: ms of load / after_load / restart
     info = JSON.parse(text(w.wd_render_info()));
     bgImg = await loadImage(`../ref/assets/game-bg/game_bg_${info.background || "01"}_001-hd.png`).catch(() => null);
     const groundIdx = String((parseInt(info.ground || "00", 10) || 0) + 1).padStart(2, "0");
@@ -859,7 +861,7 @@ async function main() {
     if (!won && endfx.active) endfx.reset();
     if (!paused) endfx.update(dt);
     endfx.portalUpdate(paused ? 0 : dt, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !window.WD_EDITOR_ON && !readSettings().enableLDM);
-    if (PROF) { P.meter = w.wd_audio_dbg(0); P.pulse = w.wd_audio_dbg(1); P.nAS = w.wd_audio_dbg(2); P.sc = w.wd_audio_dbg(3); P.ap = w.wd_audio_dbg(8); P.ac = ac ? ac.state : "none"; P.song = !!songBuf; }
+    if (PROF) { P.meter = w.wd_audio_dbg(0); P.pulse = w.wd_audio_dbg(1); P.nAS = w.wd_audio_dbg(2); P.sc = w.wd_audio_dbg(3); P.ap = w.wd_audio_dbg(8); P.nAnim = w.wd_audio_dbg(9); P.nSaw = w.wd_audio_dbg(10); P.nSpr = w.wd_audio_dbg(11); P.ac = ac ? ac.state : "none"; P.song = !!songBuf; }
     lp("fx");
     const buf = render(); camXUi = buf[0]; camYUi = buf[1];
     lp("render");

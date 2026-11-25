@@ -1,6 +1,6 @@
 //! Port of `parseObject` / `parseLevel` / `_decodeTextObjectString` from level.js.
 use crate::js::{parse_float, parse_int};
-use std::collections::HashMap;
+use crate::fasthash::FastMap;
 
 #[derive(Debug, Clone)]
 pub struct LevelObject {
@@ -28,7 +28,7 @@ pub struct LevelObject {
     pub dual_mode: Option<i64>,
     pub mirrored: Option<i64>,
     pub flip_gravity: bool,
-    pub raw: HashMap<String, String>,
+    pub raw: FastMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,7 +124,7 @@ fn or_zero(v: Option<&String>) -> &str {
 
 pub fn parse_object(object_string: &str) -> Option<LevelObject> {
     let parts: Vec<&str> = object_string.split(',').collect();
-    let mut data: HashMap<String, String> = HashMap::new();
+    let mut data: FastMap<String, String> = FastMap::default();
     let mut i = 0;
     while i + 1 < parts.len() {
         data.insert(parts[i].to_string(), parts[i + 1].to_string());
