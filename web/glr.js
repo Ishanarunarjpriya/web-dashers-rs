@@ -23,11 +23,15 @@ export function createGL(canvas) {
   gl.uniform1i(gl.getUniformLocation(prog, "u_tex"), 0);
 
   const IDX = [0, 1, 2, 0, 2, 3];
-  const MAX = 4096, STRIDE = 8; // sprites per batch; floats per vertex: x y u v r g b a
+  // Every quad of the frame goes into one array and is uploaded once in `end()`; the draw calls (one per run of sprites that share a texture and
+  // blend mode) just point into it. Uploading after each batch made the driver wait for the GPU to finish with the buffer.
+  const MAX = 16384, STRIDE = 8; // sprites per frame; floats per vertex: x y u v r g b a
   const data = new Float32Array(MAX * 6 * STRIDE);
   const buf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, data.byteLength, gl.DYNAMIC_DRAW);
+  const runs = []; // { tex, blend, start, count } in quads
+  let runStart = 0;
   for (const [loc, n, off] of [[aPos, 2, 0], [aUv, 2, 2], [aCol, 4, 4]]) { gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, STRIDE * 4, off * 4); }
   gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.enable(gl.BLEND);
 
@@ -53,19 +57,22 @@ export function createGL(canvas) {
   })();
 
   let n = 0, curTex = null, curBlend = -1, W = canvas.width, H = canvas.height, offX = 0, offY = 0;
-  const flush = () => {
-    if (!n) return;
-    gl.bindTexture(gl.TEXTURE_2D, curTex.tex);
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, n * 6 * STRIDE));
-    gl.drawArrays(gl.TRIANGLES, 0, n * 6);
-    n = 0;
+  const closeRun = () => { if (n > runStart && curTex) runs.push({ tex: curTex, blend: curBlend, start: runStart, count: n - runStart }); runStart = n; };
+  const flush = () => { // sends what was collected so far (the array is full)
+    closeRun();
+    if (!runs.length) return;
+    gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, n * 6 * STRIDE), gl.DYNAMIC_DRAW); // a fresh store each time, so the GPU may still read the old one
+    let bl = -1;
+    for (const r of runs) {
+      if (r.blend !== bl) { if (r.blend === 1) gl.blendFunc(gl.ONE, gl.ONE); else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); bl = r.blend; }
+      gl.bindTexture(gl.TEXTURE_2D, r.tex.tex);
+      gl.drawArrays(gl.TRIANGLES, r.start * 6, r.count * 6);
+    }
+    runs.length = 0; n = 0; runStart = 0;
   };
   const setState = (tex, blend) => {
-    if (tex !== curTex || blend !== curBlend || n >= MAX) {
-      flush();
-      if (blend !== curBlend) { if (blend === 1) gl.blendFunc(gl.ONE, gl.ONE); else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); curBlend = blend; }
-      curTex = tex;
-    }
+    if (tex !== curTex || blend !== curBlend) { closeRun(); curTex = tex; curBlend = blend; }
+    if (n >= MAX) { const t = curTex, b = curBlend; flush(); curTex = t; curBlend = b; }
   };
   // one quad from four corners (x y u v each), premultiplied colour
   const push = (p, r, g, b, a) => {
@@ -85,7 +92,7 @@ export function createGL(canvas) {
 
   const api = {
     begin(shakeX, shakeY) {
-      offX = shakeX || 0; offY = shakeY || 0; n = 0; curTex = null; curBlend = -1;
+      offX = shakeX || 0; offY = shakeY || 0; n = 0; runStart = 0; runs.length = 0; curTex = null; curBlend = -1;
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform2f(uSize, W, H); gl.uniform2f(uOff, offX, offY);
       gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);

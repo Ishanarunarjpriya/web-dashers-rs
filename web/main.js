@@ -175,6 +175,7 @@ async function main() {
 
   // ---- drawing helpers ----
   let tintCache = new WeakMap(), tintPixels = 0;
+  const TS = { n: 0, px: 0, h: {} }; window.__tint = TS; // test hook: tints painted on the CPU
   let bgTile = null, cpuCv = null, cpuCtx = null;
   const tinted = (fr, tint) => {
     // keyed by image object, then by frame rectangle, then by tint: nothing is built per call (the callers make a fresh `fr` object every time)
@@ -184,7 +185,7 @@ async function main() {
     let c = per.get(tint);
     if (c) return c;
     const { x, y, w: fw, h: fh } = fr.d.frame;
-    const paint = (cv) => { // a Phaser tint multiplies the colour and keeps the alpha: do the same per pixel (a canvas "multiply" would tint the transparent edges, e.g. the soft black shadow of the fonts)
+    const paint = (cv) => { TS.n++; TS.px += fw * fh; { const k = fw + 'x' + fh + (cv.tint === undefined ? '' : ' scratch'); TS.h[k] = (TS.h[k] || 0) + 1; } // a Phaser tint multiplies the colour and keeps the alpha: do the same per pixel (a canvas "multiply" would tint the transparent edges, e.g. the soft black shadow of the fonts)
       if (!cpuCv) { cpuCv = document.createElement("canvas"); cpuCtx = cpuCv.getContext("2d", { willReadFrequently: true }); }
       if (cpuCv.width < fw || cpuCv.height < fh) { cpuCv.width = Math.max(cpuCv.width, fw); cpuCv.height = Math.max(cpuCv.height, fh); }
       cpuCtx.clearRect(0, 0, fw, fh);
@@ -196,7 +197,7 @@ async function main() {
       g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, fw, fh);
       g.putImageData(im, 0, 0);
     };
-    if (per.size >= 12) { // a colour that fades (or the menu's rainbow): repaint one canvas instead of making a new one every frame
+    if (per.size >= (fw * fh <= 1024 ? 2048 : 12)) { // (small frames, e.g. particles, may keep many colours: they are cheap to store) // a colour that fades (or the menu's rainbow): repaint one canvas instead of making a new one every frame
       let sc = per.scratch;
       if (!sc) { sc = per.scratch = document.createElement("canvas"); sc.width = fw; sc.height = fh; sc.tint = -2; }
       if (sc.tint !== tint) { paint(sc); sc.tint = tint; }

@@ -104,6 +104,8 @@ impl Col {
 
 impl<'a> Sim<'a> {
     /// `fx:x,y,type,id,flags` — what `_orbpadHitEffect` needs (flags: 1 secret coin, 2 user coin)
+    /// `_markActivatedOrbSprites`: the visual layer starts the click pulse of the orb sprites at this position
+    fn mark_orb(&mut self, x: f64, y: f64) { self.vlog.push(format!("orb:{},{}", x, y)); }
     fn fx_line(c: &Col) -> String { format!("fx:{},{},{},{},{}", c.x, c.y, c.ty, c.id.unwrap_or(-1.0), c.secret_coin as u8 | (c.user_coin as u8) << 1) }
 
     /// `tryCollectSecretCoin` / `tryCollectUserCoin` (the harnesses answer through `Env` instead)
@@ -547,6 +549,7 @@ impl<'a> Sim<'a> {
                             }
                             self.stop_rotation();
                             boosted_this_step = true;
+                            self.mark_orb(cols[i].x, cols[i].y);
                         }
                     } else {
                         self.set_activated(&mut cols[i], true);
@@ -579,12 +582,14 @@ impl<'a> Sim<'a> {
                             self.p.is_jumping = false;
                             self.run_rotate_action(1.0);
                             boosted_this_step = true;
+                            self.mark_orb(cols[i].x, cols[i].y);
                         } else if self.p.is_wave {
                             if orb_id == Some(84.0) || orb_id == Some(1022.0) {
                                 let flipped = !self.p.gravity_flipped;
                                 self.flip_gravity(flipped, 0.5);
                                 self.sync_other_dual_gravity();
                                 boosted_this_step = true;
+                                self.mark_orb(cols[i].x, cols[i].y);
                             }
                         } else {
                             let y_s = crate::physics::grav_consts_pub(self.g.player_speed).1;
@@ -635,6 +640,7 @@ impl<'a> Sim<'a> {
                             }
                             self.run_rotate_action(1.0);
                             boosted_this_step = true;
+                            self.mark_orb(cols[i].x, cols[i].y);
                             if flip_after {
                                 let flipped = !self.p.gravity_flipped;
                                 self.flip_gravity(flipped, 0.5);

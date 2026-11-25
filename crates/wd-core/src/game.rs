@@ -399,6 +399,7 @@ impl Game {
         self.e.second_player = second;
         if self.coins.enabled { self.e.practice_mode = self.practice_mode; }
         let from = self.log.len();
+        let mut orb_hits: Vec<(f64, f64)> = Vec::new();
         let r = {
             let (p, other) = if second { (&mut self.p2, &mut self.p) } else { (&mut self.p, &mut self.p2) };
             let mut sim = Sim::new(p, &mut self.g, &mut self.e);
@@ -406,9 +407,11 @@ impl Game {
             if self.coins.enabled { sim.coins = Some(&mut self.coins); }
             let r = f(&mut sim);
             self.log.extend(sim.log);
+            for l in &sim.vlog { if let Some(rest) = l.strip_prefix("orb:") { if let Some((x, y)) = rest.split_once(',') { if let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>()) { orb_hits.push((x, y)); } } } }
             self.vlog.extend(sim.vlog);
             r
         };
+        for (x, y) in orb_hits { self.mark_orb_sprites(x, y); }
         self.consume_mirror_log(from);
         self.e.second_player = false;
         r

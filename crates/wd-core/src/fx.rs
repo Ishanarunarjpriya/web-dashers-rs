@@ -947,7 +947,18 @@ impl Game {
         self.update_audio_scale(self.fx.audio_meter, self.camera_x, self.screen_width);
     }
 
-    /// `updateAudioScale` (orb clicks are not tracked yet)
+    /// `_markActivatedOrbSprites` (player.js): orb sprites at the collider's position start their click pulse
+    pub fn mark_orb_sprites(&mut self, x: f64, y: f64) {
+        let target_y = 460.0 - y;
+        let now = self.trig.now_ms;
+        for si in self.fx.lists.orbs.clone() {
+            let s = &mut self.fx.sprites[si];
+            let same = match s.num("_eeWorldX") { Some(wx) => (wx - x).abs() < 10.0 && s.num("_eeBaseY").map_or(true, |by| (by - target_y).abs() < 10.0), None => false };
+            if same { s.set_num("_hitTime", now); }
+        }
+    }
+
+    /// `updateAudioScale`
     pub fn update_audio_scale(&mut self, meter: f64, camera_x: f64, viewport: f64) {
         let meter = if meter.is_finite() { meter } else { 0.0 };
         let max_scale: f64 = 1.5;
@@ -981,7 +992,15 @@ impl Game {
             let s = &mut self.fx.sprites[si];
             if !s.active || off(s) { continue; }
             let base = match s.num("_eeBaseScale") { Some(v) if v > 0.0 => v, _ => 0.75 };
-            let target = max_scale.min(base * pulse_mult);
+            let base_scale = max_scale.min(base * pulse_mult);
+            let mut target = base_scale;
+            if let Some(ht) = s.num("_hitTime").filter(|t| *t != 0.0) {
+                let (click, shrink) = (2.0, 250.0);
+                let elapsed = self.trig.now_ms - ht;
+                if elapsed < 80.0 { target = base_scale + base_scale * (click - 1.0) * (elapsed / 80.0); }
+                else if elapsed < 80.0 + shrink { let peak = base_scale * click; target = peak + (base_scale - peak) * ((elapsed - 80.0) / shrink); }
+                else { s.set_num("_hitTime", 0.0); }
+            }
             if s.num("_eeLastOrbScale") != Some(target) {
                 s.scale_x = target; s.scale_y = target;
                 s.set_num("_eeLastOrbScale", target);
