@@ -11,6 +11,7 @@ pub mod editor_fields;
 pub mod editor_objects;
 pub mod editor_trigger;
 pub mod editor_ctrig;
+pub mod menukeys;
 pub mod beast;
 pub mod coins;
 pub mod mirror;
@@ -1106,6 +1107,12 @@ pub unsafe extern "C" fn wd_ed_cp_tex(which: u32, ptr: *const u8, len: usize) { 
 /// The colour the picker shows (r, g, b packed as 0xRRGGBB), -1 when it is closed.
 #[no_mangle]
 pub extern "C" fn wd_ed_cp_color() -> f64 { with_ui(|u| if u.ed.cp.open { ((u.ed.cp.color.0 << 16) | (u.ed.cp.color.1 << 8) | u.ed.cp.color.2) as f64 } else { -1.0 }) }
+/// Menu keyboard shortcuts: 1 when the key was used by the menu (`code` is a `KeyboardEvent.code`).
+#[no_mangle]
+pub unsafe extern "C" fn wd_ui_menu_key(ptr: *const u8, len: usize) -> u32 { let c = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.menu_key(&c)) as u32 }
+/// Editor keybinds: 0..2 tabs, 3..6 move the selection (up, left, down, right); `big` moves 60 instead of 1.
+#[no_mangle]
+pub extern "C" fn wd_ed_key_action(which: u32, big: u32) { with_ui(|u| u.ed_key_action(which, big != 0)); }
 /// `window.showEditorGlow`: the glow sprites of the editor view
 #[no_mangle]
 pub extern "C" fn wd_ed_set_glow(on: u32) { with_ui(|u| u.ed.glow = on != 0); }

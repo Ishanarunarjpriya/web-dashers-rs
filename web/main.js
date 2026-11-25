@@ -479,8 +479,13 @@ async function main() {
 
   // ---- input ----
   let held = false;
-  const down = (e) => { if (e.type === "keydown" && !["Space", "ArrowUp", "KeyW"].includes(e.code)) return; if (!menuMode && !paused && !sliding && !held) { bump("gd_totalJumps"); bumpLevel("Jumps"); } held = true; e.preventDefault(); if (!ac) ensureAudio().then(() => startMusic(musicNow())); };
-  const up = (e) => { if (e.type === "keyup" && !["Space", "ArrowUp", "KeyW"].includes(e.code)) return; held = false; };
+  // ---- keybinds: gd_keybinds = { action: [KeyboardEvent.code, ...] } with the defaults of `_loadKeybinds`
+  const KB_DEF = { jump: ["Space", "KeyG", "KeyL", "KeyW"], jump2: ["ArrowUp", "KeyH"], pause: [], restart: ["KeyR"], noclip: ["KeyN"], showHitboxes: ["KeyH"], practice: ["KeyP"], startPosPrev: ["KeyQ"], startPosNext: ["KeyE"], saveCheckpoint: ["KeyZ"], deleteCheckpoint: ["KeyX"], editorTab1: ["Digit1"], editorTab2: ["Digit2"], editorTab3: ["Digit3"], editorMoveUp: ["KeyW"], editorMoveLeft: ["KeyA"], editorMoveDown: ["KeyS"], editorMoveRight: ["KeyD"], toggleMusic: ["KeyM"], screenshot: ["F2"], debugMode: ["F1"], zoomIn: ["Equal"], zoomOut: ["Minus"], toggleUI: ["KeyU"] };
+  const kbCodes = (id) => { try { const m = JSON.parse(localStorage.getItem("gd_keybinds") || "{}") || {}; if (Array.isArray(m[id])) return m[id]; } catch (e) {} return KB_DEF[id] || []; };
+  const kbIs = (id, code) => kbCodes(id).includes(code);
+  const isJumpKey = (code) => kbIs("jump", code) || kbIs("jump2", code);
+  const down = (e) => { if (e.type === "keydown" && !isJumpKey(e.code)) return; if (!menuMode && !paused && !sliding && !held) { bump("gd_totalJumps"); bumpLevel("Jumps"); } held = true; e.preventDefault(); if (!ac) ensureAudio().then(() => startMusic(musicNow())); };
+  const up = (e) => { if (e.type === "keyup" && !isJumpKey(e.code)) return; held = false; };
   addEventListener("keydown", down); addEventListener("keyup", up);
   const toGame = (e) => { const r = canvas.getBoundingClientRect(); const sc = Math.min(r.width / W, r.height / H); const ox = r.left + (r.width - W * sc) / 2, oy = r.top + (r.height - H * sc) / 2; return [(e.clientX - ox) / sc, (e.clientY - oy) / sc]; };
   canvas.addEventListener("wheel", (e) => { const [x, y] = toGame(e); w.wd_ui_wheel(x, y, e.deltaY); e.preventDefault(); }, { passive: false });
@@ -510,7 +515,7 @@ async function main() {
   addEventListener("keydown", (e) => { if (window.WD_EDITOR_ON && e.key.startsWith("Arrow")) { edDown.add(e.key); e.preventDefault(); } });
   addEventListener("keyup", (e) => edDown.delete(e.key));
   const edJump = new Set();
-  addEventListener("keydown", (e) => { if (window.WD_EDITOR_ON && ["Space", "ArrowUp", "KeyW"].includes(e.code)) { edJump.add(e.code); e.preventDefault(); } });
+  addEventListener("keydown", (e) => { if (window.WD_EDITOR_ON && kbIs("jump", e.code)) { edJump.add(e.code); e.preventDefault(); } });
   addEventListener("keyup", (e) => edJump.delete(e.code));
   const edKeys = () => (edDown.has("ArrowLeft") ? 1 : 0) | (edDown.has("ArrowRight") ? 2 : 0) | (edDown.has("ArrowUp") ? 4 : 0) | (edDown.has("ArrowDown") ? 8 : 0) | (edJump.size ? 16 : 0);
   // playtest: the music follows the start / pause / stop of the playtest (`_startEditorPlaytest` .. `_stopEditorPlaytest`)
@@ -660,18 +665,41 @@ async function main() {
       else if (ev.startsWith("url:")) window.open(ev.slice(4), "_blank");
     }
   };
-  // gd_keybinds: start-position switcher, noclip, hitboxes (the default keys of the original)
-  const kbDefaults = { startPosPrev: ["KeyQ"], startPosNext: ["KeyE"], noclip: ["KeyN"], showHitboxes: ["KeyH"] };
-  const kbHas = (id, code) => { let m = {}; try { m = JSON.parse(localStorage.getItem("gd_keybinds") || "{}") || {}; } catch (e) {} return (Array.isArray(m[id]) ? m[id] : kbDefaults[id]).includes(code); };
   const toggleSetting = (k) => { const cur = readSettings(); cur[k] = !cur[k]; try { localStorage.setItem("gd_settings", JSON.stringify(cur)); } catch (e) {} applyOptions(); };
+  let shotNext = false;
+  // one handler for every keybind (`window.kbOnPress` of the original); menus get the key first
   addEventListener("keydown", (e) => {
-    if (menuMode || paused || e.repeat) return;
+    const t = document.activeElement; if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if ((e.ctrlKey || e.metaKey) && !/^(Control|Meta)/.test(e.code)) return;
+    if (w.wd_gar_is_open() && e.code === "Escape") { w.wd_gar_close(); e.preventDefault(); return; }
+    if (menuMode || paused || won || window.WD_EDITOR_ON || w.wd_ui_menu_active()) { const [cp, cl] = put(e.code); if (w.wd_ui_menu_key(cp, cl)) { e.preventDefault(); return; } } // menu shortcuts
+    const k = (id) => kbIs(id, e.code);
+    if (window.WD_EDITOR_ON) { // the editor: tabs, moving the selection, zoom
+      const act = [["editorTab1", 0], ["editorTab2", 1], ["editorTab3", 2], ["editorMoveUp", 3], ["editorMoveLeft", 4], ["editorMoveDown", 5], ["editorMoveRight", 6], ["zoomIn", 7], ["zoomOut", 8]];
+      for (const [id, n] of act) if (k(id) && (!e.repeat || n >= 3)) { w.wd_ed_key_action(n, e.shiftKey ? 0 : 1); if (n >= 3 && n <= 6 && !kbIs("jump", e.code)) e.preventDefault(); }
+      if (k("toggleMusic") && !e.repeat) { if (ac) { if (ac.state === "running") ac.suspend(); else ac.resume(); } }
+      if (k("screenshot") && !e.repeat) { shotNext = true; e.preventDefault(); }
+      return;
+    }
+    if (k("toggleMusic") && !e.repeat) { if (ac) { if (ac.state === "running") ac.suspend(); else ac.resume(); } }
+    if (k("screenshot") && !e.repeat) { shotNext = true; e.preventDefault(); }
+    if (k("debugMode") && !e.repeat) { toggleSetting("showFPS"); e.preventDefault(); }
+    if (k("toggleUI") && !e.repeat && !menuMode) window.__hideUI = !window.__hideUI;
+    if (menuMode || e.repeat) return;
     const st = { ...OPT_DEFAULTS, ...readSettings() };
-    if (st.startPosSwitcher && (kbHas("startPosPrev", e.code) || kbHas("startPosNext", e.code))) { w.wd_game_change_start_pos(kbHas("startPosNext", e.code) ? 1 : -1); restarted(); }
-    if (kbHas("noclip", e.code)) toggleSetting("noclip");
-    if (kbHas("showHitboxes", e.code)) toggleSetting("showHitboxes");
+    if (k("pause") && !sliding && !won) { if (paused) doResume(); else doPause(); }
+    if (!paused && !sliding && !won) {
+      if (k("restart")) { w.wd_game_restart_current(); restarted(); }
+      if (k("practice")) { practiceOn = !practiceOn; w.wd_game_practice(0); w.wd_ui_practice(practiceOn ? 1 : 0); startMusic(musicNow()); }
+      if (practiceOn && k("saveCheckpoint")) w.wd_game_practice(1);
+      if (practiceOn && k("deleteCheckpoint")) w.wd_game_practice(2);
+    }
+    if (paused) return;
+    if (st.startPosSwitcher && (k("startPosPrev") || k("startPosNext"))) { w.wd_game_change_start_pos(k("startPosNext") ? 1 : -1); restarted(); }
+    if (k("noclip")) toggleSetting("noclip");
+    if (k("showHitboxes")) toggleSetting("showHitboxes");
   });
-  addEventListener("keydown", (e) => { if (e.code === "KeyR" && !menuMode && !paused) { w.wd_game_restart_current(); restarted(); } if (e.code === "Escape" && w.wd_gar_is_open()) { w.wd_gar_close(); return; } if (e.code === "Escape" && !menuMode && !window.WD_EDITOR_ON) { if (paused) quitToMenu(); else if (!sliding && !won) doPause(); } });
+  addEventListener("keydown", (e) => { if (e.code === "Escape" && !menuMode && !window.WD_EDITOR_ON) { if (paused) quitToMenu(); else if (!sliding && !won) doPause(); else if (won) quitToMenu(); } });
 
   // ---- frame ----
   let last = performance.now(), frame = 0, fps = 0, acc = 0;
@@ -982,7 +1010,8 @@ async function main() {
     lp("misc");
     endfx.drawFront();
     drawHud();
-    drawUi();
+    if (!window.__hideUI || menuMode || window.WD_EDITOR_ON) drawUi(); // toggleUI hides the HUD in a level
+    if (shotNext) { shotNext = false; const c = document.createElement("canvas"); c.width = W; c.height = H; const g = c.getContext("2d"); try { g.drawImage(gcanvas, 0, 0, W, H); } catch (e) {} g.drawImage(canvas, 0, 0, W, H); c.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `webdashers_${Date.now()}.png`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }); }
     lp("ui");
     if (PROF && params.get("prof") === "2") { ctx.getImageData(0, 0, 1, 1); lp("flush"); } // forces the queued drawing to finish, so its cost shows up
     if (loadingLevel && !window.__onlineActive && fontOf[2]) drawBitmapText(fontOf[2], "Downloading Level Assets...", 20, W / 2, H / 2, 1, 0.5, 0.5, 0xffffff);

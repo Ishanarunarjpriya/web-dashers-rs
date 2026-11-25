@@ -497,7 +497,7 @@ impl Ui {
         self.ed.dirty = true;
     }
 
-    fn ed_move(&mut self, dx: f64, dy: f64) {
+    pub(crate) fn ed_move(&mut self, dx: f64, dy: f64) {
         self.ed_edit_selected(|o| { o.o.x += dx / 2.0; o.o.y -= dy / 2.0; });
     }
     fn ed_rotate(&mut self, deg: f64) { self.ed_edit_selected(|o| { o.o.rot = fnum(o.o.rot) + deg; }); }

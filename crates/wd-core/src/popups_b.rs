@@ -80,7 +80,7 @@ pub struct PopB {
     kb_tab: usize,
     kb_search: bool,
     kb_query: String,
-    kb_focus: bool,
+    pub(crate) kb_focus: bool,
     kb_blink: f64,
     kb_cursor_vis: bool,
     kb_defs: Vec<usize>,
