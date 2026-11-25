@@ -496,7 +496,39 @@ async function main() {
   const edDown = new Set();
   addEventListener("keydown", (e) => { if (window.WD_EDITOR_ON && e.key.startsWith("Arrow")) { edDown.add(e.key); e.preventDefault(); } });
   addEventListener("keyup", (e) => edDown.delete(e.key));
-  const edKeys = () => (edDown.has("ArrowLeft") ? 1 : 0) | (edDown.has("ArrowRight") ? 2 : 0) | (edDown.has("ArrowUp") ? 4 : 0) | (edDown.has("ArrowDown") ? 8 : 0);
+  const edJump = new Set();
+  addEventListener("keydown", (e) => { if (window.WD_EDITOR_ON && ["Space", "ArrowUp", "KeyW"].includes(e.code)) { edJump.add(e.code); e.preventDefault(); } });
+  addEventListener("keyup", (e) => edJump.delete(e.code));
+  const edKeys = () => (edDown.has("ArrowLeft") ? 1 : 0) | (edDown.has("ArrowRight") ? 2 : 0) | (edDown.has("ArrowUp") ? 4 : 0) | (edDown.has("ArrowDown") ? 8 : 0) | (edJump.size ? 16 : 0);
+  // playtest: the music follows the start / pause / stop of the playtest (`_startEditorPlaytest` .. `_stopEditorPlaytest`)
+  let edPtEvent = 0;
+  const edPtStep = () => {
+    if (w.wd_ed_pt(1)) {
+      w.wd_trig_time(performance.now());
+      if (analyser) { w.wd_audio_live(1); analyser.getFloatTimeDomainData(peakBuf); let pk = 0; for (let k = 0; k < peakBuf.length; k++) { const v = Math.abs(peakBuf[k]); if (v > pk) pk = v; } w.wd_set_audio_peak(pk, afx.userMusic() * 0.8); } else w.wd_set_audio_meter(0.1);
+    }
+    const ev = w.wd_ed_pt(0);
+    if (ev !== edPtEvent) {
+      edPtEvent = ev;
+      if (params.get("sim")) { /* headless picture: no sound */ }
+      else if (w.wd_ed_pt(1) && !w.wd_ed_pt(2)) { if (ac) { ac.resume(); startMusic(w.wd_ed_pt(3)); } else ensureAudio().then(() => startMusic(w.wd_ed_pt(3))); }
+      else if (w.wd_ed_pt(1)) { if (ac) ac.suspend(); }
+      else { stopSong(); if (ac) ac.resume(); }
+    }
+  };
+  // the green / cyan path of the playtest and the red crosses of its deaths, drawn in the world
+  const drawEdMarks = (ox, oy) => {
+    if (!window.WD_EDITOR_ON) return;
+    const n = w.wd_ed_marks(); if (!n) return;
+    const a = new Float64Array(w.memory.buffer, w.wd_ed_marks_ptr(), n * 6);
+    ctx.save(); ctx.lineCap = "butt";
+    for (let i = 0; i < n; i++) {
+      const o = i * 6;
+      if (a[o] === 0) { ctx.strokeStyle = "#" + (a[o + 5] | 0).toString(16).padStart(6, "0"); ctx.globalAlpha = 0.95; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a[o + 1] + ox, a[o + 2] + oy); ctx.lineTo(a[o + 3] + ox, a[o + 4] + oy); ctx.stroke(); }
+      else { const x = a[o + 1] + ox, y = a[o + 2] + oy, sz = 28; ctx.strokeStyle = "#ff0000"; ctx.globalAlpha = 1; ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(x - sz, y - sz); ctx.lineTo(x + sz, y + sz); ctx.moveTo(x - sz, y + sz); ctx.lineTo(x + sz, y - sz); ctx.stroke(); }
+    }
+    ctx.restore();
+  };
   window.__startEditor = async (levelString, createdId) => {
     await loadLevelText("editor", levelString);
     w.wd_ui_start_game(); w.wd_menu_mode(0); menuMode = false; won = false;
@@ -674,6 +706,7 @@ async function main() {
         const sx = (buf[o + 1] + ex) * z, sy = (buf[o + 2] + ey) * z; if (sx < -400 || sx > W + 400 || sy < -400 || sy > H + 400) continue;
         drawFrame(fr, buf[o + 1] + ex, buf[o + 2] + ey, buf[o + 3], buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7], buf[o + 8], buf[o + 9]);
       }
+      drawEdMarks(ex, ey);
       ctx.restore();
       // grid (`_updateEditorGrid`)
       const gs = 60, camX = buf[34] / z, camY2 = buf[35] / z;
@@ -705,6 +738,7 @@ async function main() {
       drawFrame(fr, buf[o + 1] + ox, buf[o + 2] + oy, buf[o + 3], buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7], buf[o + 8], buf[o + 9]);
     }
     pv.drawTop(ox, oy);
+    drawEdMarks(ox, oy);
     // ground
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     if (groundImg) {
@@ -789,6 +823,8 @@ async function main() {
   const SIM = Number(params.get("sim") || 0);
   const DRAG = params.get("drag") ? params.get("drag").split(",").map(Number) : null;
   if (SIM) {
+    const showErr = (m) => { hud.textContent = "ERR " + m; window.__done = true; }; // test hook: a failure shows up in the picture
+    addEventListener("error", (e) => showErr(e.message)); addEventListener("unhandledrejection", (e) => showErr(String(e.reason && e.reason.stack || e.reason)));
     // headless script: frames at 60 fps, clicks (x,y pairs) every 10 frames, then one picture
     const cl = (params.get("clicks") || "").split(",").filter(Boolean).map(Number);
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -804,8 +840,10 @@ async function main() {
       }
       held = JUMP > 0 && (f % JUMP) < 8;
       if (params.get("endnear") && f === 1 && !menuMode) w.wd_game_set_end(w.wd_game_scene(0) + 1100); // test hook: the end portal just ahead
-      w.wd_ui_step(1000 / 60); w.wd_trig_time(f * 16.6667); w.wd_set_audio_meter(beat(f * 16.6667));
-      if (window.WD_EDITOR_ON) w.wd_ed_frame(1000 / 60, edKeys());
+      w.wd_ui_step(1000 / 60); if (!window.WD_EDITOR_ON) { w.wd_trig_time(f * 16.6667); w.wd_set_audio_meter(beat(f * 16.6667)); } // the editor view does not step the triggers
+      if (window.WD_EDITOR_ON && params.get("edpt") && f >= Number(params.get("edpt")) && !window.__edptDone) { window.__edptDone = true; w.wd_ed_playtest(0); } // test hook: start the playtest at this frame
+      if (window.WD_EDITOR_ON) { edPtStep(); w.wd_ed_frame(1000 / 60, edKeys() | (held ? 16 : 0)); }
+      if (window.WD_EDITOR_ON && w.wd_ed_pt(1)) pvStep(1 / 60);
       const rr = window.WD_EDITOR_ON ? 0 : w.wd_game_update(1000 / 60, held ? 1 : 0);
       pollSlide();
       handleUi();
@@ -815,7 +853,7 @@ async function main() {
     }
     await sleep(500);
     const b = render(); camXUi = b[0]; camYUi = b[1]; drawUi();
-    hud.textContent = menuMode ? "" : `frame ${SIM} x=${b[3].toFixed(0)}`;
+    hud.textContent = menuMode ? "" : `frame ${SIM} x=${b[3].toFixed(0)}` + (window.WD_EDITOR_ON ? ` pt event=${w.wd_ed_pt(0)} active=${w.wd_ed_pt(1)} paused=${w.wd_ed_pt(2)} marks=${w.wd_ed_marks()}` : "");
     window.__done = true;
     return;
   }
@@ -854,7 +892,7 @@ async function main() {
     if (clicks.length && ++tick % 6 === 0 && clickIdx < clicks.length) { const x = clicks[clickIdx++], y = clicks[clickIdx++]; w.wd_ui_pointer(0, x, y); w.wd_ui_pointer(2, x, y); }
     const dt = Math.min(100, smoothDelta(Math.max(0, now - last))); last = now;
     w.wd_ui_step(dt);
-    if (window.WD_EDITOR_ON) w.wd_ed_frame(dt, edKeys()); else if (!paused) step(dt);
+    if (window.WD_EDITOR_ON) { edPtStep(); w.wd_ed_frame(dt, edKeys()); } else if (!paused) step(dt);
     lp("step");
     pvStep(paused ? 0 : dt / 1000);
     lp("pvStep");

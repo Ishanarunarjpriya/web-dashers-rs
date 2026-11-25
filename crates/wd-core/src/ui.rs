@@ -580,7 +580,7 @@ impl Ui {
     }
 
     pub fn pointer_down(&mut self, x: f64, y: f64) {
-        if self.ed.on && self.hit_test(x, y).is_none() { self.ed_world_down(x, y); }
+        if self.ed.on && self.hit_test(x, y).is_none() { if self.ed.pt { self.ed.pt_press = true; } self.ed_world_down(x, y); }
         if self.level_select_open { let h = self.hit_test(x, y); self.ls_pointer_down(x, h); }
         if let Some(i) = self.hit_test(x, y) {
             if self.get(i).map_or(false, |n| n.tag == "opt_dim") { self.commit_input(); }
@@ -624,7 +624,7 @@ impl Ui {
     }
 
     pub fn pointer_up(&mut self, x: f64, y: f64) {
-        if self.ed.on { self.ed_world_up(x, y); }
+        if self.ed.on { self.ed.pt_press = false; self.ed_world_up(x, y); }
         if self.level_select_open { self.ls_pointer_up(x, y); }
         for sc in self.scrolls.iter_mut() { sc.drag_from = None; }
         if let Some(i) = self.pointer_down_node.take() {

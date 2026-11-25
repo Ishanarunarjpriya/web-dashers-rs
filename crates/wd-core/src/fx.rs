@@ -1060,7 +1060,7 @@ impl Game {
         self.fx.editor_mode = true;
         self.fx.ed_cam = (cam_x, cam_y, zoom);
         self.camera_x = cam_x; self.camera_y = cam_y;
-        self.fx.vis_min = 0; self.fx.vis_max = i64::MAX;
+        self.fx.vis_min = 0; self.fx.vis_max = self.fx.sections.keys().next_back().map_or(0, |&k| k as i64); // every section (the colour update walks this range)
         self.apply_color_channels();
         self.fx.bg.tile_x = cam_x * 0.1;
         self.fx.bg.tile_y = self.fx.bg.init_y + cam_y * 0.1;

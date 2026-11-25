@@ -38,6 +38,16 @@ pub struct EditorState {
     pub timeline_thumb: usize,
     pub box_node: usize,
     pub swipe_node: usize,
+    // playtest
+    pub pt: bool, pub pt_paused: bool, pub pt_press: bool,
+    pub pt_saved: (f64, f64, f64),
+    pub pt_hidden: Vec<(usize, bool)>,
+    pub pt_btns: [usize; 3],
+    /// trail segments and death marks for the host to draw: (kind 0 trail / 1 death cross, x0, y0, x1, y1, colour), y already in screen space
+    pub marks: Vec<[f64; 6]>,
+    pub last_trail: [Option<(f64, f64)>; 2],
+    /// bumped on start / stop / pause / resume so the host can start and stop the music (value, music offset ms)
+    pub pt_event: u32, pub pt_music: f64,
 }
 
 const CATEGORIES: [(&str, &str, &[&str]); 8] = [
@@ -119,6 +129,7 @@ impl Ui {
             if keys & 1 != 0 { self.ed.cam_x -= 15.0; } else if keys & 2 != 0 { self.ed.cam_x += 15.0; }
             if keys & 4 != 0 { self.ed.cam_y -= 15.0; } else if keys & 8 != 0 { self.ed.cam_y += 15.0; }
         }
+        if self.ed.pt { self.ed_pt_frame(dt, keys & 16 != 0 || self.ed.pt_press); return; }
         if self.ed.dirty { self.ed_rebuild_view(); self.ed.dirty = false; }
         let (cx, cy, z) = (self.ed.cam_x, self.ed.cam_y, self.ed.zoom);
         let sel = self.ed.sel.clone(); let tint = self.ed.sel_tint;
@@ -206,7 +217,14 @@ impl Ui {
         // playtest
         let pp = self.ed_img("GJ_GameSheet03", "GJ_playEditorBtn_001.png", 48.0, sh / 2.0 - 110.0, 1.1);
         self.make_bouncy(pp, 1.1, Cond::Always, Action::Pop("EdPlaytest", 0));
-        self.node(pp).depth = GUI + 500.0;
+        { let n = self.node(pp); n.depth = GUI + 500.0; n.tag = "ed_pt"; }
+        let pa = self.image("GJ_GameSheet03", "GJ_pauseEditorBtn_001.png", 48.0, sh / 2.0 - 110.0, GUI + 500.0, 1.1);
+        self.make_bouncy(pa, 1.1, Cond::Always, Action::Pop("EdPtPause", 0));
+        { let n = self.node(pa); n.tag = "ed_pt"; n.visible = false; }
+        let st = self.image("GJ_GameSheet03", "GJ_stopEditorBtn_001.png", 138.0, sh / 2.0 - 110.0, GUI + 500.0, 1.1);
+        self.make_bouncy(st, 1.1, Cond::Always, Action::Pop("EdPtStop", 0));
+        { let n = self.node(st); n.tag = "ed_pt"; n.visible = false; }
+        self.ed.pt_btns = [pp, pa, st];
         let zt = self.text_node("bigFont", 40.0, "Zoom: 1.00x", cx, 80.0, GUI + 1000.0, 0.5, 0.5, 1.0);
         { let n = self.node(zt); n.tag = "ed_g"; n.alpha = 0.0; }
         self.ed.zoom_text = zt;
@@ -423,6 +441,9 @@ impl Ui {
             "EdDuplicate" => { self.ed_duplicate(); true }
             "EdDelete" => { self.ed_delete_selected(); true }
             "EdDeselect" => { self.ed_clear_selection(); true }
+            "EdPlaytest" => { self.ed_pt_start(); true }
+            "EdPtPause" => { self.ed_pt_toggle_pause(); true }
+            "EdPtStop" => { self.ed_pt_stop(false); true }
             "EdZoom" => { self.ed_zoom(if arg == 1 { 0.1 } else { -0.1 }, self.screen_width / 2.0, 320.0); true }
             _ => false,
         }
@@ -636,4 +657,104 @@ impl Ui {
     }
 }
 
-impl EditorState { pub fn playtest_active(&self) -> bool { false } }
+impl EditorState { pub fn playtest_active(&self) -> bool { self.pt } }
+
+// ---- playtest (`_startEditorPlaytest` .. `_stopEditorPlaytest`) ----
+impl Ui {
+    fn ed_pt_buttons(&mut self) {
+        let [play, pause, stop] = self.ed.pt_btns;
+        let (active, paused) = (self.ed.pt, self.ed.pt_paused);
+        self.node(play).visible = !active;
+        { let n = self.node(pause); n.visible = active; n.frame = if paused { "GJ_playEditorBtn_001.png" } else { "GJ_pauseEditorBtn_001.png" }.into(); }
+        self.node(stop).visible = active;
+    }
+
+    /// `_setEditorPlaytestGuiVisible`: everything of the editor GUI except the three playtest buttons
+    fn ed_pt_gui(&mut self, visible: bool) {
+        if visible {
+            for (i, v) in std::mem::take(&mut self.ed.pt_hidden) { if let Some(n) = self.nodes.get_mut(i).and_then(|n| n.as_mut()) { n.visible = v; } }
+        } else {
+            let mut saved = Vec::new();
+            for (i, slot) in self.nodes.iter_mut().enumerate() {
+                if let Some(n) = slot { if n.tag.starts_with("ed_") && n.tag != "ed_pt" { saved.push((i, n.visible)); n.visible = false; } }
+            }
+            self.ed.pt_hidden = saved;
+        }
+    }
+
+    pub fn ed_pt_start(&mut self) {
+        if self.ed.pt { return; }
+        self.ed_clear_selection();
+        if self.ed.dirty { self.ed_rebuild_view(); self.ed.dirty = false; }
+        self.ed.marks.clear(); self.ed.last_trail = [None, None];
+        self.ed.pt_saved = (self.ed.cam_x, self.ed.cam_y, self.ed.zoom);
+        // `_getLatestEditorStartPosition`: the start position furthest right (the list is sorted by x; ties keep the later object)
+        let objs: Vec<(f64, i64)> = self.ed.level.objects.iter().map(|o| (o.o.x, o.o.id.unwrap_or(i64::MIN))).collect();
+        let music = crate::with_game(|g| {
+            g.sp.objects = objs;
+            g.fx.editor_mode = false;
+            g.fx.vis_min = -1; g.fx.vis_max = -1; // the editor view shows every section; the game culls again
+            g.level_won = false; g.end_camera_override = false; g.end_cam = None;
+            let idx = if g.start_positions.is_empty() { None } else { Some(g.start_positions.len() - 1) };
+            g.start_pos_index = idx;
+            g.practice_mode = false;
+            g.restart_level(idx);
+            g.render_restart();
+            g.p.mirrored = false; g.p2.mirrored = false;
+            idx.map_or(0.0, |i| g.song_offset_for_world_x(g.start_positions[i].x))
+        });
+        self.ed.pt_music = music;
+        self.ed.pt = true; self.ed.pt_paused = false; self.ed.pt_press = false;
+        self.ed.zoom = 1.0;
+        self.ed_pt_gui(false);
+        self.ed_pt_buttons();
+        self.ed.pt_event += 1;
+    }
+
+    pub fn ed_pt_toggle_pause(&mut self) {
+        if !self.ed.pt { return; }
+        if !self.ed.pt_paused {
+            self.ed.pt_paused = true;
+            self.ed_pt_gui(true);
+        } else {
+            self.ed.pt_paused = false;
+            self.ed_pt_gui(false);
+        }
+        self.ed_pt_buttons();
+        self.ed.pt_event += 1;
+    }
+
+    pub fn ed_pt_stop(&mut self, death_mark: bool) {
+        if !self.ed.pt { return; }
+        if death_mark {
+            let (x, y) = crate::with_game(|g| (g.e.player_world_x, 460.0 - g.p.y));
+            self.ed.marks.push([1.0, x, y, 0.0, 0.0, 0.0]);
+        }
+        self.ed.pt = false; self.ed.pt_paused = false; self.ed.pt_press = false;
+        // `_hideEditorPlaytestPlayer` / `_resetEditorPlaytestLevelState`: the level goes back to how the editor shows it
+        self.ed_pt_gui(true);
+        let (cx, cy, z) = self.ed.pt_saved;
+        self.ed.cam_x = cx; self.ed.cam_y = cy; self.ed.zoom = z;
+        self.ed_rebuild_view();
+        self.ed.dirty = false;
+        self.ed_pt_buttons();
+        self.ed.pt_event += 1;
+    }
+
+    fn ed_pt_frame(&mut self, dt: f64, held: bool) {
+        if self.ed.pt_paused { return; }
+        let (dead, won, x, y, y2, dual, dead2) = crate::with_game(|g| {
+            g.update(dt, held);
+            (g.p.is_dead, g.level_won, g.e.player_world_x, 460.0 - g.p.y, 460.0 - g.p2.y, g.e.is_dual, g.p2.is_dead)
+        });
+        // `_drawEditorPlaytestTrailPoint`: a green line for the first player, a cyan one for the second
+        for (k, (px, py, color, on)) in [(x, y, 0x00ff00 as f64, !dead), (x, y2, 0x00ffff as f64, dual && !dead2)].into_iter().enumerate() {
+            if !on { if k == 1 { self.ed.last_trail[1] = None; } continue; }
+            if let Some((lx, ly)) = self.ed.last_trail[k] {
+                let (dx, dy) = (px - lx, py - ly);
+                if dx * dx + dy * dy >= 2.0 { self.ed.marks.push([0.0, lx, ly, px, py, color]); self.ed.last_trail[k] = Some((px, py)); }
+            } else { self.ed.last_trail[k] = Some((px, py)); }
+        }
+        if dead { self.ed_pt_stop(true); } else if won { self.ed_pt_stop(false); }
+    }
+}
