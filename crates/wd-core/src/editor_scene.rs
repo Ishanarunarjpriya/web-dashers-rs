@@ -726,6 +726,7 @@ impl Ui {
             let idx = if g.start_positions.is_empty() { None } else { Some(g.start_positions.len() - 1) };
             g.start_pos_index = idx;
             g.editor_playtest_start();
+            g.end_x_pos = 0.0; // the editor has no end: no end wall, no level complete, the camera never stops
             g.render_restart();
             idx.map_or(0.0, |i| g.song_offset_for_world_x(g.start_positions[i].x))
         });
