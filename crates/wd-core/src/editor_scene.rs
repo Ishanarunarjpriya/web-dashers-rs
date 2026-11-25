@@ -725,10 +725,8 @@ impl Ui {
             g.level_won = false; g.end_camera_override = false; g.end_cam = None;
             let idx = if g.start_positions.is_empty() { None } else { Some(g.start_positions.len() - 1) };
             g.start_pos_index = idx;
-            g.practice_mode = false;
-            g.restart_level(idx);
+            g.editor_playtest_start();
             g.render_restart();
-            g.p.mirrored = false; g.p2.mirrored = false;
             idx.map_or(0.0, |i| g.song_offset_for_world_x(g.start_positions[i].x))
         });
         self.ed.pt_music = music;

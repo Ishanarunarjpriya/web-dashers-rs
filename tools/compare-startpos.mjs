@@ -14,8 +14,9 @@ const N = Number(process.argv[3] || 3000);
 const same = (a, b) => Object.is(a, b) || a === b || (Number.isNaN(a) && Number.isNaN(b));
 
 const gs = fs.readFileSync(root + "ref/assets/scripts/core/game-scene.js", "utf8");
-const cut = (a, b) => gs.slice(gs.indexOf(a), gs.indexOf(b, gs.indexOf(a)));
-const smartSrc = cut("_getSmartStartPosSettings(pos) {", "_updateProgressBar(percent) {");
+const ui = fs.readFileSync(root + "ref/assets/scripts/core/ui-scene.js", "utf8"); // the smart start position code moved to ui-scene.js
+const cut = (a, b, src = gs) => src.slice(src.indexOf(a), src.indexOf(b, src.indexOf(a)));
+const smartSrc = cut("_getSmartStartPosSettings(pos) {", "_updateProgressBar(percent) {", ui);
 const changeSrc = cut("  changeStartPos(direction) {", "  toggleGlitter(");
 const methods = vm.runInContext(`(class { ${smartSrc}\n ${changeSrc}\n _getSongOffsetForWorldX(worldX) { const startX = Number.isFinite(Number(worldX)) ? Number(worldX) : 0; return calculateSongOffsetForX(startX, window.settingsMap?.["kA4"] ?? 0, window.levelObjects); }
   _getStartPosMusicOffset() { const sp = this._level.getStartPositions(); if (this._startPosIndex !== -1 && sp[this._startPosIndex]) return this._getSongOffsetForWorldX(sp[this._startPosIndex].x); return 0; }

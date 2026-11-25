@@ -242,6 +242,63 @@ impl Game {
         self.update_camera_y(0.0, true);
     }
 
+    /// `_startEditorPlaytest` from the level state reset on: `_resetEditorPlaytestLevelState`, the player reset, then
+    /// `_applyEditorPlaytestStartPosition` for the furthest right start position, or `_applyEditorPlaytestStartMode` (the level's options)
+    /// when there is none. Unlike `_restartLevel` the speed is applied before the mode, a missing value counts as 0, the mirror is never
+    /// switched on and the player starts on the ground.
+    pub fn editor_playtest_start(&mut self) {
+        self.checkpoints.clear();
+        self.practice_mode = false;
+        self.reset_gameplay_state();
+        self.reset_objects();
+        self.reset_color();
+        self.reset_rotate(); self.reset_alpha(); self.reset_shake(); self.reset_player_vis(); self.reset_animation(); self.reset_enter_effect(); self.reset_pulse(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
+        self.reset_channel_blending();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count();
+        self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
+        self.check_on_death(0.0); self.check_touch_triggers(0.0);
+        self.cm.reset();
+        self.begin_ground();
+        self.physics_frame = 0.0;
+        self.e.player_world_x = 0.0;
+        self.reset_player_for_restart();
+        self.e.is_dual = false;
+        crate::pdual::reset_state(&mut self.p2);
+        crate::pdual::reset_object(&mut self.p2, self.e.player_world_x);
+        self.p.nc_total_frames = 0.0; self.p.nc_death_frames = 0.0; self.p.nc_deaths = 0.0;
+        use crate::physics::speed_portal as sp;
+        let speeds = [sp::ONE_TIMES, sp::HALF, sp::TWO_TIMES, sp::THREE_TIMES, sp::FOUR_TIMES];
+        self.p.y = 30.0; self.p.on_ground = true; self.p.can_jump = true;
+        // `_getLatestEditorStartPosition`: sorted by x (then by object), the last one
+        let pos = self.start_positions.last().copied();
+        if let Some(pos) = pos {
+            let y = if pos.y.is_finite() { pos.y } else { 30.0 };
+            let x = if pos.x.is_finite() { pos.x } else { 0.0 };
+            self.e.player_world_x = x;
+            self.p.y = y; self.p.last_y = y; self.p.last_ground_pos_y = y;
+            self.p.on_ground = true; self.p.can_jump = true;
+            let speed = pos.speed.unwrap_or(0);
+            self.g.player_speed = if speed >= 0 { speeds.get(speed as usize).copied().unwrap_or(sp::ONE_TIMES) } else { sp::ONE_TIMES };
+            self.enter_start_mode(pos.game_mode.unwrap_or(0), Some(y));
+            self.p.is_mini = pos.mini.unwrap_or(0) == 1;
+            self.p.gravity_flipped = pos.gravity_flipped;
+            self.p.mirrored = false; self.p2.mirrored = false;
+            if pos.dual.unwrap_or(0) == 1 { self.set_dual(true); self.p2.mirrored = false; }
+            self.fast_forward_triggers(x);
+            self.p.last_collision_world_x = if self.e.player_world_x.is_finite() { Some(self.e.player_world_x) } else { None };
+            self.p.last_collision_world_y = Some(y);
+            self.camera_x = self.e.player_world_x - self.g.center_x;
+        } else {
+            if self.start.speed_key >= 0 { if let Some(v) = speeds.get(self.start.speed_key as usize) { self.g.player_speed = *v; } }
+            self.enter_start_mode(self.start.game_mode, Some(30.0));
+            self.p.is_mini = self.start.mini;
+            self.p.gravity_flipped = self.start.gravity_flipped;
+            self.p.mirrored = false; self.p2.mirrored = false;
+            if self.start.dual { self.set_dual(true); self.p2.mirrored = false; }
+        }
+        self.update_camera_y(0.0, true);
+    }
+
     /// The level-layer part of an attempt start (`resetGroundState`).
     fn begin_ground(&mut self) {
         self.e.fly_ground_active = false; self.e.fly_visual_only = false; self.e.fly_floor_y = None; self.e.fly_ceiling_y = None; self.e.fly_camera_target = None;
