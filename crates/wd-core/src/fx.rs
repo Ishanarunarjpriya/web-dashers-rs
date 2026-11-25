@@ -61,6 +61,8 @@ pub struct Fx {
     pub menu_mode: bool,
     /// level editor view: static level drawn through `ed_cam` (camera x, camera y, zoom); `ed_tint[si]` overrides a sprite's tint (-1 = none)
     pub editor_mode: bool,
+    /// the editor shows glow sprites only when `showEditorGlow` is on
+    pub ed_glow: bool,
     pub ed_cam: (f64, f64, f64),
     pub ed_tint: Vec<f64>,
     /// per level object: its sprites `start..end` (editor hit-testing and selection)
@@ -848,7 +850,7 @@ impl Game {
         // the main menu hides the level's containers (game-scene.js: `container.setVisible(false)`): only background and ground show
         let hidden = self.fx.menu_mode && !self.fx.editor_mode;
         // the sprites that can be drawn: those of the visible sections plus the top layer (the editor shows everything)
-        let cand: Vec<usize> = if self.fx.editor_mode { (0..self.fx.sprites.len()).collect() } else if hidden { Vec::new() } else {
+        let cand: Vec<usize> = if self.fx.editor_mode { (0..self.fx.sprites.len()).filter(|&si| self.fx.ed_glow || !self.fx.sprites[si].flag("_eeIsGlowSprite")).collect() } else if hidden { Vec::new() } else {
             let mut c: Vec<usize> = Vec::new();
             if self.fx.vis_min >= 0 {
                 for sec in self.fx.vis_min..=self.fx.vis_max {

@@ -40,6 +40,7 @@ pub struct EditorState {
     pub swipe_node: usize,
     // playtest
     pub pt: bool, pub pt_paused: bool, pub pt_press: bool,
+    pub pm: bool, pub pm_glow_check: usize, pub glow: bool,
     pub pt_saved: (f64, f64, f64),
     pub pt_hidden: Vec<(usize, bool)>,
     pub pt_btns: [usize; 3],
@@ -132,8 +133,8 @@ impl Ui {
         if self.ed.pt { self.ed_pt_frame(dt, keys & 16 != 0 || self.ed.pt_press); return; }
         if self.ed.dirty { self.ed_rebuild_view(); self.ed.dirty = false; }
         let (cx, cy, z) = (self.ed.cam_x, self.ed.cam_y, self.ed.zoom);
-        let sel = self.ed.sel.clone(); let tint = self.ed.sel_tint;
-        crate::with_game(|g| { g.editor_set_selection(&sel, tint); g.editor_view(cx, cy, z); });
+        let sel = self.ed.sel.clone(); let tint = self.ed.sel_tint; let glow = self.ed.glow;
+        crate::with_game(|g| { g.fx.ed_glow = glow; g.editor_set_selection(&sel, tint); g.editor_view(cx, cy, z); });
         // zoom text fades out
         if self.ed.zoom_clock > 0.0 {
             self.ed.zoom_clock -= dt;
@@ -441,6 +442,7 @@ impl Ui {
             "EdDuplicate" => { self.ed_duplicate(); true }
             "EdDelete" => { self.ed_delete_selected(); true }
             "EdDeselect" => { self.ed_clear_selection(); true }
+            "EdPause" | "EdPm" | "EdPmGlow" => self.ed_pm_action(name, arg),
             "EdPlaytest" => { self.ed_pt_start(); true }
             "EdPtPause" => { self.ed_pt_toggle_pause(); true }
             "EdPtStop" => { self.ed_pt_stop(false); true }

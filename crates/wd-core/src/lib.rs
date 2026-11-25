@@ -4,6 +4,7 @@ pub mod fasthash;
 pub mod editor;
 pub mod editor_menu;
 pub mod editor_scene;
+pub mod editor_pause;
 pub mod beast;
 pub mod coins;
 pub mod mirror;
@@ -1070,9 +1071,14 @@ pub extern "C" fn wd_ed_frame(dt: f64, keys: u32) { with_ui(|u| u.ed_frame(dt, k
 /// Playtest state for the host: 0 event counter (changes on start / stop / pause / resume), 1 active, 2 paused, 3 start position x (for the music offset).
 #[no_mangle]
 pub extern "C" fn wd_ed_pt(which: u32) -> f64 { with_ui(|u| match which { 0 => u.ed.pt_event as f64, 1 => u.ed.pt as u8 as f64, 2 => u.ed.pt_paused as u8 as f64, _ => u.ed.pt_music }) }
+/// `window.showEditorGlow`: the glow sprites of the editor view
+#[no_mangle]
+pub extern "C" fn wd_ed_set_glow(on: u32) { with_ui(|u| u.ed.glow = on != 0); }
+#[no_mangle]
+pub extern "C" fn wd_ed_glow() -> u32 { with_ui(|u| u.ed.glow as u32) }
 /// Test hook: 0 starts, 1 pauses / resumes, 2 stops the playtest.
 #[no_mangle]
-pub extern "C" fn wd_ed_playtest(op: u32) { with_ui(|u| match op { 0 => u.ed_pt_start(), 1 => u.ed_pt_toggle_pause(), _ => u.ed_pt_stop(false) }); }
+pub extern "C" fn wd_ed_playtest(op: u32) { with_ui(|u| match op { 0 => u.ed_pt_start(), 1 => u.ed_pt_toggle_pause(), 3 => u.ed_pm_open(), _ => u.ed_pt_stop(false) }); }
 /// Trail segments and death crosses: flat rows of 6 (kind, x0, y0, x1, y1, colour); returns the number of rows (read through `wd_ed_marks_ptr`).
 static ED_MARKS: Mutex<Vec<f64>> = Mutex::new(Vec::new());
 #[no_mangle]

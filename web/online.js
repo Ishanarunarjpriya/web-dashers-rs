@@ -174,6 +174,16 @@
   const songGet = async (id) => { try { const db = await songDb(); return await new Promise((res) => { const q = db.transaction("songs").objectStore("songs").get(String(id)); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch (e) { return null; } };
   const songPut = async (id, buf) => { try { const db = await songDb(); db.transaction("songs", "readwrite").objectStore("songs").put(buf, String(id)); } catch (e) {} };
 
+  // a custom song by its Newgrounds id: from the IndexedDB copy, else downloaded through the proxy
+  window.__songById = async (custom) => {
+    let songData = await songGet(custom);
+    if (!songData) {
+      const info = await post("getGJSongInfo.php", `songID=${custom}&secret=${SECRET}`);
+      const url = decodeURIComponent((info.split("~|~10~|~")[1] || "").split("~|~")[0]);
+      if (url) { const r = await fetch(PROXY + url); if (r.ok) { songData = await r.arrayBuffer(); songPut(custom, songData.slice(0)); } }
+    }
+    return songData;
+  };
   // `_playSelectedOnlineLevel`: the level from the saved list when it is there, else downloaded; the song; then the start
   const playOnline = async (wd, l) => {
     if (window.__onlineBusy) return; window.__onlineBusy = true;

@@ -534,6 +534,7 @@ async function main() {
     w.wd_ui_start_game(); w.wd_menu_mode(0); menuMode = false; won = false;
     const [p, n] = put(levelString), [ip, il] = put(createdId || "");
     w.wd_ed_open(p, n, ip, il);
+    try { w.wd_ed_set_glow(JSON.parse(localStorage.getItem("gd_settings") || "{}").showEditorGlow ? 1 : 0); } catch (e) {} // `window.showEditorGlow` (off by default)
     window.WD_EDITOR_ON = true;
   };
   window.__stopEditor = () => { window.WD_EDITOR_ON = false; w.wd_ed_close(); };
@@ -842,6 +843,7 @@ async function main() {
       if (params.get("endnear") && f === 1 && !menuMode) w.wd_game_set_end(w.wd_game_scene(0) + 1100); // test hook: the end portal just ahead
       w.wd_ui_step(1000 / 60); if (!window.WD_EDITOR_ON) { w.wd_trig_time(f * 16.6667); w.wd_set_audio_meter(beat(f * 16.6667)); } // the editor view does not step the triggers
       if (window.WD_EDITOR_ON && params.get("edpt") && f >= Number(params.get("edpt")) && !window.__edptDone) { window.__edptDone = true; w.wd_ed_playtest(0); } // test hook: start the playtest at this frame
+      if (window.WD_EDITOR_ON && params.get("edpm") && f >= Number(params.get("edpm")) && !window.__edpmDone) { window.__edpmDone = true; w.wd_ed_playtest(3); } // test hook: open the pause menu
       if (window.WD_EDITOR_ON) { edPtStep(); w.wd_ed_frame(1000 / 60, edKeys() | (held ? 16 : 0)); }
       if (window.WD_EDITOR_ON && w.wd_ed_pt(1)) pvStep(1 / 60);
       const rr = window.WD_EDITOR_ON ? 0 : w.wd_game_update(1000 / 60, held ? 1 : 0);

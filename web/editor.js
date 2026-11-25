@@ -44,12 +44,58 @@
     const id = viewId(wd); const l = read().find((x) => x.createdId === id); if (!l) return;
     window.__edId = l.createdId; window.__startEditor(l.levelString, l.createdId);
   };
-  // Pause button: stand-in for the pause menu (not ported) = "Save and Exit": store the level string, back to the page start.
-  E['Pop("EdPause", 0)'] = (ev, wd) => {
-    const id = window.__edId; const levels = read(); const l = levels.find((x) => x.createdId === id);
-    if (l) { l.levelString = wd.text(wd.w.wd_ed_level_string()); l.lastModified = Date.now(); write(levels); }
-    location.reload();
+  // ---- pause menu (level-editor.js `_saveEditorLevel` and the buttons of `_initEditorPauseMenu`) ----
+  // `GameCacheManager.setItemWithQuotaRecovery`: a full storage drops the cached downloads and tries once more
+  const setWithRecovery = (key, value) => {
+    try { localStorage.setItem(key, value); }
+    catch (e) {
+      if (e.name !== "QuotaExceededError" && e.code !== 22 && e.code !== 1014) throw e;
+      if (window.gameCache && window.gameCache.clearCache) window.gameCache.clearCache();
+      else Object.keys(localStorage).forEach((k) => { if (k.startsWith("webdash_cache_")) localStorage.removeItem(k); });
+      localStorage.setItem(key, value);
+    }
   };
+  window.WD_ED_SONG = window.WD_ED_SONG || {}; // { id, name } picked in the level settings, kept until the next save
+  const saveEditor = (wd) => {
+    const id = window.__edId; const levels = read(); const l = levels.find((x) => x.createdId === id);
+    if (!l) return true;
+    l.levelString = wd.text(wd.w.wd_ed_level_string()); l.lastModified = Date.now();
+    const pend = window.WD_ED_SONG;
+    if (pend.id !== undefined) { l.songId = pend.id; l.song = pend.name || l.song; }
+    try { setWithRecovery("created_levels", JSON.stringify(levels)); }
+    catch (e) { console.error("Failed to save editor level", e); alert("Could not save this level because browser storage is full. Free up browser storage and try again."); return false; }
+    window.WD_ED_SONG = {};
+    return true;
+  };
+  // back to the main page: the level view of this level opens again (and starts when it was "Save and Play")
+  const leave = (play) => { try { sessionStorage.setItem("wd_ed_return", JSON.stringify({ id: window.__edId, play: !!play })); } catch (e) {} location.reload(); };
+  E['Pop("EdPm", 1)'] = (ev, wd) => { if (saveEditor(wd)) leave(true); };
+  E['Pop("EdPm", 2)'] = (ev, wd) => { if (saveEditor(wd)) leave(false); };
+  E['Pop("EdPm", 3)'] = (ev, wd) => { saveEditor(wd); };
+  E['Pop("EdPm", 4)'] = () => leave(false);
+  E['Pop("EdPmGlow", 0)'] = (ev, wd) => { try { const c = JSON.parse(localStorage.getItem("gd_settings") || "{}"); c.showEditorGlow = !!wd.w.wd_ed_glow(); localStorage.setItem("gd_settings", JSON.stringify(c)); } catch (e) {} };
+  // "Play" of the level view: a created level starts like an online one (its song is an official one by name, or a downloaded custom one)
+  E['Pop("EmPlay", 0)'] = async (ev, wd) => {
+    const id = viewId(wd); const l = read().find((x) => x.createdId === id); if (!l || !window.__playOnline) return;
+    let songData = null;
+    try {
+      if (l.songId > 0 && window.__songById) songData = await window.__songById(l.songId);
+      else { const e = (window.__allLevels || []).find((x) => x[1] === l.song); if (e) { const r = await fetch(`../ref/assets/music/${e[4] || String(e[1]).replaceAll(" ", "")}.mp3`); if (r.ok) songData = await r.arrayBuffer(); } }
+    } catch (e) { console.warn("song", e); }
+    window.__playOnline({ id: String(l.createdId), name: l.levelName, text: l.levelString, songData, offset: 0 });
+  };
+  // after leaving the editor: the level view of the level that was open
+  (() => {
+    let ret = null; try { ret = JSON.parse(sessionStorage.getItem("wd_ed_return") || "null"); sessionStorage.removeItem("wd_ed_return"); } catch (e) {}
+    if (!ret) return;
+    const t = setInterval(() => {
+      const wd = window.__WD; if (!wd || !wd.w.wd_em_open_new || !wd.w.wd_ui_ready()) return;
+      clearInterval(t);
+      push(wd);
+      const [p, n] = wd.put(ret.id); wd.w.wd_em_open_new(p, n);
+      if (ret.play) setTimeout(() => E['Pop("EmPlay", 0)']('Pop("EmPlay", 0)', wd), 300);
+    }, 50);
+  })();
   window.WD_ED = { read, write, push, nextLocalId, NEW_LEVEL_STRING, viewId };
 })();
 // test hooks: ?ui=creator | mylevels | levelview  (&seed=N to add N sample levels)
