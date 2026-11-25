@@ -5,7 +5,7 @@ use crate::ui::*;
 pub struct NumInput { pub purpose: u16, pub bg: usize, pub text: usize, pub value: String, pub before: String, pub min: i64, pub max: i64, pub neg: bool, pub tag: &'static str, pub x: f64, pub y: f64 }
 
 #[derive(Default)]
-pub struct EdFields { pub inputs: Vec<NumInput>, pub focus: Option<usize> }
+pub struct EdFields { pub inputs: Vec<NumInput>, pub focus: Option<usize>, pub text_node: usize, pub text_on: bool }
 
 const IN_W: f64 = 92.0;
 const IN_H: f64 = 58.0;
@@ -72,6 +72,7 @@ impl Ui {
 
     pub fn ed_fields_key(&mut self, code: u32) -> bool {
         if self.ed.cp.open { return self.ed_cp_key(code); }
+        if self.ed.fields.text_on { return self.ed_text_key(code); }
         let Some(i) = self.ed.fields.focus else { return false };
         let c = char::from_u32(code).unwrap_or('\0');
         match code {

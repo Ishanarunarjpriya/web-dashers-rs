@@ -17,10 +17,10 @@ pub struct EdLs { pub cat: u8, pub idx: i64, pub custom: String, pub before: Str
 #[derive(Clone, Debug)]
 pub enum HoKind { Speed, Mode, Bg, Ground }
 #[derive(Default)]
-pub struct EdHo { pub kind: Option<u8>, pub keys: Vec<i64>, pub selected: i64, pub nodes: Vec<(usize, f64)> }
+pub struct EdHo { pub target: u8, pub kind: Option<u8>, pub keys: Vec<i64>, pub selected: i64, pub nodes: Vec<(usize, f64)> }
 
-const SPEEDS: [(i64, &str, i64); 5] = [(1, "0.5x", 200), (0, "1x", 201), (2, "2x", 202), (3, "3x", 203), (4, "4x", 1334)];
-const MODES: [(i64, &str, &str); 8] = [
+pub const SPEEDS: [(i64, &str, i64); 5] = [(1, "0.5x", 200), (0, "1x", 201), (2, "2x", 202), (3, "3x", 203), (4, "4x", 1334)];
+pub const MODES: [(i64, &str, &str); 8] = [
     (0, "Cube", "gj_iconBtn_off_001.png"), (1, "Ship", "gj_shipBtn_off_001.png"), (2, "Ball", "gj_ballBtn_off_001.png"), (3, "UFO", "gj_birdBtn_off_001.png"),
     (4, "Wave", "gj_dartBtn_off_001.png"), (5, "Robot", "gj_robotBtn_off_001.png"), (6, "Spider", "gj_spiderBtn_off_001.png"), (7, "Swing", "gj_swingBtn_off_001.png"),
 ];
@@ -167,7 +167,7 @@ impl Ui {
     }
 
     /// `_makeCurrentSpeedPreview`: the object's frame scaled to a height
-    fn ed_obj_button(&mut self, root: usize, x: f64, y: f64, id: i64, target_h: f64, mult: f64, action: Action, d: f64, tag: &'static str) {
+    pub(crate) fn ed_obj_button(&mut self, root: usize, x: f64, y: f64, id: i64, target_h: f64, mult: f64, action: Action, d: f64, tag: &'static str) {
         if let Some(f) = Self::ed_obj_frame(id) {
             if let Some(atlas) = crate::atlas_for_frame(&f) {
                 let i = self.pa_img(root, &atlas, &f, x, y, 1.0, d, tag);
@@ -272,6 +272,10 @@ impl Ui {
             "EdHoPick" => { self.ed_ho_pick(arg); true }
             "EdHoOk" => { self.ed_ho_close(); true }
             "EdSoOpen" => { self.ed_so_open(); true }
+            "EdSpPick" => { self.ed_ho_open_t(arg as u8, 1); true }
+            "EdSpSettings" => { self.ed_sp_settings_open(); true }
+            "EdSpToggle" => { self.ed_sp_toggle(arg); true }
+            "EdSpSettingsClose" => { self.kill_tag("ed_sps"); true }
             "EdSoToggle" => { self.ed_so_toggle(arg); true }
             "EdSoClose" => { self.ed_so_close(); true }
             _ => false,
@@ -279,11 +283,15 @@ impl Ui {
     }
 
     // ---- the horizontal option picker ----
-    fn ed_ho_open(&mut self, kind: u8) {
+    fn ed_ho_open(&mut self, kind: u8) { self.ed_ho_open_t(kind, 0); }
+
+    /// `target` 0: the level settings, 1: the selected start position
+    pub(crate) fn ed_ho_open_t(&mut self, kind: u8, target: u8) {
         self.ed_ho_close();
+        let (spd, mode) = if target == 1 { (self.ed_sp_value("kA4", 0), self.ed_sp_value("kA2", 0)) } else { (self.ed.level.get_i("kA4", 0), self.ed.level.get_i("kA2", 0)) };
         let (title, keys, selected): (&str, Vec<i64>, i64) = match kind {
-            0 => ("Select Speed", SPEEDS.iter().map(|s| s.0).collect(), self.ed.level.get_i("kA4", 0)),
-            1 => ("Select Mode", MODES.iter().map(|m| m.0).collect(), self.ed.level.get_i("kA2", 0)),
+            0 => ("Select Speed", SPEEDS.iter().map(|s| s.0).collect(), spd),
+            1 => ("Select Mode", MODES.iter().map(|m| m.0).collect(), mode),
             2 => ("Select Background", (1..=59).collect(), self.ed.level.get_i("kA6", 1).max(1)),
             _ => ("Select Ground", (1..=22).collect(), self.ed.level.get_i("kA7", 1).max(1)),
         };
@@ -297,7 +305,7 @@ impl Ui {
         let d = D_HO + 0.1;
         self.pa_nine(root, "GJ_square01", 0.0, 0.0, pw, ph, d, "ed_ho");
         self.pa_txt(root, "bigFont", if art { 52.0 } else { 60.0 }, title, 0.0, -(ph / 2.0) + 50.0, 0.5, 0.5, 1.0, d, "ed_ho");
-        self.ed.ho = EdHo { kind: Some(kind), keys: keys.clone(), selected, nodes: Vec::new() };
+        self.ed.ho = EdHo { target, kind: Some(kind), keys: keys.clone(), selected, nodes: Vec::new() };
         for (i, key) in keys.iter().enumerate() {
             let (row, col) = if art { (i / cols, i % cols) } else { (0, i) };
             let in_row = if art { cols.min(keys.len() - row * cols) } else { keys.len() };
@@ -341,6 +349,12 @@ impl Ui {
         let Some(kind) = self.ed.ho.kind else { return };
         let key = self.ed.ho.keys[i];
         self.ed.ho.selected = key;
+        if self.ed.ho.target == 1 {
+            match kind { 0 => self.ed_sp_set("kA4", key), 1 => self.ed_sp_set("kA2", key), _ => {} }
+            self.ed_ho_tints();
+            self.ed_sp_refresh();
+            return;
+        }
         match kind {
             0 => self.ed.level.set_str("kA4", &key.to_string()),
             1 => self.ed.level.set_str("kA2", &key.to_string()),
@@ -358,7 +372,7 @@ impl Ui {
         self.kill_tag("ed_ls"); self.ed_ls_build();
     }
 
-    fn ed_ho_close(&mut self) { self.kill_tag("ed_ho"); self.ed.ho = EdHo::default(); }
+    pub(crate) fn ed_ho_close(&mut self) { self.kill_tag("ed_ho"); self.ed.ho = EdHo::default(); }
 
     // ---- start options ----
     fn ed_so_open(&mut self) {

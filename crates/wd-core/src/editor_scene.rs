@@ -45,7 +45,7 @@ pub struct EditorState {
     pub songs: Vec<String>, pub song_id: i64, pub pending_song: Option<(i64, String)>,
     pub fields: crate::editor_fields::EdFields,
     pub cp: crate::editor_color::EdCp,
-    pub gp: crate::editor_objects::EdGp,
+    pub gp: crate::editor_objects::EdGp, pub sp_root: usize, pub sp_checks: Vec<(usize, &'static str)>,
     pub pt_saved: (f64, f64, f64),
     pub pt_hidden: Vec<(usize, bool)>,
     pub pt_btns: [usize; 3],
@@ -452,7 +452,7 @@ impl Ui {
             n if n == "EdEditObject" || n == "EdGroup" || n.starts_with("EdGp") || n == "EdOpClose" => self.ed_objects_action(name, arg),
             n if n.starts_with("EdNum") => self.ed_fields_action(name, arg),
             n if n.starts_with("EdCp") => self.ed_cp_action(name, arg),
-            n if n.starts_with("EdLs") || n.starts_with("EdHo") || n.starts_with("EdSo") || n == "EdSettings" => self.ed_ls_action(name, arg),
+            n if n.starts_with("EdLs") || n.starts_with("EdHo") || n.starts_with("EdSo") || n.starts_with("EdSp") || n == "EdSettings" => self.ed_ls_action(name, arg),
             "EdPlaytest" => { self.ed_pt_start(); true }
             "EdPtPause" => { self.ed_pt_toggle_pause(); true }
             "EdPtStop" => { self.ed_pt_stop(false); true }
