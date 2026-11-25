@@ -6,6 +6,7 @@ pub mod editor_menu;
 pub mod editor_scene;
 pub mod editor_pause;
 pub mod editor_ui;
+pub mod editor_color;
 pub mod editor_fields;
 pub mod beast;
 pub mod coins;
@@ -1087,6 +1088,12 @@ pub extern "C" fn wd_ed_pending_song() -> f64 { with_ui(|u| u.ed.pending_song.as
 pub extern "C" fn wd_ed_pending_song_name() -> usize { out_str(with_ui(|u| u.ed.pending_song.as_ref().map(|p| p.1.clone()).unwrap_or_default())) }
 #[no_mangle]
 pub extern "C" fn wd_ed_clear_pending_song() { with_ui(|u| u.ed.pending_song = None); }
+/// Pixels of the colour picker artwork: 0 hue ring (252 x 252), 1 disc background, 2 shadow, 3 overlay (185 x 185), RGBA, sent by the host.
+#[no_mangle]
+pub unsafe extern "C" fn wd_ed_cp_tex(which: u32, ptr: *const u8, len: usize) { let v = std::slice::from_raw_parts(ptr, len).to_vec(); with_ui(|u| u.ed_cp_set_tex(which as usize, v)); }
+/// The colour the picker shows (r, g, b packed as 0xRRGGBB), -1 when it is closed.
+#[no_mangle]
+pub extern "C" fn wd_ed_cp_color() -> f64 { with_ui(|u| if u.ed.cp.open { ((u.ed.cp.color.0 << 16) | (u.ed.cp.color.1 << 8) | u.ed.cp.color.2) as f64 } else { -1.0 }) }
 /// `window.showEditorGlow`: the glow sprites of the editor view
 #[no_mangle]
 pub extern "C" fn wd_ed_set_glow(on: u32) { with_ui(|u| u.ed.glow = on != 0); }
@@ -1094,7 +1101,7 @@ pub extern "C" fn wd_ed_set_glow(on: u32) { with_ui(|u| u.ed.glow = on != 0); }
 pub extern "C" fn wd_ed_glow() -> u32 { with_ui(|u| u.ed.glow as u32) }
 /// Test hook: 0 starts, 1 pauses / resumes, 2 stops the playtest.
 #[no_mangle]
-pub extern "C" fn wd_ed_playtest(op: u32) { with_ui(|u| match op { 0 => u.ed_pt_start(), 1 => u.ed_pt_toggle_pause(), 3 => u.ed_pm_open(), 4 => u.ed_ls_open(), 5 => u.ed_ls_action("EdSoOpen", 0).then_some(()).unwrap_or(()), 6 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 2); } 7 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 0); } _ => u.ed_pt_stop(false) }); }
+pub extern "C" fn wd_ed_playtest(op: u32) { with_ui(|u| match op { 0 => u.ed_pt_start(), 1 => u.ed_pt_toggle_pause(), 3 => u.ed_pm_open(), 4 => u.ed_ls_open(), 5 => u.ed_ls_action("EdSoOpen", 0).then_some(()).unwrap_or(()), 6 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 2); } 7 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 0); } 8 => u.ed_cp_open(1000), _ => u.ed_pt_stop(false) }); }
 /// Trail segments and death crosses: flat rows of 6 (kind, x0, y0, x1, y1, colour); returns the number of rows (read through `wd_ed_marks_ptr`).
 static ED_MARKS: Mutex<Vec<f64>> = Mutex::new(Vec::new());
 #[no_mangle]

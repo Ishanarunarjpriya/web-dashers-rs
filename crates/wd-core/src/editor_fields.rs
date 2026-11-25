@@ -5,6 +5,5 @@ use crate::ui::*;
 pub struct EdFields { pub focus: Option<usize> }
 
 impl Ui {
-    pub fn ed_fields_key(&mut self, _code: u32) -> bool { false }
-    pub fn ed_cp_open(&mut self, _channel: i64) {}
+    pub fn ed_fields_key(&mut self, code: u32) -> bool { if self.ed.cp.open { return self.ed_cp_key(code); } false }
 }

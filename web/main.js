@@ -49,7 +49,7 @@ async function main() {
   window.__WD = { w, put, text };
 
   // ---- atlases ----
-  const sheets = ["GJ_GameSheet", "GJ_GameSheet02", "GJ_GameSheet03", "GJ_GameSheet04", "GJ_GameSheetGlow", "GJ_GameSheetIcons", "GJ_WebSheet", "GJ_EditorSheet01", "GJ_GameSheetEditor", "PixelSheet_01", "GJ_ParticleSheet", "GJ_LaunchSheet", "FireSheet_01-hd"];
+  const sheets = ["GJ_GameSheet", "GJ_GameSheet02", "GJ_GameSheet03", "GJ_GameSheet04", "GJ_GameSheetGlow", "GJ_GameSheetIcons", "GJ_WebSheet", "GJ_EditorSheet01", "GJ_GameSheetEditor", "PixelSheet_01", "GJ_ParticleSheet", "GJ_LaunchSheet", "FireSheet_01-hd", "CCControlColourPickerSpriteSheet-uhd"];
   const atlas = {};
   await Promise.all(sheets.map(async (name) => {
     const [json, img] = await Promise.all([loadText(SHEETS + name + ".json"), loadImage(SHEETS + name + ".png")]);
@@ -135,6 +135,12 @@ async function main() {
 
   // ---- UI (menus) ----
   w.wd_ui_new(W);
+  // the pixels of the colour picker artwork (the editor's colour picker finds colours in them, as `_openEditorColorPickerPopup` does with a canvas)
+  { const sheet = atlas["CCControlColourPickerSpriteSheet-uhd"];
+    const grab = (frame, size) => { const f = sheet.frames[frame].frame, c = document.createElement("canvas"); c.width = c.height = size; const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(sheet.img, f.x, f.y, f.w, f.h, 0, 0, size, size); return g.getImageData(0, 0, size, size).data; };
+    [["huePickerBackground.png", 252], ["colourPickerBackground.png", 185], ["colourPickerShadow.png", 185], ["colourPickerOverlay.png", 185]].forEach(([fr, sz], k) => {
+      const px = grab(fr, sz), p = w.wd_alloc(px.length); new Uint8Array(w.memory.buffer, p, px.length).set(px); w.wd_ed_cp_tex(k, p, px.length);
+    }); }
   for (const [name, file] of [["GJ_MenuBeta", "GJ_MenuBeta"], ["square04_001", "square04_001"], ["GJ_button01", "GJ_button_01"], ["sliderBar", "sliderBar"], ["sliderBar2", "sliderBar2"], ["slidergroove2", "slidergroove2"], ["GJ_square67", "GJ_square67"], ["GJ_button05", "GJ_button_05"], ["GJ_button02", "GJ_button_02"], ["square01_001", "square01_001"], ["GJ_square01", "GJ_square01"]].map(([n, f]) => [n, `../ref/assets/sprites/${f}.png`]).concat(window.WD_ASSETS || [])) { const img = await loadImage(file).catch(() => null); if (img) { standalone[name] = img; const [p, l] = put("/" + name); w.wd_ui_size(p, l, img.width, img.height); } }
   const fonts = {};
   for (const name of ["bigFont", "goldFont"]) {

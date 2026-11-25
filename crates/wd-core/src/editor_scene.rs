@@ -44,6 +44,7 @@ pub struct EditorState {
     pub ls: crate::editor_ui::EdLs, pub ls_open: bool, pub ho: crate::editor_ui::EdHo, pub so_open: bool, pub so_checks: Vec<(usize, &'static str)>,
     pub songs: Vec<String>, pub song_id: i64, pub pending_song: Option<(i64, String)>,
     pub fields: crate::editor_fields::EdFields,
+    pub cp: crate::editor_color::EdCp,
     pub pt_saved: (f64, f64, f64),
     pub pt_hidden: Vec<(usize, bool)>,
     pub pt_btns: [usize; 3],
@@ -447,6 +448,7 @@ impl Ui {
             "EdDeselect" => { self.ed_clear_selection(); true }
             "EdPause" | "EdPm" | "EdPmGlow" => self.ed_pm_action(name, arg),
             "EdNoop" => true,
+            n if n.starts_with("EdCp") => self.ed_cp_action(name, arg),
             n if n.starts_with("EdLs") || n.starts_with("EdHo") || n.starts_with("EdSo") || n == "EdSettings" => self.ed_ls_action(name, arg),
             "EdPlaytest" => { self.ed_pt_start(); true }
             "EdPtPause" => { self.ed_pt_toggle_pause(); true }
