@@ -222,7 +222,7 @@ async function main() {
   const snapPx = (v) => Math.round(v * pxScale) / pxScale;
   // Phaser's ColorMatrix grayscale(1) is saturate(-1): every channel becomes the average of r, g and b; then the tint multiplies
   const grayCache = new WeakMap();
-  // the ground tiles are opaque, so a canvas "multiply" is exact for them (no soft edges to tint) and runs on the GPU: the ground colour changes
+  // the ground tiles tint with a canvas "multiply" (only their soft edges differ by a shade from a per-pixel tint) and it runs on the GPU: the ground colour changes
   // every frame during a colour trigger, and repainting a 256x256 tile pixel by pixel on the CPU each time caused the hitches
   const opaqueCache = new WeakMap();
   const tintedOpaque = (img, tint) => {
@@ -230,8 +230,9 @@ async function main() {
     let e = opaqueCache.get(img);
     if (!e) { const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; e = { cv, g: cv.getContext("2d"), tint: -1 }; opaqueCache.set(img, e); }
     if (e.tint !== tint) {
-      const g = e.g; g.globalCompositeOperation = "source-over"; g.drawImage(img, 0, 0);
-      g.globalCompositeOperation = "multiply"; g.fillStyle = hex(tint); g.fillRect(0, 0, e.cv.width, e.cv.height); g.globalCompositeOperation = "source-over";
+      const g = e.g; g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, e.cv.width, e.cv.height); g.drawImage(img, 0, 0);
+      g.globalCompositeOperation = "multiply"; g.fillStyle = hex(tint); g.fillRect(0, 0, e.cv.width, e.cv.height);
+      g.globalCompositeOperation = "destination-in"; g.drawImage(img, 0, 0); g.globalCompositeOperation = "source-over"; // keeps the picture's own transparency
       e.tint = tint;
     }
     return e.cv;
