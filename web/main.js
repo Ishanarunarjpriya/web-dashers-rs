@@ -714,7 +714,7 @@ async function main() {
   const beat = (ms) => 0.45 + 0.35 * Math.abs(Math.sin(ms / 1000 * Math.PI * 2));
   const step = (dtMs) => {
     w.wd_trig_time(performance.now());
-    if (analyser) { analyser.getFloatTimeDomainData(peakBuf); let pk = 0; for (let k = 0; k < peakBuf.length; k++) { const v = Math.abs(peakBuf[k]); if (v > pk) pk = v; } w.wd_set_audio_peak(pk, afx.userMusic() * 0.8); } // audio.js `_effectiveVolume()`
+    if (analyser) { w.wd_audio_live(1); analyser.getFloatTimeDomainData(peakBuf); let pk = 0; for (let k = 0; k < peakBuf.length; k++) { const v = Math.abs(peakBuf[k]); if (v > pk) pk = v; } w.wd_set_audio_peak(pk, afx.userMusic() * 0.8); } // audio.js `_effectiveVolume()`
     else w.wd_set_audio_meter(0.1); // no sound yet: the meter rests at 0.1, objects do not pulse
     const r = w.wd_game_update(dtMs, held ? 1 : 0);
     if ((r >> 30) & 1) restarted(); // died and restarted
@@ -819,7 +819,7 @@ async function main() {
     if (!won && endfx.active) endfx.reset();
     if (!paused) endfx.update(dt);
     endfx.portalUpdate(paused ? 0 : dt, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !window.WD_EDITOR_ON && !readSettings().enableLDM);
-    if (PROF) { P.meter = w.wd_audio_dbg(0); P.pulse = w.wd_audio_dbg(1); P.nAS = w.wd_audio_dbg(2); P.sc = w.wd_audio_dbg(3); P.ap = w.wd_audio_dbg(7); P.ac = ac ? ac.state : "none"; P.song = !!songBuf; }
+    if (PROF) { P.meter = w.wd_audio_dbg(0); P.pulse = w.wd_audio_dbg(1); P.nAS = w.wd_audio_dbg(2); P.sc = w.wd_audio_dbg(3); P.ap = w.wd_audio_dbg(8); P.ac = ac ? ac.state : "none"; P.song = !!songBuf; }
     lp("fx");
     const buf = render(); camXUi = buf[0]; camYUi = buf[1];
     lp("render");
