@@ -39,7 +39,7 @@ async function main() {
   if (!params.get("noload")) { try { loading = await showLoading(ctx, SHEETS); const LOAD_ESTIMATE = 96; onLoaded = () => loading.progress(loaded / LOAD_ESTIMATE); } catch (e) { console.warn("loading screen", e); } }
   if (params.get("noclip")) { try { const c = JSON.parse(localStorage.getItem("gd_settings") || "{}"); c.noclip = true; if (params.get("noclip") === "all") Object.assign(c, { noclipAccuracy: true, showFPS: true, showCPS: true }); localStorage.setItem("gd_settings", JSON.stringify(c)); } catch (e) {} } // test hook for benchmarks
   // ---- wasm ----
-  const { instance } = await WebAssembly.instantiateStreaming(fetch(WASM), { env: { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_acos: Math.acos, js_atan: Math.atan, js_atan2: Math.atan2, js_pow: Math.pow, js_random: Math.random } });
+  const { instance } = await WebAssembly.instantiateStreaming(fetch(WASM, { cache: "no-cache" }), { env: { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_acos: Math.acos, js_atan: Math.atan, js_atan2: Math.atan2, js_pow: Math.pow, js_random: Math.random } });
   const w = instance.exports;
   const enc = new TextEncoder(), dec = new TextDecoder();
   const put = (s) => { const b = enc.encode(s); const p = w.wd_alloc(Math.max(1, b.length)); new Uint8Array(w.memory.buffer, p, b.length).set(b); return [p, b.length]; };
@@ -120,7 +120,7 @@ async function main() {
   window.__playOnline = async (info) => {
     loadingLevel = true; window.__onlineName = info.name; window.__onlineActive = true;
     try {
-      await fadeTo(1, 150); w.wd_on_close(); w.wd_em_close(); window.__createdPlayId = info.created || null; // a created level: quitting goes back to its level view // `_closePlayMenu(false, restart)`: the screen goes black in 150 ms, then the scene restarts into the level
+      await fadeTo(1, 150); w.wd_on_close(); if (w.wd_em_close) w.wd_em_close(); window.__createdPlayId = info.created || null; // a created level: quitting goes back to its level view // `_closePlayMenu(false, restart)`: the screen goes black in 150 ms, then the scene restarts into the level
       window.__songData = info.songData || null; songBuf = null;
       await ensureAudio(); if (ac && !songBuf && window.__songData) { try { songBuf = await ac.decodeAudioData(window.__songData.slice(0)); } catch (e) { songBuf = null; } }
       await loadLevelText(info.id, info.text); w.wd_menu_mode(0);
