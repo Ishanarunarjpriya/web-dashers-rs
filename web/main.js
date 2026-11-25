@@ -461,6 +461,8 @@ async function main() {
     if (menuMode) afx.enterMenu();
     if (window.__songData && !songBuf) songBuf = await ac.decodeAudioData(window.__songData.slice(0));
   };
+  // `startMusic(StartPosOffset)`: the level's song offset (`kA13`) and the offset of the start position the attempt begins at
+  const musicNow = () => (info.musicOffset || 0) + w.wd_game_music_sync_offset();
   const startMusic = (offset) => {
     if (!ac || !songBuf || menuMode) return;
     try { source && source.stop(); } catch (e) {}
@@ -468,11 +470,11 @@ async function main() {
     source.start(0, Math.max(0, Math.min(songBuf.duration - 0.1, offset)));
   };
   const stopSong = () => { try { source && source.stop(); } catch (e) {} source = null; };
-  const pollSong = async () => { if (ac && !songBuf && window.__songData && !menuMode && !sliding && !paused && !wasDead) { songBuf = await ac.decodeAudioData(window.__songData.slice(0)); startMusic(info.musicOffset || 0); } };
+  const pollSong = async () => { if (ac && !songBuf && window.__songData && !menuMode && !sliding && !paused && !wasDead) { songBuf = await ac.decodeAudioData(window.__songData.slice(0)); startMusic(musicNow()); } };
 
   // ---- input ----
   let held = false;
-  const down = (e) => { if (e.type === "keydown" && !["Space", "ArrowUp", "KeyW"].includes(e.code)) return; if (!menuMode && !paused && !sliding && !held) { bump("gd_totalJumps"); bumpLevel("Jumps"); } held = true; e.preventDefault(); if (!ac) ensureAudio().then(() => startMusic(info.musicOffset || 0)); };
+  const down = (e) => { if (e.type === "keydown" && !["Space", "ArrowUp", "KeyW"].includes(e.code)) return; if (!menuMode && !paused && !sliding && !held) { bump("gd_totalJumps"); bumpLevel("Jumps"); } held = true; e.preventDefault(); if (!ac) ensureAudio().then(() => startMusic(musicNow())); };
   const up = (e) => { if (e.type === "keyup" && !["Space", "ArrowUp", "KeyW"].includes(e.code)) return; held = false; };
   addEventListener("keydown", down); addEventListener("keyup", up);
   const toGame = (e) => { const r = canvas.getBoundingClientRect(); const sc = Math.min(r.width / W, r.height / H); const ox = r.left + (r.width - W * sc) / 2, oy = r.top + (r.height - H * sc) / 2; return [(e.clientX - ox) / sc, (e.clientY - oy) / sc]; };
@@ -483,7 +485,7 @@ async function main() {
   let sliding = false, wasDead = false;
   const startPlaying = () => { pvRestart = true; menuMode = false; paused = false; won = false; playTime = 0; jumps = 0; w.wd_ui_close_end(); attempts = 1; practiceOn = false; afx.stopMusic(); w.wd_ui_start_game(); applyOptions(); w.wd_game_begin_slide(); sliding = true; w.wd_ui_hud(); w.wd_ui_hud_pause(0); bump("gd_totalAttempts"); bumpLevel("Attempts"); w.wd_ui_attempt(1, w.wd_game_scene(0)); if (!ac) ensureAudio(); };
   // the slide-in ends: the song starts and the pause button fades in
-  const pollSlide = () => { if (!sliding) return; const ss = w.wd_game_slide_state(); if (ss === 2) { sliding = false; w.wd_ui_hud_pause(1); if (ac) startMusic(info.musicOffset || 0); else ensureAudio().then(() => startMusic(info.musicOffset || 0)); } };
+  const pollSlide = () => { if (!sliding) return; const ss = w.wd_game_slide_state(); if (ss === 2) { sliding = false; w.wd_ui_hud_pause(1); if (ac) startMusic(musicNow()); else ensureAudio().then(() => startMusic(musicNow())); } };
   const saveBest = () => {
     const pct = Math.floor(w.wd_game_percent(0));
     const key = (practiceOn ? "practiceBestPercent_" : "bestPercent_") + "level_" + LEVEL_ID;
@@ -497,7 +499,7 @@ async function main() {
     try { const a = JSON.parse(localStorage.getItem(`gd_${main ? "secret" : "user"}Coins_level_${LEVEL_ID}_slots`) || "[]"); for (const sl of a) if (sl >= 0 && sl < 3) saved |= 1 << sl; } catch (e) {}
     w.wd_ui_end_coins(main ? 1 : 0, count, o ? o.run : 0, o ? o.saved : saved);
   };
-  const restarted = () => { pvRestart = true; saveBest(); bump("gd_totalAttempts"); bumpLevel("Attempts"); attempts++; w.wd_ui_attempt(attempts, w.wd_game_scene(0)); startMusic(info.musicOffset || 0); };
+  const restarted = () => { pvRestart = true; saveBest(); bump("gd_totalAttempts"); bumpLevel("Attempts"); attempts++; w.wd_ui_attempt(attempts, w.wd_game_scene(0)); if (practiceOn && !readSettings().practiceMusicSync) { if (!source) startMusic(info.musicOffset || 0); } else startMusic(musicNow()); }; // practice without music sync keeps the song playing
   // ---- level editor host glue ----
   const edDown = new Set();
   addEventListener("keydown", (e) => { if (window.WD_EDITOR_ON && e.key.startsWith("Arrow")) { edDown.add(e.key); e.preventDefault(); } });
@@ -507,7 +509,20 @@ async function main() {
   addEventListener("keyup", (e) => edJump.delete(e.code));
   const edKeys = () => (edDown.has("ArrowLeft") ? 1 : 0) | (edDown.has("ArrowRight") ? 2 : 0) | (edDown.has("ArrowUp") ? 4 : 0) | (edDown.has("ArrowDown") ? 8 : 0) | (edJump.size ? 16 : 0);
   // playtest: the music follows the start / pause / stop of the playtest (`_startEditorPlaytest` .. `_stopEditorPlaytest`)
-  let edPtEvent = 0;
+  let edPtEvent = 0, edSongKey = null;
+  // the song of the level being edited (the one picked in the level settings, else the saved one), and where the playtest starts in it:
+  // the level's own song offset (`kA13`) plus the offset of the start position it begins at
+  const edSongId = () => { const pid = w.wd_ed_pending_song(); if (!Number.isNaN(pid)) return pid; const rec = (window.WD_ED ? window.WD_ED.read() : []).find((x) => x.createdId === window.__edId); return rec && Number.isFinite(rec.songId) ? rec.songId : -1; };
+  const edMusicStart = () => { let lvl = 0; try { lvl = JSON.parse(text(w.wd_render_info())).musicOffset || 0; } catch (e) {} return lvl + w.wd_ed_pt(3); };
+  const edLoadSong = async () => {
+    try {
+      await ensureAudio();
+      const id = edSongId(); let data = null;
+      if (id > 0 && window.__songById) data = await window.__songById(id);
+      else { const e = (window.__allLevels || [])[Math.max(0, -id - 1)]; if (e) { const r = await fetch(`../ref/assets/music/${e[4] || String(e[1]).replaceAll(" ", "")}.mp3`); if (r.ok) data = await r.arrayBuffer(); } }
+      if (data && ac) { songBuf = await ac.decodeAudioData(data.slice(0)); edSongKey = id; }
+    } catch (e) { console.warn("editor song", e); }
+  };
   const edPtStep = () => {
     if (w.wd_ed_pt(1)) {
       w.wd_trig_time(performance.now());
@@ -517,7 +532,7 @@ async function main() {
     if (ev !== edPtEvent) {
       edPtEvent = ev;
       if (params.get("sim")) { /* headless picture: no sound */ }
-      else if (w.wd_ed_pt(1) && !w.wd_ed_pt(2)) { if (ac) { ac.resume(); startMusic(w.wd_ed_pt(3)); } else ensureAudio().then(() => startMusic(w.wd_ed_pt(3))); }
+      else if (w.wd_ed_pt(1) && !w.wd_ed_pt(2)) { if (edSongKey === edSongId() && songBuf) { if (ac) ac.resume(); startMusic(edMusicStart()); } else edLoadSong().then(() => { if (w.wd_ed_pt(1) && !w.wd_ed_pt(2)) startMusic(edMusicStart()); }); }
       else if (w.wd_ed_pt(1)) { if (ac) ac.suspend(); }
       else { stopSong(); if (ac) ac.resume(); }
     }
