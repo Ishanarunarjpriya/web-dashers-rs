@@ -190,7 +190,7 @@ async function main() {
     let c = per.get(tint);
     if (c) return c;
     const { x, y, w: fw, h: fh } = fr.d.frame;
-    const paint = (cv) => { TS.n++; TS.px += fw * fh; { const k = fw + 'x' + fh + (cv.tint === undefined ? '' : ' scratch'); TS.h[k] = (TS.h[k] || 0) + 1; } // a Phaser tint multiplies the colour and keeps the alpha: do the same per pixel (a canvas "multiply" would tint the transparent edges, e.g. the soft black shadow of the fonts)
+    const paint = (cv) => { TS.n++; TS.px += fw * fh; { const k = fw + 'x' + fh + (cv.tint === undefined ? '' : ' scratch') + ' ' + ((fr.img && fr.img.src) || '').split('/').pop() + '@' + fr.d.frame.x + ',' + fr.d.frame.y; TS.h[k] = (TS.h[k] || 0) + 1; } // a Phaser tint multiplies the colour and keeps the alpha: do the same per pixel (a canvas "multiply" would tint the transparent edges, e.g. the soft black shadow of the fonts)
       if (!cpuCv) { cpuCv = document.createElement("canvas"); cpuCtx = cpuCv.getContext("2d", { willReadFrequently: true }); }
       if (cpuCv.width < fw || cpuCv.height < fh) { cpuCv.width = Math.max(cpuCv.width, fw); cpuCv.height = Math.max(cpuCv.height, fh); }
       cpuCtx.clearRect(0, 0, fw, fh);
@@ -222,6 +222,20 @@ async function main() {
   const snapPx = (v) => Math.round(v * pxScale) / pxScale;
   // Phaser's ColorMatrix grayscale(1) is saturate(-1): every channel becomes the average of r, g and b; then the tint multiplies
   const grayCache = new WeakMap();
+  // the ground tiles are opaque, so a canvas "multiply" is exact for them (no soft edges to tint) and runs on the GPU: the ground colour changes
+  // every frame during a colour trigger, and repainting a 256x256 tile pixel by pixel on the CPU each time caused the hitches
+  const opaqueCache = new WeakMap();
+  const tintedOpaque = (img, tint) => {
+    tint &= 0xffffff; if (tint === 0xffffff) return img;
+    let e = opaqueCache.get(img);
+    if (!e) { const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; e = { cv, g: cv.getContext("2d"), tint: -1 }; opaqueCache.set(img, e); }
+    if (e.tint !== tint) {
+      const g = e.g; g.globalCompositeOperation = "source-over"; g.drawImage(img, 0, 0);
+      g.globalCompositeOperation = "multiply"; g.fillStyle = hex(tint); g.fillRect(0, 0, e.cv.width, e.cv.height); g.globalCompositeOperation = "source-over";
+      e.tint = tint;
+    }
+    return e.cv;
+  };
   const grayTinted = (fr, tint) => {
     let by = grayCache.get(fr.img); if (!by) grayCache.set(fr.img, by = new Map());
     const f = fr.d.frame, key = ((f.x * 8192 + f.y) * 8192 + f.w) * 8192 + f.h + ":" + tint;
@@ -496,6 +510,18 @@ async function main() {
     const [p, n] = put(window.__onlineName && /^\d{5,}$/.test(LEVEL_ID) ? window.__onlineName : (entry ? entry[1] : "Level"));
     w.wd_ui_pause(1, p, n, parseFloat(localStorage.getItem("bestPercent_level_" + LEVEL_ID) || "0"), parseFloat(localStorage.getItem("practiceBestPercent_level_" + LEVEL_ID) || "0"));
   };
+  // the pause menu quits at once; the level-complete menu fades out for 400 ms and back in (`fadeInFromBlack`)
+  const quitToMenu = () => {
+    const fromEnd = won;
+    afx.playEffect("quitSound_01");
+    const back = () => {
+      sliding = false; doResume(); won = false; w.wd_ui_close_end(); if (source) { try { source.stop(); } catch (e) {} } menuMode = true; w.wd_menu_mode(1); w.wd_ui_main_menu_again(); afx.enterMenu();
+      // back where the level was picked: the play menu of an online level, the level select for the main levels (`_onlineReturnToPlayMenu`, `_mainLevelReturnToSelect`)
+      if (window.__onlineActive) { const i = w.wd_on_reopen(); if (i >= 0) { const h = window.WD_EVENTS[`Pop("OnView", ${i})`]; if (h) h("", { w, put, text, params }); } }
+      else { const idx = visibleLevels.findIndex((l) => l[2] === "level_" + LEVEL_ID); if (idx >= 0) { pushLevels(idx); pushProgress(); w.wd_ui_open_level_select(); } }
+    };
+    if (fromEnd) { afx.stopMusic(); fadeTo(1, 400).then(() => { back(); return fadeTo(0, 400); }); } else back();
+  };
   const doResume = () => { if (!paused) return; paused = false; w.wd_ui_pause(0, 0, 0, 0, 0); if (ac) ac.resume(); };
   const OPT_DEFAULTS = { noclip: 0, showPercentage: 1, percentDecimals: 0, showHitboxes: 0, progressBar: 0, hitboxTrail: 0, showFPS: 0, hidePauseBtn: 0, hidePracticeUI: 0, solidWaveTrail: 0, noclipAccuracy: 0, hitboxesOnDeath: 0, createObjectIds: 0, showObjectIds: 0, showCPS: 0, speedHack: 1, respawnDelay: 1, macroBot: 0, practiceMusicSync: 0, showGlow: 1, enablePortalGuide: 1, enableOrbGuide: 0, enableMiniIcon: 0, cullDistance: 3 };
   let settingsRaw = null, settingsVal = {};
@@ -559,17 +585,7 @@ async function main() {
       else if (ev === "Pause") doPause();
       else if (ev === "PauseResume") doResume();
       else if (ev === "PauseReplay") { doResume(); w.wd_ui_close_end(); won = false; w.wd_game_restart_current(); restarted(); }
-      else if (ev === "PauseMenu") { // the pause menu quits at once; the level-complete menu fades out for 400 ms and back in (`fadeInFromBlack`)
-        const fromEnd = won;
-        afx.playEffect("quitSound_01");
-        const back = () => {
-          sliding = false; doResume(); won = false; w.wd_ui_close_end(); if (source) { try { source.stop(); } catch (e) {} } menuMode = true; w.wd_menu_mode(1); w.wd_ui_main_menu_again(); afx.enterMenu();
-          // back where the level was picked: the play menu of an online level, the level select for the main levels (`_onlineReturnToPlayMenu`, `_mainLevelReturnToSelect`)
-          if (window.__onlineActive) { const i = w.wd_on_reopen(); if (i >= 0) { const h = window.WD_EVENTS[`Pop("OnView", ${i})`]; if (h) h("", { w, put, text, params }); } }
-          else { const idx = visibleLevels.findIndex((l) => l[2] === "level_" + LEVEL_ID); if (idx >= 0) { pushLevels(idx); pushProgress(); w.wd_ui_open_level_select(); } }
-        };
-        if (fromEnd) { afx.stopMusic(); fadeTo(1, 400).then(() => { back(); return fadeTo(0, 400); }); } else back();
-      }
+      else if (ev === "PauseMenu") quitToMenu();
       else if (ev === "PausePractice") { practiceOn = !practiceOn; w.wd_game_practice(0); w.wd_ui_practice(practiceOn ? 1 : 0); doResume(); doPause(); }
       else if (ev === "Checkpoint") { if (practiceOn) w.wd_game_practice(1); }
       else if (ev === "ClearCheckpoint") { if (practiceOn) w.wd_game_practice(2); }
@@ -587,7 +603,7 @@ async function main() {
     if (kbHas("noclip", e.code)) toggleSetting("noclip");
     if (kbHas("showHitboxes", e.code)) toggleSetting("showHitboxes");
   });
-  addEventListener("keydown", (e) => { if (e.code === "KeyR" && !menuMode && !paused) { w.wd_game_restart_current(); restarted(); } if (e.code === "Escape" && w.wd_gar_is_open()) { w.wd_gar_close(); return; } if (e.code === "Escape") { if (paused) doResume(); else doPause(); } });
+  addEventListener("keydown", (e) => { if (e.code === "KeyR" && !menuMode && !paused) { w.wd_game_restart_current(); restarted(); } if (e.code === "Escape" && w.wd_gar_is_open()) { w.wd_gar_close(); return; } if (e.code === "Escape" && !menuMode && !window.WD_EDITOR_ON) { if (paused) quitToMenu(); else if (!sliding && !won) doPause(); } });
 
   // ---- frame ----
   let last = performance.now(), frame = 0, fps = 0, acc = 0;
@@ -690,8 +706,8 @@ async function main() {
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     if (groundImg) {
       const gy = buf[15], tint = buf[23];
-      const tile = tinted({ img: groundImg, d: { frame: { x: 0, y: 0, w: groundImg.width, h: groundImg.height } } }, tint);
-      const tile2 = ground2Img && buf[25] ? tinted({ img: ground2Img, d: { frame: { x: 0, y: 0, w: ground2Img.width, h: ground2Img.height } } }, buf[24]) : null;
+      const tile = tintedOpaque(groundImg, tint);
+      const tile2 = ground2Img && buf[25] ? tintedOpaque(ground2Img, buf[24]) : null;
       for (let t = 0; t < tiles; t++) {
         const tx = buf[40 + t];
         const gw = tile.width + 1 / pxScale; // a device pixel of overlap hides the seam between tiles
