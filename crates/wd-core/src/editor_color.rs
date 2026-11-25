@@ -13,7 +13,7 @@ pub const DISC_SIZE: usize = 185;
 const ATLAS: &str = "CCControlColourPickerSpriteSheet-uhd";
 
 #[derive(Default, Clone)]
-pub struct CpOpts { pub initial: Option<(i64, i64, i64)>, pub commit: bool, pub panel_w: f64, pub panel_h: f64, pub content_y: f64, pub picker_y: Option<f64>, pub title: String }
+pub struct CpOpts { pub trigger: bool, pub initial: Option<(i64, i64, i64)>, pub commit: bool, pub panel_w: f64, pub panel_h: f64, pub content_y: f64, pub picker_y: Option<f64>, pub title: String }
 
 #[derive(Default)]
 pub struct EdCp {
@@ -211,13 +211,14 @@ impl Ui {
             bgs[k] = b;
         }
         self.ed.cp.nodes = CpNodes { fill, hue_h, sv_h, cur: cur_r, vals, bgs };
+        if opts.trigger { self.ed_ct_extras(root, pw, ph, d); }
         self.ed_ok(root, 0.0, (ph / 2.0) - 55.0, "OK", Action::Pop("EdCpOk", 0), d, "ed_cp");
         if self.ed.cp.have_tex() { self.ed_cp_place(cur); }
         self.ed.cp.color = cur;
         self.ed_cp_refresh(false);
     }
 
-    pub fn ed_cp_close(&mut self) { self.kill_tag("ed_cp"); self.ed.cp.open = false; self.ed.cp.focus = None; self.ed.cp.drag = 0; }
+    pub fn ed_cp_close(&mut self) { self.ed.trig = Default::default(); self.kill_tag("ed_cp"); self.ed.cp.open = false; self.ed.cp.focus = None; self.ed.cp.drag = 0; }
 
     /// `updateColorUi`: handles, fill, preview and field texts follow the colour; the channel and the host hear about a change
     fn ed_cp_refresh(&mut self, changed: bool) {
@@ -235,6 +236,7 @@ impl Ui {
         self.ed_cp_fields();
         if changed {
             if self.ed.cp.opts.commit { self.ed_set_channel(self.ed.cp.channel, c); }
+            if self.ed.cp.opts.trigger { self.ed_ct_write_color(c); }
             self.events.push(Action::Pop("EdCpChanged", 0));
         }
     }

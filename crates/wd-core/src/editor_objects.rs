@@ -203,6 +203,7 @@ impl Ui {
         if d.get_str("type") != Some("trigger") { return; }
         self.ed_op_close();
         if matches!(id, 31 | 34) { self.ed_sp_open(); }
+        else if matches!(id, 29 | 30 | 105 | 744 | 899 | 900 | 915) { self.ed_ct_open(id); }
         else if id == 901 { self.ed_move_popup(); }
         else if id == 1268 { self.ed_spawn_popup(); }
         else if d.get("textObject").is_some() { self.ed_text_open(); }

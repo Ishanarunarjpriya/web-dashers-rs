@@ -71,8 +71,9 @@ impl Ui {
     pub(crate) fn ed_num_get(&self, i: usize) -> i64 { self.ed.fields.inputs.get(i).map_or(0, |f| f.normalize(&f.value)) }
 
     pub fn ed_fields_key(&mut self, code: u32) -> bool {
-        if self.ed.cp.open { return self.ed_cp_key(code); }
+        if self.ed.cp.open && self.ed_cp_key(code) { return true; }
         if self.ed.fields.text_on { return self.ed_text_key(code); }
+        if self.ed.ct_focus { return self.ed_ct_key(code); }
         if self.ed.trig.focus.is_some() { return self.ed_tr_key(code); }
         let Some(i) = self.ed.fields.focus else { return false };
         let c = char::from_u32(code).unwrap_or('\0');
