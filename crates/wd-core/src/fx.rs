@@ -541,6 +541,12 @@ impl Game {
     /// the sprite half of `resetPulseTriggers`
     pub(crate) fn sprite_reset_pulse(&mut self) {
         self.fx.color_dirty = true;
+        // `resetObjects`: the music-scaled sprites go back to 0.1 (`gdApplyEffectScale(sprite, 0.1)`)
+        for si in self.fx.lists.audio_scale.clone() {
+            let s = &mut self.fx.sprites[si];
+            let (nx, ny) = (0.1 * s.num("_eeBaseScaleX").unwrap_or(1.0), 0.1 * s.num("_eeBaseScaleY").unwrap_or(1.0));
+            if s.scale_x != nx || s.scale_y != ny { s.scale_x = nx; s.scale_y = ny; }
+        }
         for list in self.fx.group_sprites.values() {
             for &si in list {
                 let s = &mut self.fx.sprites[si];

@@ -818,6 +818,7 @@ async function main() {
     if (!won && endfx.active) endfx.reset();
     if (!paused) endfx.update(dt);
     endfx.portalUpdate(paused ? 0 : dt, w.wd_game_scene(5), w.wd_game_scene(4), iconColor("iconMainColor", "04FF00"), !menuMode && !window.WD_EDITOR_ON && !readSettings().enableLDM);
+    if (PROF) { P.meter = w.wd_audio_dbg(0); P.pulse = w.wd_audio_dbg(1); P.nAS = w.wd_audio_dbg(2); P.sc = w.wd_audio_dbg(3); P.ap = w.wd_audio_dbg(7); P.ac = ac ? ac.state : "none"; P.song = !!songBuf; }
     lp("fx");
     const buf = render(); camXUi = buf[0]; camYUi = buf[1];
     lp("render");
