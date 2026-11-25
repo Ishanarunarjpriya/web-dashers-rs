@@ -17,6 +17,8 @@ pub struct EdMenu {
     pub view: Option<usize>,
     /// 0 none, 1 title, 2 description
     pub input: u8,
+    /// the page of the My Levels list (10 levels a page)
+    pub page: usize,
     pub blink: f64,
     pub cursor_on: bool,
     pub title_node: usize, pub desc_node: usize, pub title_cursor: usize, pub desc_cursor: usize,
@@ -67,6 +69,11 @@ impl Ui {
             "EmBack" => { self.kill_tag("cm_"); true }
             "EmCreate" => { self.kill_tag("cm_"); self.em_open_my_levels(); true }
             "EmMyBack" => { self.kill_tag("my_"); self.em_open_creator(); true }
+            "EmPage" => {
+                let pages = ((self.em.order.len() + 9) / 10).max(1);
+                self.em.page = match arg { 0 => (self.em.page + 1) % pages, 1 => self.em.page.saturating_sub(1), _ => (self.em.page + 1).min(pages - 1) };
+                self.em_build_my_levels(false); true
+            }
             "EmView" => { if let Some(&i) = self.em.order.get(arg) { self.kill_tag("my_"); self.em_open_view(i); } true }
             "EmViewBack" => { self.kill_tag("lv_"); self.em.view = None; self.em.input = 0; self.em_open_my_levels(); true }
             "EmTitle" => { self.em.input = 1; self.em_refresh_input(); true }
@@ -164,47 +171,67 @@ impl Ui {
     pub(crate) fn get_tag_count(&self, tag: &str) -> usize { self.nodes.iter().flatten().filter(|n| n.tag.starts_with(tag)).count() }
 
     // ---- My Levels ----
-    pub fn em_open_my_levels(&mut self) {
+    pub fn em_open_my_levels(&mut self) { self.em.page = 0; self.em_build_my_levels(true); }
+
+    /// the list of one page: rows of 140 px, 10 to a page, with the page button and arrows
+    fn em_build_my_levels(&mut self, fade: bool) {
         self.kill_tag("my_");
         let (sw, sh) = (self.screen_width, 640.0);
         let cx = sw / 2.0;
-        self.em_fade_in(200.0, 300.0, "my_");
+        if fade { self.em_fade_in(200.0, 300.0, "my_"); }
         self.em_gradient(100.0, "my_");
         self.em_blocker(101.0, "my_");
         let root = self.shape(Kind::Rect, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 102.0, "my_");
         let (tw, th) = (712.0, 460.0);
         let (tx, ty) = ((sw - tw) / 2.0, 85.0);
         self.shape(Kind::Rect, tx, ty, tw, th, 0xc2723e, 1.0, 102.0, "my_");
+        let (spacing, per_page) = (140.0, 10usize);
         let count = self.em.order.len();
-        let list_h = count as f64 * 100.0;
+        let pages = ((count + per_page - 1) / per_page).max(1);
+        self.em.page = self.em.page.min(pages - 1);
+        let start = self.em.page * per_page;
+        let on_page = per_page.min(count.saturating_sub(start));
+        let list_h = on_page as f64 * spacing;
         let (content, si) = self.scroll_area(root, cx, ty + th / 2.0, tw, th, list_h, 103.0, "my_");
         self.scrolls[si].base_y = ty + 22.0;
-        self.scrolls[si].max = 32.0 + (list_h - th).max(0.0);
+        self.scrolls[si].max = (list_h - th + 32.0).max(0.0);
         self.set_scroll(si, 0.0);
         let mut name_counts: std::collections::HashMap<String, i32> = Default::default();
-        for (index, &li) in self.em.order.clone().iter().enumerate() {
+        let mut revs: Vec<String> = Vec::new();
+        for &li in self.em.order.clone().iter() {
+            let name = self.em.levels[li].name.clone();
+            revs.push(match name_counts.get_mut(&name) { None => { name_counts.insert(name, 1); String::new() } Some(c) => { let s = format!("Rev. {}", c); *c += 1; s } });
+        }
+        let big = self.fonts.get("bigFont").cloned().unwrap_or_default();
+        for (page_index, index) in (start..start + on_page).enumerate() {
+            let li = self.em.order[index];
             let l = self.em.levels[li].clone();
-            let rev = match name_counts.get_mut(&l.name) { None => { name_counts.insert(l.name.clone(), 1); String::new() } Some(c) => { let s = format!("Rev. {}", c); *c += 1; s } };
-            let slot = index as f64 * 100.0 + 50.0;
+            let rev = revs[index].clone();
+            let slot = page_index as f64 * spacing + spacing / 2.0;
             let d = 103.01;
-            let stripe = self.shape(Kind::Rect, cx - (tw - 10.0) / 2.0, slot - 50.0, tw - 10.0, 100.0, if index % 2 != 0 { 0xc2723e } else { 0xa1582c }, 1.0, d, "my_");
+            let stripe = self.shape(Kind::Rect, cx - (tw - 10.0) / 2.0, slot - spacing / 2.0, tw - 10.0, spacing, if index % 2 != 0 { 0xc2723e } else { 0xa1582c }, 1.0, d, "my_");
             self.node(stripe).parent = Some(content);
-            let sep = self.shape(Kind::Rect, cx - (tw - 10.0) / 2.0, slot + 50.0, tw - 10.0, 1.0, 0x502c16, 1.0, d, "my_");
+            let sep = self.shape(Kind::Rect, cx - (tw - 10.0) / 2.0, slot + spacing / 2.0, tw - 10.0, 1.0, 0x502c16, 1.0, d, "my_");
             self.node(sep).parent = Some(content);
-            let name = self.pa_txt(content, "bigFont", 32.0, &l.name, tx + 20.0, slot - 22.0, 0.0, 0.5, 1.0, d + 0.01, "my_");
-            let nw = self.node(name).width;
-            self.pa_txt(content, "goldFont", 20.0, &rev, tx + 20.0 + nw + 10.0, slot - 22.0 + 5.0, 0.0, 0.5, 1.0, d + 0.01, "my_");
-            let info_y = slot + 18.0;
-            self.pa_img(content, "GJ_GameSheet03", "GJ_timeIcon_001.png", tx + 35.0, info_y, 0.65, d + 0.01, "my_");
-            self.pa_txt(content, "bigFont", 18.0, length_name(l.length), tx + 35.0 + 22.0, info_y, 0.0, 0.5, 1.0, d + 0.01, "my_");
-            self.pa_img(content, "GJ_GameSheet03", "GJ_musicIcon_001.png", tx + 150.0, info_y, 0.65, d + 0.01, "my_");
-            let song = self.pa_txt(content, "bigFont", 18.0, &l.song, tx + 150.0 + 22.0, info_y, 0.0, 0.5, 1.0, d + 0.01, "my_");
-            let status_x = tx + 380.0;
-            self.pa_img(content, "GJ_GameSheet03", "GJ_infoIcon_001.png", status_x, info_y, 0.65, d + 0.01, "my_");
-            let max_w = (status_x - 25.0 - (tx + 172.0)).max(20.0);
+            // the name shrinks to leave room for the revision label and the View button
+            let rev_w = if rev.is_empty() { 0.0 } else { self.fonts.get("goldFont").map_or(0.0, |f| f.width(&rev, 20.0)) + 10.0 };
+            let max_w = (tx + tw - 145.0) - (tx + 31.0) - rev_w;
+            let full = big.width(&l.name, 48.0);
+            let k = if full > max_w && full > 0.0 { max_w / full } else { 1.0 };
+            let name = self.pa_txt(content, "bigFont", 48.0, &l.name, tx + 31.0, slot - 29.0, 0.0, 0.5, k, d + 0.01, "my_");
+            self.pa_txt(content, "goldFont", 20.0, &rev, tx + 31.0 + full * k + 10.0, slot - 29.0 + 5.0, 0.0, 0.5, 1.0, d + 0.01, "my_");
+            let _ = name;
+            let info_y = slot + 30.0;
+            self.pa_img(content, "GJ_GameSheet03", "GJ_timeIcon_001.png", tx + 50.0, info_y, 0.8, d + 0.01, "my_");
+            self.pa_txt(content, "bigFont", 23.0, length_name(l.length), tx + 50.0 + 22.0, info_y, 0.0, 0.5, 1.0, d + 0.01, "my_");
+            self.pa_img(content, "GJ_GameSheet03", "GJ_musicIcon_001.png", tx + 165.0, info_y, 0.8, d + 0.01, "my_");
+            let song = self.pa_txt(content, "bigFont", 23.0, &l.song, tx + 165.0 + 22.0, info_y, 0.0, 0.5, 1.0, d + 0.01, "my_");
+            let status_x = tx + 415.0;
+            self.pa_img(content, "GJ_GameSheet03", "GJ_infoIcon_001.png", status_x, info_y, 0.8, d + 0.01, "my_");
+            let max_s = (status_x - 25.0 - (tx + 165.0 + 22.0)).max(20.0);
             let sw_ = self.node(song).width;
-            if sw_ > max_w { let k = max_w / sw_; let n = self.node(song); n.sx = k; n.sy = k; }
-            self.pa_txt(content, "bigFont", 18.0, &l.status, status_x + 22.0, info_y, 0.0, 0.5, 1.0, d + 0.01, "my_");
+            if sw_ > max_s { let k = max_s / sw_; let n = self.node(song); n.sx = k; n.sy = k; }
+            self.pa_txt(content, "bigFont", 23.0, &l.status, status_x + 22.0, info_y, 0.0, 0.5, 1.0, d + 0.01, "my_");
             // View button: starts at 1.05 but its bounce base is 0.75, like the original
             let zone = self.shape(Kind::Rect, tx + tw - 80.0, slot, 115.0, 55.0, 0, 0.0, d + 0.02, "my_");
             { let n = self.node(zone); n.ox = 0.5; n.oy = 0.5; n.width = 115.0; n.height = 55.0; n.parent = Some(content); n.sx = 1.05; n.sy = 1.05; }
@@ -214,6 +241,16 @@ impl Ui {
             self.make_bouncy(zone, 0.75, Cond::Always, Action::Pop("EmView", index));
         }
         if count == 0 { self.text_node("bigFont", 38.0, "Tap New to create a level", cx, ty + th / 2.0, 104.0, 0.5, 0.5, 1.0); let n = self.nodes.len() - 1; self.node(n).tag = "my_"; }
+        // the page label, the page button and the arrows
+        if count > 0 {
+            let end = (start + per_page).min(count);
+            let lab = self.text_node("goldFont", 22.0, &format!("{} to {} of {}", start + 1, end, count), sw - 8.0, 3.0, 106.0, 1.0, 0.0, 1.0); self.node(lab).tag = "my_";
+            let pb = self.image("", "GJ_button02", sw - 35.0, sh / 2.0 - 240.0, 107.0, 0.7); self.node(pb).tag = "my_";
+            self.pa_txt(pb, "bigFont", 35.0, &(self.em.page + 1).to_string(), -2.0, 0.0, 0.5, 0.5, 1.0 / 0.7, 107.1, "my_");
+            self.make_bouncy(pb, 0.7, Cond::Always, Action::Pop("EmPage", 0));
+            if self.em.page > 0 { let a = self.image("GJ_GameSheet03", "GJ_arrow_03_001.png", 40.0, sh / 2.0, 107.0, 1.0); self.node(a).tag = "my_"; self.make_bouncy(a, 1.0, Cond::Always, Action::Pop("EmPage", 1)); }
+            if self.em.page + 1 < pages { let a = self.image("GJ_GameSheet03", "GJ_arrow_03_001.png", sw - 40.0, sh / 2.0, 107.0, 1.0); { let n = self.node(a); n.tag = "my_"; n.flip_x = true; } self.make_bouncy(a, 1.0, Cond::Always, Action::Pop("EmPage", 2)); }
+        }
         // frame
         let side_h = self.sizes.get("GJ_WebSheet/GJ_table_side_001.png").map_or(1.0, |s| s.1);
         let k = th / side_h;
@@ -224,9 +261,9 @@ impl Ui {
         let t = self.text_node("bigFont", 42.0, "My Levels", cx, ty - 15.0, 106.0, 0.5, 0.5, 1.1); self.node(t).tag = "my_";
         let br = self.image("GJ_GameSheet03", "GJ_sideArt_001.png", sw, sh, 105.0, 1.0); { let n = self.node(br); n.ox = 1.0; n.oy = 1.0; n.flip_x = true; n.tag = "my_"; }
         let bl = self.image("GJ_GameSheet03", "GJ_sideArt_001.png", 0.0, sh, 105.0, 1.0); { let n = self.node(bl); n.ox = 0.0; n.oy = 1.0; n.tag = "my_"; }
-        let new = self.image("GJ_GameSheet03", "GJ_newBtn_001.png", sw - 60.0, sh - 55.0, 107.0, 0.95); self.node(new).tag = "my_";
+        let new = self.image("GJ_GameSheet03", "GJ_newBtn_001.png", sw - 55.0, sh - 55.0, 107.0, 0.95); self.node(new).tag = "my_";
         self.make_bouncy(new, 0.95, Cond::Always, Action::Pop("EmNew", 0));
-        let imp = self.image("GJ_GameSheet04", "GJ_importBtn_001.png", 50.0, sh - 55.0 - 90.0, 107.0, 0.95); self.node(imp).tag = "my_";
+        let imp = self.image("GJ_GameSheet04", "GJ_importBtn_001.png", 60.0, sh - 55.0 - 90.0, 107.0, 0.95); self.node(imp).tag = "my_";
         self.make_bouncy(imp, 0.95, Cond::Always, Action::Pop("EmImport", 0));
         let up = self.image("GJ_GameSheet03", "GJ_myServerBtn_001.png", 60.0, sh - 60.0, 107.0, 0.95); self.node(up).tag = "my_"; self.lock_gray(up);
         self.em_back_arrow(Action::Pop("EmMyBack", 0), 107.0, "my_");
