@@ -9,6 +9,7 @@ pub mod editor_ui;
 pub mod editor_color;
 pub mod editor_fields;
 pub mod editor_objects;
+pub mod editor_trigger;
 pub mod beast;
 pub mod coins;
 pub mod mirror;
@@ -1102,7 +1103,7 @@ pub extern "C" fn wd_ed_set_glow(on: u32) { with_ui(|u| u.ed.glow = on != 0); }
 pub extern "C" fn wd_ed_glow() -> u32 { with_ui(|u| u.ed.glow as u32) }
 /// Test hook: 0 starts, 1 pauses / resumes, 2 stops the playtest.
 #[no_mangle]
-pub extern "C" fn wd_ed_playtest(op: u32) { with_ui(|u| match op { 0 => u.ed_pt_start(), 1 => u.ed_pt_toggle_pause(), 3 => u.ed_pm_open(), 4 => u.ed_ls_open(), 5 => u.ed_ls_action("EdSoOpen", 0).then_some(()).unwrap_or(()), 6 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 2); } 7 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 0); } 8 => u.ed_cp_open(1000), 10 | 11 => { let src = if op == 10 { "1,31,2,300,3,90" } else { "1,914,2,300,3,90,31,SGVsbG8=" }; if let Some(o) = editor::EdObj::parse(src) { u.ed.level.objects.push(o); u.ed.sel = vec![u.ed.level.objects.len() - 1]; u.ed.dirty = true; u.ed_open_object_options(); } } 9 => { if !u.ed.level.objects.is_empty() { u.ed.sel = vec![0, 1.min(u.ed.level.objects.len() - 1)]; u.ed_gp_open(); } } _ => u.ed_pt_stop(false) }); }
+pub extern "C" fn wd_ed_playtest(op: u32) { with_ui(|u| match op { 0 => u.ed_pt_start(), 1 => u.ed_pt_toggle_pause(), 3 => u.ed_pm_open(), 4 => u.ed_ls_open(), 5 => u.ed_ls_action("EdSoOpen", 0).then_some(()).unwrap_or(()), 6 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 2); } 7 => { u.ed_ls_open(); u.ed_ls_action("EdLsPick", 0); } 8 => u.ed_cp_open(1000), 10 | 11 | 12 | 13 => { let src = match op { 10 => "1,31,2,300,3,90", 11 => "1,914,2,300,3,90,31,SGVsbG8=", 12 => "1,901,2,300,3,90,51,5,28,12.5,10,1.5", _ => "1,1268,2,300,3,90,51,7,63,0.25" }; if let Some(o) = editor::EdObj::parse(src) { u.ed.level.objects.push(o); u.ed.sel = vec![u.ed.level.objects.len() - 1]; u.ed.dirty = true; u.ed_open_object_options(); } } 9 => { if !u.ed.level.objects.is_empty() { u.ed.sel = vec![0, 1.min(u.ed.level.objects.len() - 1)]; u.ed_gp_open(); } } _ => u.ed_pt_stop(false) }); }
 /// Trail segments and death crosses: flat rows of 6 (kind, x0, y0, x1, y1, colour); returns the number of rows (read through `wd_ed_marks_ptr`).
 static ED_MARKS: Mutex<Vec<f64>> = Mutex::new(Vec::new());
 #[no_mangle]

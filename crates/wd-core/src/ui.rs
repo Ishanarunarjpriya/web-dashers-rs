@@ -582,6 +582,7 @@ impl Ui {
     }
 
     pub fn pointer_down(&mut self, x: f64, y: f64) {
+        if self.ed.on { if let Some(i) = self.hit_test(x, y) { if let Some(Action::Pop("EdTfSlide", k)) = self.get(i).map(|n| n.action.clone()) { self.ed_tf_down(k, x); } } }
         if self.ed.on && self.ed.cp.open { if self.hit_test(x, y).map_or(false, |i| self.get(i).map_or(false, |n| n.action == Action::Pop("EdCpDown", 0))) { self.ed_cp_pointer(x, y, 0); } }
         if self.ed.on && self.hit_test(x, y).is_none() { if self.ed.pt { self.ed.pt_press = true; } self.ed_world_down(x, y); }
         if self.level_select_open { let h = self.hit_test(x, y); self.ls_pointer_down(x, h); }
@@ -601,7 +602,7 @@ impl Ui {
     }
 
     pub fn pointer_move(&mut self, x: f64, y: f64) {
-        if self.ed.on { self.ed_cp_pointer(x, y, 1); self.ed_world_move(x, y); }
+        if self.ed.on { self.ed_tf_pointer(x, 1); self.ed_cp_pointer(x, y, 1); self.ed_world_move(x, y); }
         if self.level_select_open { self.ls_pointer_move(x); }
         if let Some(i) = self.pointer_down_node {
             if self.get(i).map_or(false, |n| n.drag.is_some()) { self.drag_thumb(i, x); return; }
@@ -627,7 +628,7 @@ impl Ui {
     }
 
     pub fn pointer_up(&mut self, x: f64, y: f64) {
-        if self.ed.on { self.ed_cp_pointer(x, y, 2); self.ed.pt_press = false; self.ed_world_up(x, y); }
+        if self.ed.on { self.ed_tf_pointer(x, 2); self.ed_cp_pointer(x, y, 2); self.ed.pt_press = false; self.ed_world_up(x, y); }
         if self.level_select_open { self.ls_pointer_up(x, y); }
         for sc in self.scrolls.iter_mut() { sc.drag_from = None; }
         if let Some(i) = self.pointer_down_node.take() {

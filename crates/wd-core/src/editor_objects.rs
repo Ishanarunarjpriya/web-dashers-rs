@@ -32,7 +32,7 @@ impl Ui {
     }
 
     pub(crate) fn ed_op_close(&mut self) {
-        self.ed.fields.focus = None; self.ed.fields.inputs.clear(); self.ed.fields.text_on = false;
+        self.ed.fields.focus = None; self.ed.fields.inputs.clear(); self.ed.fields.text_on = false; self.ed.trig = Default::default();
         self.kill_tag("ed_op"); self.kill_tag("ed_gp"); self.kill_tag("ed_sps"); self.ed_ho_close(); self.ed.gp.open = false;
     }
 
@@ -203,6 +203,8 @@ impl Ui {
         if d.get_str("type") != Some("trigger") { return; }
         self.ed_op_close();
         if matches!(id, 31 | 34) { self.ed_sp_open(); }
+        else if id == 901 { self.ed_move_popup(); }
+        else if id == 1268 { self.ed_spawn_popup(); }
         else if d.get("textObject").is_some() { self.ed_text_open(); }
         else { self.ed_coming_soon(); }
     }
