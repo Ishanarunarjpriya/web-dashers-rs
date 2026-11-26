@@ -9,6 +9,8 @@ fn result(n: usize) -> String {
     unsafe { String::from_utf8_lossy(std::slice::from_raw_parts(p, n)).into_owned() }
 }
 
+pub struct RenderInfo { pub cam_x: f64, pub cam_y: f64, pub dead: bool, pub percent: f64 }
+
 pub struct Game {
     pub assets: Assets,
     bg: Option<Image>,
@@ -17,11 +19,14 @@ pub struct Game {
     /// the level's sprite images by the index the render buffer uses: (sheet, frame)
     table: Vec<Option<(String, Frame)>>,
     pub held: bool,
+    pub menu: bool,
     pub level: String,
+    pub ground_w: f64,
+    pub has_ground2: bool,
 }
 
 impl Game {
-    pub fn new(assets: Assets) -> Game { Game { assets, bg: None, ground: None, ground2: None, table: Vec::new(), held: false, level: String::new() } }
+    pub fn new(assets: Assets) -> Game { Game { assets, bg: None, ground: None, ground2: None, table: Vec::new(), held: false, menu: false, level: String::new(), ground_w: 1012.0, has_ground2: false } }
 
     /// `loadLevelText` of main.js for a shipped level.
     pub fn load_level(&mut self, id: &str) -> Result<(), String> {
@@ -47,11 +52,11 @@ impl Game {
         self.bg = load_png(&root.join("game-bg").join(format!("game_bg_{bg_id}_001-hd.png"))).ok();
         self.ground = load_png(&root.join("game-ground").join(format!("groundSquare_{ground_idx}_001.png"))).ok();
         self.ground2 = load_png(&root.join("game-ground").join(format!("groundSquare_{ground_idx}_2_001.png"))).ok();
+        self.ground_w = self.ground.as_ref().map_or(1012.0, |g| g.w as f64);
+        self.has_ground2 = self.ground2.is_some();
         core::wd_render_setup(self.ground.as_ref().map_or(1012.0, |g| g.w as f64), self.ground2.is_some() as u32, self.bg.as_ref().map_or(0.0, |b| b.h as f64));
         unsafe { core::wd_game_restart_level(-1.0); }
         self.load_frame_table()?;
-        core::wd_menu_mode(0);
-        core::wd_game_begin_slide();
         Ok(())
     }
 
@@ -74,11 +79,13 @@ impl Game {
         core::wd_game_update(dt_ms, self.held as u32);
     }
 
-    pub fn draw(&mut self, c: &mut Canvas) {
+    pub fn draw(&mut self, c: &mut Canvas) -> RenderInfo {
         let n = core::wd_render_build();
         let buf = unsafe { std::slice::from_raw_parts(core::wd_render_ptr(), n) };
         let (cam_x, cam_y, count, tiles) = (buf[0], buf[1], buf[2] as usize, buf[18] as usize);
         let (shake_x, shake_y) = (buf[31], buf[32]);
+        let menu_hidden = false;
+        let _ = menu_hidden;
         let (ox, oy) = (-cam_x + shake_x, cam_y + shake_y);
         c.fill(buf[22] as u32);
         // background: the image over its own mirror, tiled
@@ -105,7 +112,7 @@ impl Game {
         };
         while i < count { let o = base + i * 12; if buf[o + 10] == 1.0 { break; } draw_sprite(c, o, &self.table, &self.assets); i += 1; }
         // player (a plain square until the icon drawing is ported)
-        if buf[27] == 0.0 {
+        if buf[27] == 0.0 && !self.menu {
             let px = buf[3] - cam_x + shake_x;
             let py = 460.0 - buf[4] + cam_y + shake_y;
             let s = if buf[7] != 0.0 { 18.0 } else { 30.0 };
@@ -124,6 +131,7 @@ impl Game {
                 if buf[17] != 0.0 { c.image(g, tx, buf[16] - g.h as f64, tint, true); }
             }
         }
+        RenderInfo { cam_x, cam_y, dead: buf[6] != 0.0, percent: buf[30] * 100.0 }
     }
 }
 

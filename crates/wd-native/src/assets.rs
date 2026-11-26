@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use wd_core::jsonread::{parse, Json};
 
 /// RGBA8, straight alpha.
+#[derive(Clone)]
 pub struct Image { pub w: usize, pub h: usize, pub px: Vec<[u8; 4]> }
 
 pub fn load_png(path: &Path) -> Result<Image, String> {
