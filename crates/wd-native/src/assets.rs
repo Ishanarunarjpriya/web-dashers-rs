@@ -31,7 +31,7 @@ pub struct Sheet { pub img: Image, pub frames: HashMap<String, Frame> }
 
 pub struct Assets { pub root: PathBuf, pub sheets: HashMap<String, Sheet> }
 
-pub const SHEETS: [&str; 12] = ["GJ_GameSheet", "GJ_GameSheet02", "GJ_GameSheet03", "GJ_GameSheet04", "GJ_GameSheetGlow", "GJ_GameSheetIcons", "GJ_WebSheet", "GJ_EditorSheet01", "GJ_GameSheetEditor", "PixelSheet_01", "GJ_ParticleSheet", "GJ_LaunchSheet"];
+pub const SHEETS: [&str; 13] = ["CCControlColourPickerSpriteSheet-uhd", "GJ_GameSheet", "GJ_GameSheet02", "GJ_GameSheet03", "GJ_GameSheet04", "GJ_GameSheetGlow", "GJ_GameSheetIcons", "GJ_WebSheet", "GJ_EditorSheet01", "GJ_GameSheetEditor", "PixelSheet_01", "GJ_ParticleSheet", "GJ_LaunchSheet"];
 
 fn frames_of(j: &Json) -> HashMap<String, Frame> {
     let mut out = HashMap::new();

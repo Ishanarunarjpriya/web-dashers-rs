@@ -4,6 +4,7 @@ mod audio;
 mod store;
 mod canvas;
 mod endfx;
+mod editor_host;
 mod fonts;
 mod game;
 mod garage;
@@ -35,6 +36,8 @@ struct App {
     t0: Instant,
     last: Instant,
     mouse: (f64, f64),
+    shift: bool,
+    ctrl: bool,
 }
 
 impl App {
@@ -68,9 +71,11 @@ impl ApplicationHandler for App {
                     let code = format!("{k:?}");
                     let down = event.state == ElementState::Pressed;
                     let jump = JUMP_KEYS.contains(&code.as_str());
-                    self.host.key(&code, down, event.repeat, jump);
+                    self.host.key(&code, down, event.repeat, jump, self.shift);
+                    if down { match k { winit::keyboard::KeyCode::Backspace => self.host.text_input(8), winit::keyboard::KeyCode::Enter | winit::keyboard::KeyCode::NumpadEnter => self.host.text_input(13), _ => if let Some(t) = &event.text { if !self.ctrl { for ch in t.chars() { if !ch.is_control() { self.host.text_input(ch as u32); } } } } } }
                 }
             }
+            WindowEvent::ModifiersChanged(m) => { self.shift = m.state().shift_key(); self.ctrl = m.state().control_key(); }
             WindowEvent::CursorMoved { position, .. } => {
                 let (x, y) = self.to_game(position.x, position.y);
                 self.mouse = (x, y);
@@ -157,6 +162,6 @@ fn main() {
         return;
     }
     let el = EventLoop::new().expect("event loop");
-    let mut app = App { window: None, surface: None, host, canvas: Canvas::new(), t0: Instant::now(), last: Instant::now(), mouse: (0.0, 0.0) };
+    let mut app = App { window: None, surface: None, host, canvas: Canvas::new(), t0: Instant::now(), last: Instant::now(), mouse: (0.0, 0.0), shift: false, ctrl: false };
     el.run_app(&mut app).expect("run");
 }

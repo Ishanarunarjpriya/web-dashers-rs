@@ -76,6 +76,21 @@ impl Game {
         Ok(())
     }
 
+    pub fn reload_art(&mut self) -> Result<(), String> {
+        let n = core::wd_render_info();
+        let info = core::jsonread::parse(&result(n)).map_err(|e| format!("render info: {e}"))?;
+        let bg_id = info.get_str("background").unwrap_or("01").to_string();
+        let ground_idx = format!("{:02}", info.get_str("ground").and_then(|g| g.parse::<i64>().ok()).unwrap_or(0) + 1);
+        let root = self.assets.root.clone();
+        self.bg = load_png(&root.join("game-bg").join(format!("game_bg_{bg_id}_001-hd.png"))).ok();
+        self.ground = load_png(&root.join("game-ground").join(format!("groundSquare_{ground_idx}_001.png"))).ok();
+        self.ground2 = load_png(&root.join("game-ground").join(format!("groundSquare_{ground_idx}_2_001.png"))).ok();
+        core::wd_render_setup(self.ground.as_ref().map_or(1012.0, |g| g.w as f64), self.ground2.is_some() as u32, self.bg.as_ref().map_or(0.0, |b| b.h as f64));
+        Ok(())
+    }
+
+    pub fn refresh_frames(&mut self) { let _ = self.load_frame_table(); }
+
     fn load_frame_table(&mut self) -> Result<(), String> {
         let n = core::wd_render_frames();
         let j = core::jsonread::parse(&result(n)).map_err(|e| format!("frame table: {e}"))?;
@@ -106,6 +121,43 @@ impl Game {
         self.restart_flag = false;
     }
 
+    /// The level seen through the editor camera: sprites at the zoom, the playtest path, the grid.
+    fn draw_editor_view(&mut self, c: &mut Canvas, buf: &[f64], count: usize, tiles: usize) {
+        let z = buf[33];
+        let (ex, ey) = (-buf[34] / z, -buf[35] / z);
+        let base = 40 + tiles;
+        for k in 0..count {
+            let o = base + k * 12;
+            let Some(Some((sheet, f))) = self.table.get(buf[o] as usize) else { continue };
+            let Some(sh) = self.assets.sheets.get(sheet) else { continue };
+            let (sx, sy) = ((buf[o + 1] + ex) * z, (buf[o + 2] + ey) * z);
+            if sx < -400.0 || sx > W as f64 + 400.0 || sy < -400.0 || sy > H as f64 + 400.0 { continue; }
+            let fl = buf[o + 9] as i64;
+            c.frame(&sh.img, f, Sprite { x: sx, y: sy, rot: buf[o + 3], sx: buf[o + 4] * z, sy: buf[o + 5] * z, alpha: buf[o + 6], tint: buf[o + 7] as i64, additive: buf[o + 8] == 1.0, flip_x: fl & 1 != 0, flip_y: fl & 2 != 0 });
+        }
+        // playtest path and death crosses
+        let n = core::wd_ed_marks();
+        if n > 0 {
+            let a = unsafe { std::slice::from_raw_parts(core::wd_ed_marks_ptr(), n * 6) };
+            for i in 0..n {
+                let o = i * 6;
+                if a[o] == 0.0 { c.line((a[o + 1] + ex) * z, (a[o + 2] + ey) * z, (a[o + 3] + ex) * z, (a[o + 4] + ey) * z, 2.0 * z, a[o + 5] as u32 & 0xffffff, 0.95); }
+                else { let (x, y, s) = ((a[o + 1] + ex) * z, (a[o + 2] + ey) * z, 28.0 * z); c.line(x - s, y - s, x + s, y + s, 13.0 * z, 0xff0000, 1.0); c.line(x - s, y + s, x + s, y - s, 13.0 * z, 0xff0000, 1.0); }
+            }
+        }
+        // grid (`_updateEditorGrid`)
+        let gs = 60.0;
+        let (cam_x, cam_y2) = (buf[34] / z, buf[35] / z);
+        let mut x = (-cam_x) % gs;
+        while x < W as f64 / z + gs { c.line(x * z + 0.5, 0.0, x * z + 0.5, H as f64, 1.0, 0x000000, 0.4); x += gs; }
+        let mut y = (-cam_y2 - 20.0) % gs;
+        while y < H as f64 / z + gs { c.line(0.0, y * z + 0.5, W as f64, y * z + 0.5, 1.0, 0x000000, 0.4); y += gs; }
+        let sl = -buf[34];
+        if (-50.0..=W as f64 + 50.0).contains(&sl) { c.line(sl + 0.5, 0.0, sl + 0.5, H as f64, 1.0, 0xffffff, 1.0); }
+        let gl = (-20.0 + 60.0 * 8.0) * z - buf[35];
+        if (-50.0..=H as f64 + 50.0).contains(&gl) { c.line(0.0, gl + 0.5, W as f64, gl + 0.5, 1.0, 0xffffff, 1.0); }
+    }
+
     pub fn draw(&mut self, c: &mut Canvas) -> RenderInfo {
         let n = core::wd_render_build();
         let buf = unsafe { std::slice::from_raw_parts(core::wd_render_ptr(), n) };
@@ -130,6 +182,7 @@ impl Game {
                 xx += tw;
             }
         }
+        if buf[33] > 0.0 { self.draw_editor_view(c, buf, count, tiles); return RenderInfo { cam_x, cam_y, dead: false, percent: 0.0 }; }
         if !self.menu { self.fx.draw_back(c); }
         let base = 40 + tiles;
         let mut i = 0;

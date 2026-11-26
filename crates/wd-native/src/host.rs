@@ -42,6 +42,14 @@ pub struct Host {
     pub(crate) store: Store,
     pub(crate) anims_sent: bool,
     pub(crate) net: Net,
+    pub(crate) editor_on: bool,
+    pub(crate) ed_id: String,
+    pub(crate) ed_keys: u32,
+    pub(crate) ed_jump: bool,
+    pub(crate) ed_pt_event: f64,
+    pub(crate) ed_frames_ver: u32,
+    pub(crate) created_play_id: Option<String>,
+    pub(crate) t_now: f64,
     pub(crate) current_song: Option<std::sync::Arc<Vec<u8>>>,
     pub(crate) online_offset: f64,
     pub(crate) last_save: f64,
@@ -56,10 +64,11 @@ impl Host {
         let hidden = ["level_22", "level_67"];
         let visible: Vec<usize> = (0..levels.len()).filter(|&i| !hidden.contains(&levels[i].id.as_str())).collect();
         let game = Game::new(assets);
-        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), anims_sent: false, net: Net::new(), current_song: None, online_offset: 0.0, last_save: 0.0 };
+        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), anims_sent: false, net: Net::new(), editor_on: false, ed_id: String::new(), ed_keys: 0, ed_jump: false, ed_pt_event: 0.0, ed_frames_ver: 0, created_play_id: None, t_now: 0.0, current_song: None, online_offset: 0.0, last_save: 0.0 };
         host.pv_cfg();
         host.audio.user_music = host.store.get_f("userMusicVol", 1.0);
         host.audio.user_sfx = host.store.get_f("userSfxVol", 1.0);
+        host.send_cp_textures();
         host.push_levels(0);
         host.load_level("1")?;
         host.push_progress();
@@ -236,7 +245,8 @@ impl Host {
                 "Volume" => { let (m, s) = (core::wd_ui_option(0), core::wd_ui_option(1)); self.audio.set_music_volume(m); self.audio.user_sfx = s; self.store.set("userMusicVol", &m.to_string()); self.store.set("userSfxVol", &s.to_string()); }
                 "ToggleMenuMusic" => { let on = core::wd_ui_option(2) != 0.0; self.store.set("menuMusicEnabled", if on { "true" } else { "false" }); if on { if !self.audio.playing_menu() { self.audio.start_menu_music(); } } else { self.audio.stop_music(); } }
                 e if e.starts_with("Sfx(") => { let n = &e[5..e.len() - 2]; self.audio.effect(n, 1.0); }
-                "Garage" => self.garage_open(),
+                "Garage" | "Creator" => { if ev == "Creator" { self.creator_event(&ev); } else { self.garage_open(); } }
+                e if e.starts_with("Pop(\"Em") || e.starts_with("Pop(\"Ed") => { self.creator_event(e); }
                 e if e.starts_with("Pop(\"") && self.online_event(e) => {}
                 "Pop(\"GarageNeed\", 0)" => self.garage_need(),
                 "Pop(\"GarageSave\", 0)" => self.garage_save(),
@@ -261,6 +271,8 @@ impl Host {
         if kind == 0 && core::wd_ui_menu_active() == 0 { self.jump(true); }
         if kind == 2 { self.jump(false); }
     }
+    /// Typed characters (search boxes, level names): `Backspace` = 8, `Enter` = 13, printable characters by code point.
+    pub fn text_input(&mut self, ch: u32) { core::wd_ui_key(ch); core::wd_em_key(ch); }
     pub fn wheel(&mut self, x: f64, y: f64, dy: f64) { core::wd_ui_wheel(x, y, dy); }
 
     pub fn jump(&mut self, down: bool) {
@@ -269,7 +281,13 @@ impl Host {
     }
 
     /// A key by its DOM `KeyboardEvent.code` name. `jump` is whether it is a jump key.
-    pub fn key(&mut self, code: &str, down: bool, repeat: bool, jump: bool) {
+    pub fn key(&mut self, code: &str, down: bool, repeat: bool, jump: bool, shift: bool) {
+        if self.editor_on {
+            if jump { self.ed_jump = down; }
+            if self.editor_key(code, down, repeat, shift) && !jump { return; }
+            if down { let hit = unsafe { core::wd_ui_menu_key(code.as_ptr(), code.len()) } != 0; if hit { return; } }
+            return;
+        }
         if !down { if jump { self.jump(false); } return; }
         if self.menu_mode || self.paused || self.won || core::wd_ui_menu_active() != 0 {
             let mapped = if jump && !self.won { "Enter" } else { code };
@@ -277,7 +295,7 @@ impl Host {
             let hit = unsafe { core::wd_ui_menu_key(mapped.as_ptr(), mapped.len()) } != 0;
             if hit { return; }
         }
-        if code == "Escape" && !self.menu_mode {
+        if code == "Escape" && !self.menu_mode && !self.editor_on {
             if self.paused { self.quit_to_menu(); } else if !self.sliding && !self.won { self.do_pause(); } else if self.won { self.quit_to_menu(); }
             return;
         }
@@ -302,9 +320,11 @@ impl Host {
     pub fn frame(&mut self, raw_dt: f64, now: f64, canvas: &mut Canvas) {
         let dt = self.smooth_delta(raw_dt.max(0.0)).min(100.0);
         self.net_poll();
+        self.t_now = now;
         core::wd_ui_step(dt);
         self.game.menu = self.menu_mode;
-        if !self.paused {
+        if self.editor_on { self.editor_frame(dt); }
+        else if !self.paused {
             core::wd_trig_time(now);
             let r = core::wd_game_update(dt, self.game.held as u32);
             if (r >> 30) & 1 != 0 && !self.menu_mode { self.restarted(); }

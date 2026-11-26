@@ -307,3 +307,14 @@ impl Canvas {
         } }
     }
 }
+
+impl Canvas {
+    /// A straight line of the given width (`butt` ends), alpha blended.
+    pub fn line(&mut self, x0: f64, y0: f64, x1: f64, y1: f64, width: f64, color: u32, alpha: f64) {
+        let (dx, dy) = (x1 - x0, y1 - y0); let len = (dx * dx + dy * dy).sqrt();
+        if len < 1e-9 { return; }
+        let (nx, ny) = (-dy / len * width / 2.0, dx / len * width / 2.0);
+        let (a, b, c2, d) = ((x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny));
+        self.fill_tris(&[[a.0, a.1, b.0, b.1, d.0, d.1], [b.0, b.1, c2.0, c2.1, d.0, d.1]], color, alpha, false);
+    }
+}

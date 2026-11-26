@@ -474,7 +474,7 @@ impl PlayerVis {
 
     fn streak_update(&mut self, dt: f64) {
         let fade = 1.0 / 0.231;
-        let max_pts = ((0.231 * 60.0 + 2.0).floor() * 5.0) as usize;
+        let max_pts = ((0.231f64 * 60.0 + 2.0).floor() * 5.0) as usize;
         let Some(pos) = self.streak_pos else { return };
         let d = dt * fade;
         for p in self.streak.iter_mut() { p.state -= d; }
