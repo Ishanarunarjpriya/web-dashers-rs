@@ -702,7 +702,7 @@ async function main() {
       if (practiceOn && k("deleteCheckpoint")) w.wd_game_practice(2);
     }
     if (paused) return;
-    if (st.startPosSwitcher && (k("startPosPrev") || k("startPosNext"))) { w.wd_game_change_start_pos(k("startPosNext") ? 1 : -1); restarted(); }
+    if (st.startPosSwitcher && (k("startPosPrev") || k("startPosNext")) && w.wd_game_start_pos_count() > 0) { w.wd_game_change_start_pos(k("startPosNext") ? 1 : -1); restarted(); } // `changeStartPos` does nothing in a level without start positions
     if (k("noclip")) toggleSetting("noclip");
     if (k("showHitboxes")) toggleSetting("showHitboxes");
   });
