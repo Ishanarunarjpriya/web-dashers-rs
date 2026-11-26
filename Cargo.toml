@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wd-core"]
+members = ["crates/wd-core", "crates/wd-native"]
 
 [profile.release]
 opt-level = 3
