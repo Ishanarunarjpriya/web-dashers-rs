@@ -491,7 +491,9 @@
       // the trail fades from its tail: segments are ordered by age, so runs of (nearly) equal alpha share one path and one fill
       const STEPS = 32; let cur = -1, open = false;
       const flush = () => { if (open) { ctx.fill(); open = false; } };
+      const left = -halfW * 2 - 20; // segments that ended left of the screen are not drawn (the trail keeps 200 px behind the camera)
       for (let i = 0; i < n - 1; i++) {
+        if (pts[i + 1].x + ox < left) continue;
         const a = Math.max(0, 1 - (pts[i].age + pts[i + 1].age) * 0.5);
         if (a * baseAlpha <= 0.01) continue;
         const q = Math.max(1, Math.round(a * STEPS));

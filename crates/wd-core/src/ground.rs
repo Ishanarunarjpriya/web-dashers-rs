@@ -68,6 +68,15 @@ impl Ground {
         self.fly_camera_target = None;
     }
 
+    /// The fly-mode state a checkpoint keeps (`flyGroundActive`, `groundTargetValue`, `groundAnim*`, the fly bounds and insets);
+    /// the tile layout is left alone.
+    pub fn copy_state_from(&mut self, o: &Ground) {
+        self.fly_ground_active = o.fly_ground_active; self.ground_target = o.ground_target;
+        self.animating = o.animating; self.anim_from = o.anim_from; self.anim_to = o.anim_to; self.anim_time = o.anim_time; self.anim_duration = o.anim_duration;
+        self.fly_floor_y = o.fly_floor_y; self.fly_ceiling_y = o.fly_ceiling_y; self.fly_visual_only = o.fly_visual_only;
+        self.floor_inset = o.floor_inset; self.ceil_inset = o.ceil_inset; self.fly_camera_target = o.fly_camera_target;
+    }
+
     pub fn shift(&mut self, amount: f64) {
         for w in &mut self.world_x { *w += amount; }
         self.max_world_x += amount;

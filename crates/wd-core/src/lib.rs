@@ -695,6 +695,11 @@ pub extern "C" fn wd_trig_time(now_ms: f64) { with_game(|g| g.trig.now_ms = now_
 pub extern "C" fn wd_trig_shake(now_ms: f64) { with_game(|g| g.apply_shake(now_ms)); }
 
 /// Spawns the level's sprites (when atlases are loaded) and hands them to the game.
+/// `window.enableLDM`, set by the host before a level is built
+static LDM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const LDM_OBJECTS: [i64; 37] = [503, 505, 504, 1888, 1887, 1012, 1013, 1011, 1886, 1762, 1763, 1761, 1269, 1760, 1270, 1271, 1274, 1272, 1273, 1764, 1765, 1766, 1767, 1769, 1292, 1758, 1291, 1293, 1759, 1051, 1058, 1060, 1752, 1050, 1052, 1059, 1061];
+#[no_mangle]
+pub extern "C" fn wd_set_ldm(v: u32) { LDM.store(v != 0, std::sync::atomic::Ordering::Relaxed); if let Some(g) = GAME.lock().unwrap().as_mut() { g.ldm = v != 0; } }
 fn attach_level_sprites(level: &level::Level, g: &mut game::Game, official: u32) { attach_level_sprites_ed(level, g, official, false) }
 
 fn attach_level_sprites_ed(level: &level::Level, g: &mut game::Game, official: u32, editor: bool) {
@@ -704,6 +709,8 @@ fn attach_level_sprites_ed(level: &level::Level, g: &mut game::Game, official: u
     let mut rng = || { let mut s = SPRITE_RNG.lock().unwrap(); let v = s.get_or_insert(12345); *v = v.wrapping_mul(1664525).wrapping_add(1013904223); *v as f64 / 4294967296.0 };
     let mut b = visual::Builder::new(atlases, &mut rng);
     b.pad_emitters = true;
+    let ldm = LDM.load(std::sync::atomic::Ordering::Relaxed);
+    b.ldm = ldm; g.ldm = ldm;
     b.channel_blending = g.settings.channel_blending.clone();
     b.legacy_color_level = g.settings.legacy_color_level;
     b.secret_done = g.coins.secret_done.clone();
@@ -711,6 +718,8 @@ fn attach_level_sprites_ed(level: &level::Level, g: &mut game::Game, official: u
     let mut invisible: Vec<(f64, Vec<usize>)> = Vec::new();
     let mut obj_ranges: Vec<(u32, u32)> = Vec::new();
     for o in &objects {
+        // level.js `ldm_object`: Low Detail Mode leaves these decorations out
+        if ldm && LDM_OBJECTS.contains(&(o.id.unwrap_or(0))) { let n = b.sprites.len() as u32; obj_ranges.push((n, n)); continue; }
         let is_trigger = matches!(objects::object_from_id(o.id.unwrap_or(0)), Some(d) if d.ty == Some("trigger"));
         if is_trigger {
             let linked = b.next_object_id;

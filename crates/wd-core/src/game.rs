@@ -242,6 +242,9 @@ impl Game {
         if self.mb.recording { self.macro_clear_recording(); }
         if self.mb.playing { self.macro_clear_playback(); }
         self.update_camera_y(0.0, true);
+        // `_restartLevel` clears the ground (`resetGroundState`) after entering the start mode, whichever way the restart came
+        self.render_restart();
+        self.apply_fly_log();
     }
 
     /// `_startEditorPlaytest` from the level state reset on: `_resetEditorPlaytestLevelState`, the player reset, then
@@ -911,6 +914,7 @@ pub struct Checkpoint {
     pub camera_x: f64, pub camera_y: f64,
     pub fly_floor_y: Option<f64>, pub fly_ceiling_y: Option<f64>, pub fly_ground_active: bool, pub fly_visual_only: bool, pub fly_camera_target: Option<f64>,
     pub speed: f64, pub physics_frame: f64,
+    pub ground: Option<crate::ground::Ground>,
     pub dual: bool, pub dual_mode: &'static str, pub dual_mini: bool, pub dual_y: f64, pub dual_y_velocity: f64, pub dual_gravity_flipped: bool,
     pub dual_on_ground: bool, pub dual_on_ceiling: bool, pub dual_can_jump: bool, pub dual_is_jumping: bool,
 }
@@ -930,7 +934,7 @@ impl Game {
             ball_normal_rotate: p.ball_normal_rotate, ball_hit_pad: p.ball_hit_pad, robot_hold: p.robot_hold, robot_hold_timer: p.robot_hold_timer,
             rotate_action_active: p.rotate_action_active, camera_x: self.camera_x, camera_y: self.camera_y,
             fly_floor_y: self.e.fly_floor_y, fly_ceiling_y: self.e.fly_ceiling_y, fly_ground_active: self.e.fly_ground_active, fly_visual_only: self.e.fly_visual_only,
-            fly_camera_target: self.e.fly_camera_target, speed: self.g.player_speed, physics_frame: self.physics_frame,
+            fly_camera_target: self.e.fly_camera_target, speed: self.g.player_speed, physics_frame: self.physics_frame, ground: self.fx.ground.clone(),
             dual: self.e.is_dual, dual_mode, dual_mini: p2.is_mini, dual_y: p2.y, dual_y_velocity: p2.y_velocity, dual_gravity_flipped: p2.gravity_flipped,
             dual_on_ground: p2.on_ground, dual_on_ceiling: p2.on_ceiling, dual_can_jump: p2.can_jump, dual_is_jumping: p2.is_jumping,
         });
@@ -981,6 +985,8 @@ impl Game {
         self.e.fly_ground_active = cp.fly_ground_active;
         self.e.fly_visual_only = cp.fly_visual_only;
         self.e.fly_camera_target = cp.fly_camera_target;
+        // the ground the level layer draws comes back as it was at the checkpoint (`_respawnFromCheckpoint` restores `_flyGroundActive`, `_groundAnim*`, ...)
+        if let (Some(g), Some(snap)) = (self.fx.ground.as_mut(), cp.ground.as_ref()) { g.copy_state_from(snap); }
         self.e.floor_y = if self.e.fly_ground_active { if self.e.fly_visual_only { 0.0 } else { self.e.fly_floor_y.unwrap_or(f64::NAN) } } else { 0.0 };
         self.e.ceiling_y = self.e.fly_ceiling_y;
         self.g.player_speed = cp.speed;

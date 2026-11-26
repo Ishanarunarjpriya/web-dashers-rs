@@ -81,8 +81,10 @@ async function main() {
   let LEVEL_ID = LEVEL, info = {}, bgImg = null, groundImg = null, ground2Img = null, frames = [];
   const standalone = {}; window.__standalone = standalone;
   const loadLevel = async (id) => loadLevelText(id, await loadText(`../ref/assets/levels/${id}.txt`));
+  window.__WD.loadLevelText = (...a) => loadLevelText(...a); // test hook
   const loadLevelText = async (id, levelText) => {
     LEVEL_ID = id;
+    { let ldm = 0; try { ldm = JSON.parse(localStorage.getItem("gd_settings") || "{}").enableLDM ? 1 : 0; } catch (e) {} w.wd_set_ldm(ldm); } // Low Detail Mode counts from the moment the level is built
     w.wd_set_official(/^\d{5,}$/.test(id) ? 0 : 1);
     w.wd_visual_seed((Math.random() * 4294967295) >>> 0);
     {
@@ -596,7 +598,7 @@ async function main() {
     if (fromEnd) { afx.stopMusic(); fadeTo(1, 400).then(() => { back(); return fadeTo(0, 400); }); } else back();
   };
   const doResume = () => { if (!paused) return; paused = false; w.wd_ui_pause(0, 0, 0, 0, 0); if (ac) ac.resume(); };
-  const OPT_DEFAULTS = { noclip: 0, showPercentage: 1, percentDecimals: 0, showHitboxes: 0, progressBar: 0, hitboxTrail: 0, showFPS: 0, hidePauseBtn: 0, hidePracticeUI: 0, solidWaveTrail: 0, noclipAccuracy: 0, hitboxesOnDeath: 0, createObjectIds: 0, showObjectIds: 0, showCPS: 0, speedHack: 1, respawnDelay: 1, macroBot: 0, practiceMusicSync: 0, showGlow: 1, enablePortalGuide: 1, enableOrbGuide: 0, enableMiniIcon: 0, cullDistance: 3 };
+  const OPT_DEFAULTS = { noclip: 0, showPercentage: 1, percentDecimals: 0, showHitboxes: 0, progressBar: 0, hitboxTrail: 0, showFPS: 0, hidePauseBtn: 0, hidePracticeUI: 0, solidWaveTrail: 0, noclipAccuracy: 0, hitboxesOnDeath: 0, createObjectIds: 0, showObjectIds: 0, showCPS: 0, speedHack: 1, respawnDelay: 1, macroBot: 0, practiceMusicSync: 0, enableLDM: 0, showGlow: 1, enablePortalGuide: 1, enableOrbGuide: 0, enableMiniIcon: 0, cullDistance: 3 };
   let settingsRaw = null, settingsVal = {};
   const readSettings = () => { // parsed again only when the stored text changed
     let raw = null; try { raw = localStorage.getItem("gd_settings"); } catch (e) {}
@@ -609,6 +611,7 @@ async function main() {
     for (const k of Object.keys(OPT_DEFAULTS)) { const [p, n] = put(k); w.wd_ui_opt_set(p, n, Number(saved[k] === true ? 1 : saved[k] === false ? 0 : saved[k])); }
     const num = (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== "" ? Number(v) : d);
     w.wd_game_set_options(saved.noclip ? 1 : 0, saved.noclipAccuracy ? 1 : 0, num(saved.speedHack, 1), num(saved.respawnDelay, 1), saved.smartStartPos ? 1 : 0);
+    w.wd_set_ldm(saved.enableLDM ? 1 : 0);
     w.wd_game_set_hitbox_opts(saved.showHitboxes ? 1 : 0, saved.hitboxTrail ? 1 : 0, saved.hitboxesOnDeath ? 1 : 0);
     w.wd_ui_apply_hud();
     return saved;

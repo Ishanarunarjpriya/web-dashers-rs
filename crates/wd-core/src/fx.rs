@@ -807,6 +807,18 @@ impl Game {
         self.fx.bg.prev_camera_x = self.camera_x;
     }
 
+    /// The `setFlyMode` calls the simulation logged, given to the ground the level layer draws.
+    pub fn apply_fly_log(&mut self) {
+        let ops: Vec<(bool, f64, Option<f64>, Option<f64>)> = self.log.iter().filter_map(|l| parse_fly(l)).collect();
+        let cam_y = self.camera_y;
+        if let Some(g) = self.fx.ground.as_mut() {
+            for (en, y, h, cam) in ops {
+                let height = h.unwrap_or(600.0);
+                g.set_fly_mode(en, y, height, false, cam.unwrap_or(height), cam_y);
+            }
+        }
+    }
+
     /// The end of `update` for the sprite world: colours, enter effects, ground and background.
     pub fn render_step(&mut self, delta_ms: f64) {
         self.step_coin_tweens(delta_ms);
@@ -815,16 +827,10 @@ impl Game {
         self.apply_color_channels();
         self.apply_enter_effects(self.camera_x);
         self.beast_update(delta_ms);
-        let ops: Vec<(bool, f64, Option<f64>, Option<f64>)> = self.log.iter().filter_map(|l| parse_fly(l)).collect();
         let (cam_x, cam_y, sx, sy) = (self.camera_x, self.camera_y, self.trig.shake_off.0, self.trig.shake_off.1);
         let has2 = self.fx.has_ground2;
-        if let Some(g) = self.fx.ground.as_mut() {
-            for (en, y, h, cam) in ops {
-                let height = h.unwrap_or(600.0);
-                g.set_fly_mode(en, y, height, false, cam.unwrap_or(height), cam_y);
-            }
-            g.step_animation(delta_ms / 1000.0);
-        }
+        self.apply_fly_log();
+        if let Some(g) = self.fx.ground.as_mut() { g.step_animation(delta_ms / 1000.0); }
         let mp = self.mirror_progress();
         let shift = self.fx.bg.update(cam_x, cam_y, mp);
         let ground_cam = self.fx.slide.unwrap_or(cam_x); // during the slide-in the ground follows `_slideGroundX`
