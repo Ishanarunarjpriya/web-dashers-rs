@@ -103,6 +103,8 @@ impl Game {
         Ok(())
     }
 
+    pub fn ground_images(&self) -> (Option<Image>, Option<Image>) { (self.ground.clone(), self.ground2.clone()) }
+
     pub fn restart(&mut self) { unsafe { core::wd_game_restart_level(-1.0); } }
 
     pub fn step(&mut self, dt_ms: f64, now_ms: f64) {

@@ -78,6 +78,7 @@ impl Host {
         host.load_custom_cube();
         host.audio.user_music = host.store.get_f("userMusicVol", 1.0);
         host.audio.user_sfx = host.store.get_f("userSfxVol", 1.0);
+        host.register_standalone_sizes();
         host.send_cp_textures();
         host.push_levels(0);
         host.load_level("1")?;
@@ -90,6 +91,26 @@ impl Host {
 
     fn pv_main(&self) -> u32 { i64::from_str_radix(self.store.get("iconMainColor").unwrap_or("04FF00"), 16).unwrap_or(0x04ff00) as u32 }
     fn pv_second(&self) -> u32 { i64::from_str_radix(self.store.get("iconSecondaryColor").unwrap_or("00FBFF"), 16).unwrap_or(0x00fbff) as u32 }
+    /// The size of every loose image the UI may use (`wd_ui_size` in the web host's loader), under its file name and without the `_` before the last two digits.
+    fn register_standalone_sizes(&mut self) {
+        let dir = self.game.assets.root.join("sprites");
+        let Ok(rd) = std::fs::read_dir(&dir) else { return };
+        for e in rd.flatten() {
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) != Some("png") { continue; }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()) else { continue };
+            let Ok(file) = std::fs::File::open(&path) else { continue };
+            let Ok(reader) = png::Decoder::new(std::io::BufReader::new(file)).read_info() else { continue };
+            let (w, h) = (reader.info().width as f64, reader.info().height as f64);
+            unsafe { core::wd_ui_size(stem.as_ptr(), stem.len(), w, h); }
+            let b = stem.as_bytes();
+            if b.len() > 3 && b[b.len() - 3] == b'_' && b[b.len() - 2].is_ascii_digit() && b[b.len() - 1].is_ascii_digit() {
+                let alias = format!("{}{}", &stem[..stem.len() - 3], &stem[stem.len() - 2..]);
+                unsafe { core::wd_ui_size(alias.as_ptr(), alias.len(), w, h); }
+            }
+        }
+    }
+
     fn menu_music_enabled(&self) -> bool { self.store.get("menuMusicEnabled").map_or(true, |v| v == "true") }
     fn song_file(&self) -> Option<String> {
         let l = self.levels.iter().find(|l| l.id == format!("level_{}", self.level_id))?;
@@ -139,6 +160,8 @@ impl Host {
         core::wd_ui_ground(self.game.ground_w, ref_h, self.game.has_ground2 as u32, total);
     }
 
+    fn sync_ground_art(&mut self) { let (a, b) = self.game.ground_images(); self.ui.set_standalone("groundSquare_main", a); self.ui.set_standalone("groundSquare_second", b); }
+
     /// A level given as text (an online level or a created one), played at once.
     pub(crate) fn play_text(&mut self, id: &str, text: &str) -> Result<(), String> {
         self.net.active = self.net.active;
@@ -146,6 +169,7 @@ impl Host {
         self.game.ldm = self.store.get_f("opt_enableLDM", 0.0) != 0.0;
         self.game.load_text(id, text, false)?;
         self.level_id = id.to_string();
+        self.sync_ground_art();
         self.start_playing();
         Ok(())
     }
@@ -161,6 +185,7 @@ impl Host {
         self.game.ldm = self.store.get_f("opt_enableLDM", 0.0) != 0.0;
         self.game.load_level(id)?;
         self.level_id = id.to_string();
+        self.sync_ground_art();
         Ok(())
     }
 
