@@ -143,6 +143,11 @@ fn main() {
     let assets = match assets::Assets::load(root) { Ok(a) => a, Err(e) => { eprintln!("{e}"); std::process::exit(1); } };
     let mut host = match host::Host::new(assets) { Ok(h) => h, Err(e) => { eprintln!("{e}"); std::process::exit(1); } };
     if let Some(level) = arg("--play") { if let Err(e) = host.play(&level) { eprintln!("{e}"); std::process::exit(1); } }
+    if let Some(level) = arg("--edit") {
+        let text = std::fs::read_to_string(host.game.assets.root.join("levels").join(format!("{level}.txt"))).unwrap_or_default();
+        if let Err(e) = host.start_editor(&text, "local_1") { eprintln!("{e}"); std::process::exit(1); }
+    }
+    if args.iter().any(|a| a == "--creator") { host.open_creator(); }
     // `--shot a.png[,b.png...] --frames N --clicks x,y,x,y --every M`: no window; run frames, click now and then, save pictures (used by the build checks)
     if let Some(paths) = arg("--shot") {
         let frames: usize = arg("--frames").and_then(|f| f.parse().ok()).unwrap_or(120);

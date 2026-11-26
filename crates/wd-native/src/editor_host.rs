@@ -117,6 +117,9 @@ impl Host {
         let mut items = self.created_raw(); items.push(obj); self.write_created(&items);
     }
 
+    /// Test hook: the creator menu with a few levels in it.
+    pub fn open_creator(&mut self) { self.push_created(); core::wd_em_open_creator(); }
+
     pub(crate) fn start_editor(&mut self, level: &str, id: &str) -> Result<(), String> {
         self.audio.stop_music();
         self.game.ldm = false;
