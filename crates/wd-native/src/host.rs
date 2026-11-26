@@ -2,6 +2,7 @@
 use crate::assets::{load_png, Assets};
 use crate::audio::Audio;
 use crate::store::Store;
+use crate::online_host::Net;
 use crate::canvas::Canvas;
 use crate::game::Game;
 use crate::levels::{self, Level};
@@ -40,6 +41,9 @@ pub struct Host {
     pub(crate) audio: Audio,
     pub(crate) store: Store,
     pub(crate) anims_sent: bool,
+    pub(crate) net: Net,
+    pub(crate) current_song: Option<std::sync::Arc<Vec<u8>>>,
+    pub(crate) online_offset: f64,
     pub(crate) last_save: f64,
 }
 
@@ -52,7 +56,7 @@ impl Host {
         let hidden = ["level_22", "level_67"];
         let visible: Vec<usize> = (0..levels.len()).filter(|&i| !hidden.contains(&levels[i].id.as_str())).collect();
         let game = Game::new(assets);
-        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), anims_sent: false, last_save: 0.0 };
+        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), anims_sent: false, net: Net::new(), current_song: None, online_offset: 0.0, last_save: 0.0 };
         host.pv_cfg();
         host.audio.user_music = host.store.get_f("userMusicVol", 1.0);
         host.audio.user_sfx = host.store.get_f("userSfxVol", 1.0);
@@ -73,7 +77,12 @@ impl Host {
         Some(l.song_file.clone().unwrap_or_else(|| l.name.replace(' ', "")))
     }
     fn music_now(&self) -> f64 { self.game.music_offset + core::wd_game_music_sync_offset() }
-    fn start_music(&mut self) { if self.menu_mode { return; } if let Some(f) = self.song_file() { let o = self.music_now(); self.audio.start_song(&f, o); } }
+    fn start_music(&mut self) {
+        if self.menu_mode { return; }
+        let o = self.music_now() + if self.net.active { self.online_offset } else { 0.0 };
+        if self.net.active { if let Some(b) = self.current_song.clone() { self.audio.start_song_bytes(b, o); } }
+        else if let Some(f) = self.song_file() { self.audio.start_song(&f, o); }
+    }
     fn best_key(&self) -> String { format!("{}level_{}", if self.practice { "practiceBestPercent_" } else { "bestPercent_" }, self.level_id) }
     fn save_best(&mut self) {
         let pct = core::wd_game_percent(0).floor();
@@ -111,9 +120,25 @@ impl Host {
         core::wd_ui_ground(self.game.ground_w, ref_h, self.game.has_ground2 as u32, total);
     }
 
-    fn load_level(&mut self, id: &str) -> Result<(), String> {
-        let key = format!("level_{id}");
+    /// A level given as text (an online level or a created one), played at once.
+    pub(crate) fn play_text(&mut self, id: &str, text: &str) -> Result<(), String> {
+        self.net.active = self.net.active;
+        self.set_coins(id);
+        self.game.ldm = self.store.get_f("opt_enableLDM", 0.0) != 0.0;
+        self.game.load_text(id, text, false)?;
+        self.level_id = id.to_string();
+        self.start_playing();
+        Ok(())
+    }
+
+    fn set_coins(&mut self, id: &str) {
+        let key = if id.chars().all(|c| c.is_ascii_digit()) && id.len() >= 5 { id.to_string() } else { format!("level_{id}") };
         self.game.coins = (self.coin_ids("secret", &key), self.coin_ids("user", &key), self.store.get_f("gd_totalsecretcoins", 0.0), self.store.get_f("gd_totalusercoins", 0.0));
+    }
+
+    fn load_level(&mut self, id: &str) -> Result<(), String> {
+        self.set_coins(id);
+        self.net.active = false;
         self.game.ldm = self.store.get_f("opt_enableLDM", 0.0) != 0.0;
         self.game.load_level(id)?;
         self.level_id = id.to_string();
@@ -155,7 +180,8 @@ impl Host {
         self.audio.pause();
         let id = self.level_id.clone();
         let (bn, bp) = (self.store.get_f(&format!("bestPercent_level_{id}"), 0.0), self.store.get_f(&format!("practiceBestPercent_level_{id}"), 0.0));
-        let name = self.levels.iter().find(|l| l.id == format!("level_{}", self.level_id)).map_or("Level".to_string(), |l| l.name.clone());
+        let name = if self.net.active { self.net.name.clone() } else { String::new() };
+        let name = if self.net.active { name } else { self.levels.iter().find(|l| l.id == format!("level_{}", self.level_id)).map_or("Level".to_string(), |l| l.name.clone()) };
         unsafe { core::wd_ui_pause(1, name.as_ptr(), name.len(), bn, bp); }
     }
     fn do_resume(&mut self) { if !self.paused { return; } self.paused = false; self.audio.resume(); unsafe { core::wd_ui_pause(0, "".as_ptr(), 0, 0.0, 0.0); } }
@@ -167,6 +193,7 @@ impl Host {
         if self.menu_music_enabled() { self.audio.start_menu_music(); }
         self.sliding = false; self.do_resume(); self.won = false; core::wd_ui_close_end();
         self.menu_mode = true; core::wd_menu_mode(1); core::wd_ui_main_menu_again();
+        if self.net.active { self.net_reopen(); return; }
         let idx = self.visible.iter().position(|&i| self.levels[i].id == format!("level_{}", self.level_id));
         if let Some(i) = idx { self.push_levels(i); self.push_progress(); core::wd_ui_open_level_select(); }
     }
@@ -210,6 +237,7 @@ impl Host {
                 "ToggleMenuMusic" => { let on = core::wd_ui_option(2) != 0.0; self.store.set("menuMusicEnabled", if on { "true" } else { "false" }); if on { if !self.audio.playing_menu() { self.audio.start_menu_music(); } } else { self.audio.stop_music(); } }
                 e if e.starts_with("Sfx(") => { let n = &e[5..e.len() - 2]; self.audio.effect(n, 1.0); }
                 "Garage" => self.garage_open(),
+                e if e.starts_with("Pop(\"") && self.online_event(e) => {}
                 "Pop(\"GarageNeed\", 0)" => self.garage_need(),
                 "Pop(\"GarageSave\", 0)" => self.garage_save(),
                 "Settings" => { core::wd_ui_set_options(self.audio.user_music, self.audio.user_sfx, self.menu_music_enabled() as u32); core::wd_ui_open_settings(); }
@@ -273,6 +301,7 @@ impl Host {
     /// One frame: logic, then the picture. `raw_dt` is the real time since the last frame in milliseconds.
     pub fn frame(&mut self, raw_dt: f64, now: f64, canvas: &mut Canvas) {
         let dt = self.smooth_delta(raw_dt.max(0.0)).min(100.0);
+        self.net_poll();
         core::wd_ui_step(dt);
         self.game.menu = self.menu_mode;
         if !self.paused {

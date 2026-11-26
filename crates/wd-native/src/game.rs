@@ -39,15 +39,21 @@ impl Game {
     /// `loadLevelText` of main.js for a shipped level.
     pub fn load_level(&mut self, id: &str) -> Result<(), String> {
         let text = std::fs::read_to_string(self.assets.root.join("levels").join(format!("{id}.txt"))).map_err(|e| format!("level {id}: {e}"))?;
+        self.load_text(id, &text, true)
+    }
+
+    /// `loadLevelText`: `official` levels are the shipped ones (their coins are saved by name).
+    pub fn load_text(&mut self, id: &str, text: &str, official: bool) -> Result<(), String> {
         self.level = id.to_string();
-        let key = format!("level_{id}");
+        let official = official && !(id.len() >= 5 && id.chars().all(|c| c.is_ascii_digit()));
+        let key = if official { format!("level_{id}") } else { id.to_string() };
         unsafe {
             core::wd_set_ldm(self.ldm as u32);
-            core::wd_set_official(1);
+            core::wd_set_official(official as u32);
             let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(1);
             core::wd_visual_seed(seed);
             let (sec, usr, ts, tu) = self.coins.clone();
-            core::wd_coins_config(1, 0, 0, key.as_ptr(), key.len(), sec.as_ptr(), sec.len(), usr.as_ptr(), usr.len(), ts, tu);
+            core::wd_coins_config(official as u32, id.starts_with("local_") as u32, 0, key.as_ptr(), key.len(), sec.as_ptr(), sec.len(), usr.as_ptr(), usr.len(), ts, tu);
             core::wd_game_load_level(text.as_ptr(), text.len());
             core::wd_mirror_enable(1);
             core::wd_game_after_load();

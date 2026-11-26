@@ -16,6 +16,7 @@ impl Store {
         }
         Store { path, map, dirty: false }
     }
+    pub fn dir(&self) -> PathBuf { self.path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from(".")) }
     pub fn get(&self, k: &str) -> Option<&str> { self.map.get(k).map(|s| s.as_str()) }
     pub fn get_f(&self, k: &str, d: f64) -> f64 { self.get(k).and_then(|v| v.parse().ok()).unwrap_or(d) }
     pub fn set(&mut self, k: &str, v: &str) { if self.map.get(k).map(|s| s.as_str()) != Some(v) { self.map.insert(k.to_string(), v.to_string()); self.dirty = true; } }

@@ -71,6 +71,17 @@ impl Audio {
         self.music = Some(sink);
     }
 
+    /// A song held in memory (a downloaded custom song).
+    pub fn start_song_bytes(&mut self, bytes: std::sync::Arc<Vec<u8>>, offset: f64) {
+        self.stop_music();
+        let Some(h) = self.handle.clone() else { return };
+        let Ok(src) = Decoder::new(Cursor::new((*bytes).clone())) else { return };
+        let Ok(sink) = Sink::try_new(&h) else { return };
+        sink.set_volume((self.user_music * 0.8) as f32);
+        sink.append(src.skip_duration(Duration::from_secs_f64(offset.max(0.0))));
+        self.music = Some(sink);
+    }
+
     pub fn set_music_volume(&mut self, v: f64) { self.user_music = v; if let Some(m) = &self.music { m.set_volume((v * 0.8) as f32); } }
     pub fn pause(&mut self) { if let Some(m) = &self.music { m.pause(); } }
     pub fn resume(&mut self) { if let Some(m) = &self.music { m.play(); } }

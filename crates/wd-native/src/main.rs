@@ -9,6 +9,7 @@ mod game;
 mod garage;
 mod host;
 mod levels;
+mod online_host;
 mod plist;
 mod player_vis;
 mod ui_draw;
