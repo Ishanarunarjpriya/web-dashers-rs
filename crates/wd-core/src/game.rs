@@ -52,6 +52,8 @@ pub struct Game {
     pub speed_hack: f64,
     pub start: StartOptions,
     pub start_positions: Vec<StartPos>,
+    pub show_hitboxes: bool, pub hitbox_trail_on: bool, pub hitboxes_on_death: bool,
+    pub hitbox_trail: [Vec<crate::hitbox::TrailPoint>; 2],
     pub p: Player,
     pub p2: Player,
     /// visual-only events since the host last drained them (see `wd_pv_events`)
@@ -357,7 +359,7 @@ impl Game {
             toggled: Default::default(), sec: crate::triggers::section_index(c.x),
         }).collect();
         let disabled = vec![false; cols.len()];
-        Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
+        Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), show_hitboxes: false, hitbox_trail_on: false, hitboxes_on_death: false, hitbox_trail: [Vec::new(), Vec::new()], p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
     }
 
     /// Everything the level provides to the simulation: colliders (with their groups) and triggers.
@@ -707,6 +709,7 @@ impl Game {
             }
             if !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo { self.update_rotation(false, horizontal, vertical); }
             if self.e.is_dual && !self.p2.is_dead && !self.p2.is_flying && !self.p2.is_wave && !self.p2.is_ufo { self.update_rotation(true, horizontal, vertical); }
+            self.push_hitbox_trail();
             if self.mb.playing { self.macro_apply_current(); } else if self.mb.recording { self.macro_record_frame(); }
             i += 1.0;
         }
@@ -786,6 +789,7 @@ impl Game {
 
     /// Sets up the scene state at the start of a level (`_resetGameplayState`).
     pub fn reset_gameplay_state(&mut self) {
+        self.clear_hitbox_trails();
         self.camera_x = -self.g.center_x;
         self.camera_y = 0.0;
         self.e.player_world_x = 0.0;
@@ -937,6 +941,7 @@ impl Game {
 
     /// `_respawnFromCheckpoint`; falls back to a normal restart without checkpoints.
     pub fn respawn_from_checkpoint(&mut self) {
+        self.clear_hitbox_trails();
         let Some(cp) = self.checkpoints.last().cloned() else { self.restart_level(self.start_pos_index); return; };
         // (`_restartLevel` already checked for checkpoints; reaching here means one exists)
         self.death_timer = 0.0; self.death_sound_played = false; self.new_best_shown = false;

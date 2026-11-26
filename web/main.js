@@ -609,6 +609,7 @@ async function main() {
     for (const k of Object.keys(OPT_DEFAULTS)) { const [p, n] = put(k); w.wd_ui_opt_set(p, n, Number(saved[k] === true ? 1 : saved[k] === false ? 0 : saved[k])); }
     const num = (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== "" ? Number(v) : d);
     w.wd_game_set_options(saved.noclip ? 1 : 0, saved.noclipAccuracy ? 1 : 0, num(saved.speedHack, 1), num(saved.respawnDelay, 1), saved.smartStartPos ? 1 : 0);
+    w.wd_game_set_hitbox_opts(saved.showHitboxes ? 1 : 0, saved.hitboxTrail ? 1 : 0, saved.hitboxesOnDeath ? 1 : 0);
     w.wd_ui_apply_hud();
     return saved;
   };
@@ -717,6 +718,21 @@ async function main() {
     shk = endfx.shake();
     ctx.setTransform(1, 0, 0, 1, shk[0], shk[1]);
     const sq = params.get("sq"); if (sq) { ctx.imageSmoothingEnabled = sq !== "off"; if (sq !== "off") ctx.imageSmoothingQuality = sq; } // test hook
+  };
+  // `drawHitboxes` of player.js: the outlines come from Rust as [kind, colour, alpha, width, ...] records
+  const drawHitboxes = () => {
+    if (menuMode || w.wd_ui_menu_active()) return;
+    const n = w.wd_hitbox_build(); if (!n) return;
+    const a = new Float64Array(w.memory.buffer, w.wd_hitbox_ptr(), n);
+    ctx.save(); ctx.globalCompositeOperation = "source-over"; ctx.lineJoin = "miter";
+    for (let i = 0; i < n;) {
+      ctx.strokeStyle = hex(a[i + 1]); ctx.globalAlpha = a[i + 2]; ctx.lineWidth = a[i + 3];
+      ctx.beginPath();
+      if (a[i] === 0) { const c = a[i + 4]; ctx.moveTo(a[i + 5], a[i + 6]); for (let k = 1; k < c; k++) ctx.lineTo(a[i + 5 + k * 2], a[i + 6 + k * 2]); ctx.closePath(); i += 5 + c * 2; }
+      else { ctx.arc(a[i + 4], a[i + 5], a[i + 6], 0, Math.PI * 2); i += 7; }
+      ctx.stroke();
+    }
+    ctx.restore();
   };
   const render = () => {
     fitCanvas();
@@ -842,6 +858,7 @@ async function main() {
     };
     lineAt(buf[15], false); shadowAt(buf[15], false);
     if (buf[17]) { lineAt(buf[16], true); shadowAt(buf[16], true); }
+    drawHitboxes();
     pv.drawScreen();
     return buf;
   };

@@ -12,6 +12,7 @@ pub mod editor_objects;
 pub mod editor_trigger;
 pub mod editor_ctrig;
 pub mod menukeys;
+pub mod hitbox;
 pub mod beast;
 pub mod coins;
 pub mod mirror;
@@ -1116,6 +1117,15 @@ pub unsafe extern "C" fn wd_ui_menu_key_probe(ptr: *const u8, len: usize) -> u32
 /// Editor keybinds: 0..2 tabs, 3..6 move the selection (up, left, down, right); `big` moves 60 instead of 1.
 #[no_mangle]
 pub extern "C" fn wd_ed_key_action(which: u32, big: u32) { with_ui(|u| u.ed_key_action(which, big != 0)); }
+/// `window.showHitboxes` / `showHitboxTrail` / `hitboxesOnDeath`
+#[no_mangle]
+pub extern "C" fn wd_game_set_hitbox_opts(show: u32, trail: u32, on_death: u32) { with_game(|g| { g.show_hitboxes = show != 0; g.hitbox_trail_on = trail != 0; g.hitboxes_on_death = on_death != 0; if trail == 0 { g.clear_hitbox_trails(); } }); }
+static HB_BUF: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+/// The hitbox records of this frame (see hitbox.rs); returns their length in numbers, read at `wd_hitbox_ptr`.
+#[no_mangle]
+pub extern "C" fn wd_hitbox_build() -> usize { let v = with_game(|g| g.hitbox_shapes()); let n = v.len(); *HB_BUF.lock().unwrap() = v; n }
+#[no_mangle]
+pub extern "C" fn wd_hitbox_ptr() -> *const f64 { HB_BUF.lock().unwrap().as_ptr() }
 /// `window.showEditorGlow`: the glow sprites of the editor view
 #[no_mangle]
 pub extern "C" fn wd_ed_set_glow(on: u32) { with_ui(|u| u.ed.glow = on != 0); }
