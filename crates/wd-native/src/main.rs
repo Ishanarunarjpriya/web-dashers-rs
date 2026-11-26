@@ -1,5 +1,7 @@
 //! Web Dashers, native: a window around wd-core with a software renderer.
 mod assets;
+mod audio;
+mod store;
 mod canvas;
 mod fonts;
 mod game;

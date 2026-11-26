@@ -24,12 +24,14 @@ pub struct Game {
     pub pv: PlayerVis,
     pub restart_flag: bool,
     pub level: String,
+    pub music_offset: f64,
+    pub coins: (String, String, f64, f64),
     pub ground_w: f64,
     pub has_ground2: bool,
 }
 
 impl Game {
-    pub fn new(assets: Assets) -> Game { Game { assets, bg: None, ground: None, ground2: None, table: Vec::new(), held: false, menu: false, pv: PlayerVis::new(), restart_flag: true, level: String::new(), ground_w: 1012.0, has_ground2: false } }
+    pub fn new(assets: Assets) -> Game { Game { assets, bg: None, ground: None, ground2: None, table: Vec::new(), held: false, menu: false, pv: PlayerVis::new(), restart_flag: true, level: String::new(), music_offset: 0.0, coins: (String::new(), String::new(), 0.0, 0.0), ground_w: 1012.0, has_ground2: false } }
 
     /// `loadLevelText` of main.js for a shipped level.
     pub fn load_level(&mut self, id: &str) -> Result<(), String> {
@@ -41,7 +43,8 @@ impl Game {
             core::wd_set_official(1);
             let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(1);
             core::wd_visual_seed(seed);
-            core::wd_coins_config(1, 0, 0, key.as_ptr(), key.len(), "".as_ptr(), 0, "".as_ptr(), 0, 0.0, 0.0);
+            let (sec, usr, ts, tu) = self.coins.clone();
+            core::wd_coins_config(1, 0, 0, key.as_ptr(), key.len(), sec.as_ptr(), sec.len(), usr.as_ptr(), usr.len(), ts, tu);
             core::wd_game_load_level(text.as_ptr(), text.len());
             core::wd_mirror_enable(1);
             core::wd_game_after_load();
@@ -49,6 +52,7 @@ impl Game {
         }
         let n = core::wd_render_info();
         let info = core::jsonread::parse(&result(n)).map_err(|e| format!("render info: {e}"))?;
+        self.music_offset = info.get_num("musicOffset").unwrap_or(0.0);
         let bg_id = info.get_str("background").unwrap_or("01").to_string();
         let ground_idx = format!("{:02}", info.get_str("ground").and_then(|g| g.parse::<i64>().ok()).unwrap_or(0) + 1);
         let root = self.assets.root.clone();

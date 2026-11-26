@@ -9,3 +9,4 @@ wd-core = { path = "../wd-core" }
 winit = "0.30"
 softbuffer = "0.4"
 png = "0.17"
+rodio = { version = "0.20", default-features = false, features = ["symphonia-mp3", "vorbis"] }

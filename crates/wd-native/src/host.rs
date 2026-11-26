@@ -1,5 +1,7 @@
 //! The game session: what `main.js` does around the game logic. Menus, levels, pause, the end screen, HUD and input.
 use crate::assets::{load_png, Assets};
+use crate::audio::Audio;
+use crate::store::Store;
 use crate::canvas::Canvas;
 use crate::game::Game;
 use crate::levels::{self, Level};
@@ -35,6 +37,9 @@ pub struct Host {
     delta_idx: usize,
     pub quit: bool,
     cam: (f64, f64),
+    audio: Audio,
+    store: Store,
+    last_save: f64,
 }
 
 impl Host {
@@ -46,13 +51,38 @@ impl Host {
         let hidden = ["level_22", "level_67"];
         let visible: Vec<usize> = (0..levels.len()).filter(|&i| !hidden.contains(&levels[i].id.as_str())).collect();
         let game = Game::new(assets);
-        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0) };
+        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), last_save: 0.0 };
+        host.audio.user_music = host.store.get_f("userMusicVol", 1.0);
+        host.audio.user_sfx = host.store.get_f("userSfxVol", 1.0);
         host.push_levels(0);
         host.load_level("1")?;
         host.push_progress();
         core::wd_menu_mode(1);
         core::wd_ui_main_menu();
+        if host.menu_music_enabled() { host.audio.start_menu_music(); }
         Ok(host)
+    }
+
+    fn menu_music_enabled(&self) -> bool { self.store.get("menuMusicEnabled").map_or(true, |v| v == "true") }
+    fn song_file(&self) -> Option<String> {
+        let l = self.levels.iter().find(|l| l.id == format!("level_{}", self.level_id))?;
+        Some(l.song_file.clone().unwrap_or_else(|| l.name.replace(' ', "")))
+    }
+    fn music_now(&self) -> f64 { self.game.music_offset + core::wd_game_music_sync_offset() }
+    fn start_music(&mut self) { if self.menu_mode { return; } if let Some(f) = self.song_file() { let o = self.music_now(); self.audio.start_song(&f, o); } }
+    fn best_key(&self) -> String { format!("{}level_{}", if self.practice { "practiceBestPercent_" } else { "bestPercent_" }, self.level_id) }
+    fn save_best(&mut self) {
+        let pct = core::wd_game_percent(0).floor();
+        let key = self.best_key();
+        if pct > self.store.get_f(&key, 0.0) { self.store.set(&key, &pct.to_string()); }
+    }
+    fn flush_coins(&mut self) {
+        let json = text(core::wd_coins_outbox());
+        if let Ok(j) = core::jsonread::parse(&json) { for e in j.arr().unwrap_or(&[]) { if let Some(p) = e.arr() { if let (Some(k), Some(v)) = (p.first().and_then(|x| x.str()), p.get(1).and_then(|x| x.str())) { self.store.set(k, v); } } } }
+    }
+    fn coin_ids(&self, kind: &str, id: &str) -> String {
+        let a = self.store.get(&format!("gd_{kind}Coins_{id}")).unwrap_or("[]");
+        core::jsonread::parse(a).ok().map(|j| j.arr().unwrap_or(&[]).iter().filter_map(|v| v.num().map(|n| n.to_string()).or_else(|| v.str().map(|s| s.to_string()))).collect::<Vec<_>>().join(",")).unwrap_or_default()
     }
 
     pub fn json_str(s: &str) -> String { format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")) }
@@ -64,12 +94,22 @@ impl Host {
     }
 
     fn push_progress(&mut self) {
-        for &i in &self.visible { let id = &self.levels[i].id; unsafe { core::wd_ui_progress(id.as_ptr(), id.len(), 0.0, 0.0, 0); } }
+        let mut total = 0.0;
+        for &i in &self.visible {
+            let id = self.levels[i].id.clone();
+            let slots: Vec<i64> = self.store.get(&format!("gd_secretCoins_{id}_slots")).and_then(|s| core::jsonread::parse(s).ok()).map(|j| j.arr().unwrap_or(&[]).iter().filter_map(|v| v.num().map(|n| n as i64)).collect()).unwrap_or_default();
+            let mask = slots.iter().fold(0u32, |m, &s| if (0..3).contains(&s) { m | (1 << s) } else { m });
+            total += slots.len() as f64;
+            let (n, p) = (self.store.get_f(&format!("bestPercent_{id}"), 0.0), self.store.get_f(&format!("practiceBestPercent_{id}"), 0.0));
+            unsafe { core::wd_ui_progress(id.as_ptr(), id.len(), n, p, mask); }
+        }
         let ref_h = load_png(&self.game.assets.root.join("game-ground/groundSquare_01_001.png")).map_or(270.0, |g| g.h as f64);
-        core::wd_ui_ground(self.game.ground_w, ref_h, self.game.has_ground2 as u32, 0.0);
+        core::wd_ui_ground(self.game.ground_w, ref_h, self.game.has_ground2 as u32, total);
     }
 
     fn load_level(&mut self, id: &str) -> Result<(), String> {
+        let key = format!("level_{id}");
+        self.game.coins = (self.coin_ids("secret", &key), self.coin_ids("user", &key), self.store.get_f("gd_totalsecretcoins", 0.0), self.store.get_f("gd_totalusercoins", 0.0));
         self.game.load_level(id)?;
         self.level_id = id.to_string();
         Ok(())
@@ -79,15 +119,18 @@ impl Host {
     pub fn play(&mut self, id: &str) -> Result<(), String> { self.load_level(id)?; self.start_playing(); Ok(()) }
 
     fn apply_options(&mut self) {
-        for (k, v) in OPT_DEFAULTS { unsafe { core::wd_ui_opt_set(k.as_ptr(), k.len(), v); } }
-        core::wd_game_set_options(0, 0, 1.0, 1.0, 0);
-        core::wd_set_ldm(0);
+        for (k, d) in OPT_DEFAULTS { let v = self.store.get_f(&format!("opt_{k}"), d); unsafe { core::wd_ui_opt_set(k.as_ptr(), k.len(), v); } }
+        let o = |s: &Self, k: &str, d: f64| s.store.get_f(&format!("opt_{k}"), d);
+        core::wd_game_set_options(o(self, "noclip", 0.0) as u32, o(self, "noclipAccuracy", 0.0) as u32, o(self, "speedHack", 1.0), o(self, "respawnDelay", 1.0), 0);
+        core::wd_game_set_hitbox_opts(o(self, "showHitboxes", 0.0) as u32, o(self, "hitboxTrail", 0.0) as u32, o(self, "hitboxesOnDeath", 0.0) as u32);
+        core::wd_set_ldm(o(self, "enableLDM", 0.0) as u32);
         core::wd_ui_apply_hud();
     }
 
     fn start_playing(&mut self) {
         self.menu_mode = false; self.paused = false; self.won = false; self.win_clock = 0.0; self.win_stage = 0;
         self.attempts = 1; self.jumps = 0; self.play_time = 0.0; self.practice = false;
+        self.store.bump(&format!("levelAttempts_level_{}", self.level_id)); self.store.bump("gd_totalAttempts");
         core::wd_ui_close_end();
         core::wd_ui_start_game();
         self.apply_options();
@@ -103,13 +146,20 @@ impl Host {
     fn do_pause(&mut self) {
         if self.paused || self.menu_mode || self.sliding || self.won { return; }
         self.paused = true;
-        core::wd_ui_set_options(1.0, 1.0, 1);
+        core::wd_ui_set_options(self.audio.user_music, self.audio.user_sfx, self.menu_music_enabled() as u32);
+        self.audio.pause();
+        let id = self.level_id.clone();
+        let (bn, bp) = (self.store.get_f(&format!("bestPercent_level_{id}"), 0.0), self.store.get_f(&format!("practiceBestPercent_level_{id}"), 0.0));
         let name = self.levels.iter().find(|l| l.id == format!("level_{}", self.level_id)).map_or("Level".to_string(), |l| l.name.clone());
-        unsafe { core::wd_ui_pause(1, name.as_ptr(), name.len(), 0.0, 0.0); }
+        unsafe { core::wd_ui_pause(1, name.as_ptr(), name.len(), bn, bp); }
     }
-    fn do_resume(&mut self) { if !self.paused { return; } self.paused = false; unsafe { core::wd_ui_pause(0, "".as_ptr(), 0, 0.0, 0.0); } }
+    fn do_resume(&mut self) { if !self.paused { return; } self.paused = false; self.audio.resume(); unsafe { core::wd_ui_pause(0, "".as_ptr(), 0, 0.0, 0.0); } }
 
     fn quit_to_menu(&mut self) {
+        self.audio.effect("quitSound_01", 1.0);
+        self.save_best();
+        self.audio.stop_music();
+        if self.menu_music_enabled() { self.audio.start_menu_music(); }
         self.sliding = false; self.do_resume(); self.won = false; core::wd_ui_close_end();
         self.menu_mode = true; core::wd_menu_mode(1); core::wd_ui_main_menu_again();
         let idx = self.visible.iter().position(|&i| self.levels[i].id == format!("level_{}", self.level_id));
@@ -117,9 +167,12 @@ impl Host {
     }
 
     fn restarted(&mut self) {
+        self.save_best();
         self.game.restart_flag = true;
         self.attempts += 1;
         core::wd_ui_attempt(self.attempts, core::wd_game_scene(0));
+        if !(self.practice && self.store.get_f("opt_practiceMusicSync", 0.0) == 0.0) { self.start_music(); }
+        self.store.bump(&format!("levelAttempts_level_{}", self.level_id)); self.store.bump("gd_totalAttempts");
     }
 
     fn handle_ui(&mut self) {
@@ -134,6 +187,8 @@ impl Host {
                     let page = core::wd_ui_page();
                     if let Some(&i) = self.visible.get(page) {
                         let id = self.levels[i].id.replace("level_", "");
+                        self.audio.effect("playSound_01", 1.0);
+                        self.audio.stop_music();
                         core::wd_ui_close_level_select();
                         if let Err(e) = self.load_level(&id) { eprintln!("{e}"); continue; }
                         self.start_playing();
@@ -146,7 +201,10 @@ impl Host {
                 "PausePractice" => { self.practice = !self.practice; core::wd_game_practice(0); core::wd_ui_practice(self.practice as u32); self.do_resume(); self.do_pause(); }
                 "Checkpoint" => { if self.practice { core::wd_game_practice(1); } }
                 "ClearCheckpoint" => { if self.practice { core::wd_game_practice(2); } }
-                "Settings" => { core::wd_ui_set_options(1.0, 1.0, 1); core::wd_ui_open_settings(); }
+                "Volume" => { let (m, s) = (core::wd_ui_option(0), core::wd_ui_option(1)); self.audio.set_music_volume(m); self.audio.user_sfx = s; self.store.set("userMusicVol", &m.to_string()); self.store.set("userSfxVol", &s.to_string()); }
+                "ToggleMenuMusic" => { let on = core::wd_ui_option(2) != 0.0; self.store.set("menuMusicEnabled", if on { "true" } else { "false" }); if on { if !self.audio.playing_menu() { self.audio.start_menu_music(); } } else { self.audio.stop_music(); } }
+                e if e.starts_with("Sfx(") => { let n = &e[5..e.len() - 2]; self.audio.effect(n, 1.0); }
+                "Settings" => { core::wd_ui_set_options(self.audio.user_music, self.audio.user_sfx, self.menu_music_enabled() as u32); core::wd_ui_open_settings(); }
                 "Popup(\"Options\")" => { self.apply_options(); core::wd_ui_open_options(); }
                 "OptChanged" => self.apply_options_from_ui(),
                 _ => {}
@@ -158,10 +216,8 @@ impl Host {
     fn apply_options_from_ui(&mut self) {
         let json = text(core::wd_ui_opts_json());
         let Ok(j) = core::jsonread::parse(&json) else { return };
-        let g = |k: &str, d: f64| match j.get(k) { Some(core::jsonread::Json::Bool(b)) => *b as u8 as f64, Some(v) => v.num().unwrap_or(d), None => d };
-        core::wd_game_set_options(g("noclip", 0.0) as u32, g("noclipAccuracy", 0.0) as u32, g("speedHack", 1.0), g("respawnDelay", 1.0), 0);
-        core::wd_game_set_hitbox_opts(g("showHitboxes", 0.0) as u32, g("hitboxTrail", 0.0) as u32, g("hitboxesOnDeath", 0.0) as u32);
-        core::wd_ui_apply_hud();
+        if let Some(e) = j.entries() { for (k, v) in e { let n = match v { core::jsonread::Json::Bool(b) => *b as u8 as f64, v => v.num().unwrap_or(0.0) }; self.store.set(&format!("opt_{k}"), &n.to_string()); } }
+        self.apply_options();
     }
 
     pub fn pointer(&mut self, kind: u32, x: f64, y: f64) {
@@ -172,7 +228,7 @@ impl Host {
     pub fn wheel(&mut self, x: f64, y: f64, dy: f64) { core::wd_ui_wheel(x, y, dy); }
 
     pub fn jump(&mut self, down: bool) {
-        if down && !self.menu_mode && !self.paused && !self.sliding && !self.game.held { self.jumps += 1; }
+        if down && !self.menu_mode && !self.paused && !self.sliding && !self.game.held { self.jumps += 1; self.store.bump(&format!("levelJumps_level_{}", self.level_id)); self.store.bump("gd_totalJumps"); }
         self.game.held = down;
     }
 
@@ -216,11 +272,15 @@ impl Host {
             let r = core::wd_game_update(dt, self.game.held as u32);
             if (r >> 30) & 1 != 0 && !self.menu_mode { self.restarted(); }
         }
-        if self.sliding && core::wd_game_slide_state() == 2 { self.sliding = false; core::wd_ui_hud_pause(1); }
+        if self.sliding && core::wd_game_slide_state() == 2 { self.sliding = false; core::wd_ui_hud_pause(1); self.start_music(); }
         self.game.pv_step(dt / 1000.0, self.paused);
         let info = self.game.draw(canvas);
         self.cam = (info.cam_x, info.cam_y);
         self.ui.cam = self.cam;
+        if !self.menu_mode && info.dead && !self.was_dead {
+            self.audio.effect("explode_11", 0.65);
+            if !(self.practice && self.store.get_f("opt_practiceMusicSync", 0.0) == 0.0) { self.audio.stop_music(); }
+        }
         self.was_dead = info.dead;
         if !self.menu_mode { core::wd_ui_hud_update(info.percent.clamp(0.0, 100.0)); }
         if !self.menu_mode && !self.paused {
@@ -230,7 +290,9 @@ impl Host {
                 self.win_clock += dt;
                 if self.win_stage == 0 && self.win_clock >= 1000.0 {
                     self.win_stage = 1;
-                    if !self.practice { core::wd_coins_commit(); }
+                    if !self.practice { core::wd_coins_commit(); self.flush_coins(); }
+                    self.store.set(&self.best_key(), "100");
+                    self.audio.effect("endStart_02", 0.8);
                     core::wd_ui_banner(self.practice as u32);
                 }
                 if self.win_stage == 1 && self.win_clock >= 2800.0 {
@@ -245,5 +307,6 @@ impl Host {
         let assets = &self.game.assets;
         self.ui.draw(canvas, assets);
         self.handle_ui();
+        if now - self.last_save > 2000.0 { self.last_save = now; self.store.flush(); }
     }
 }
