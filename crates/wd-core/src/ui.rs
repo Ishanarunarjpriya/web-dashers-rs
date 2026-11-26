@@ -194,6 +194,10 @@ pub struct Scroll { pub zone: usize, pub content: usize, pub base_y: f64, pub y:
 
 #[derive(Default)]
 pub struct Ui {
+    /// screens closing through a black fade (`fadeOut` 150 ms, the switch, `fadeOut` back 150 ms): time left, what to do at black, the cover, the fade back
+    pub fade_jobs: Vec<(f64, Action, usize, f64)>,
+    /// set while a closing action runs at the black point, so it is not wrapped in the fade again
+    pub bypass_fade: bool,
     pub levels: Vec<LevelInfo>,
     pub page: usize,
     pub fonts: HashMap<String, Font>,
@@ -289,7 +293,33 @@ impl Ui {
         match tag { "end" => self.end_p * 650.0 - 640.0, "set_scr" => self.set_p * 650.0 - 640.0, _ => 0.0 }
     }
 
+    /// How the original closes a screen when it is not silent: a black cover fades in over `out_ms` (depth `depth`), the screen is replaced
+    /// at black, the cover fades out over `in_ms`.
+    pub(crate) fn fade_through(&mut self, depth: f64, out_ms: f64, in_ms: f64, action: Action) {
+        if !self.fade_jobs.is_empty() { return; } // a close is already under way
+        let sw = self.screen_width;
+        let n = self.shape(Kind::Rect, 0.0, 0.0, sw, 640.0, 0, 0.0, depth, "fadeo");
+        self.tween_to(n, &[(Prop::Alpha, 1.0)], out_ms, Ease::Linear, Then::Nothing);
+        self.fade_jobs.push((out_ms, action, n, in_ms));
+    }
+
+    fn fade_for(name: &str) -> Option<(f64, f64, f64)> {
+        match name { "EmBack" | "OnBack" => Some((200.0, 150.0, 150.0)), "OnListBack" => Some((400.0, 160.0, 160.0)), "OnMenuBack" => Some((600.0, 150.0, 150.0)), _ => None }
+    }
+
+    fn fade_step(&mut self, dt: f64) {
+        if self.fade_jobs.is_empty() { return; }
+        for j in self.fade_jobs.iter_mut() { j.0 -= dt; }
+        if self.fade_jobs[0].0 > 0.0 { return; }
+        let (_, action, node, in_ms) = self.fade_jobs.remove(0);
+        self.bypass_fade = true;
+        self.emit(action);
+        self.bypass_fade = false;
+        if self.nodes.get(node).map_or(false, |n| n.is_some()) { self.node(node).alpha = 1.0; self.kill_tweens(node); self.tween_to(node, &[(Prop::Alpha, 0.0)], in_ms, Ease::Linear, Then::Destroy); }
+    }
+
     pub fn step(&mut self, dt_ms: f64) {
+        self.fade_step(dt_ms);
         self.pa_step(dt_ms);
         self.gar_step(dt_ms);
         self.on_step(dt_ms);
@@ -856,6 +886,7 @@ impl Ui {
 
     pub(crate) fn emit(&mut self, a: Action) {
         match a {
+            Action::CloseLevelSelect if !self.bypass_fade => { self.fade_through(200.0, 150.0, 150.0, a); return; }
             Action::PrevLevel => { self.ls_switch(-1, None, 0.0); }
             Action::NextLevel => { self.ls_switch(1, None, 0.0); }
             Action::Soundtrack => { self.pa_open("Songs"); }
@@ -878,6 +909,7 @@ impl Ui {
             Action::Stats => { self.pb_open("Stats"); }
             Action::Vault => { self.pb_open("Vault"); }
             Action::Creator => { self.pe_open("Creator"); }
+            Action::Pop(name, _) if !self.bypass_fade && Self::fade_for(name).is_some() => { let (d, o, i) = Self::fade_for(name).unwrap(); self.fade_through(d, o, i, a); return; }
             Action::Pop(name, arg) => { if !self.pa_action(name, arg) && !self.gar_action(name, arg) && !self.pb_action(name, arg) && !self.pe_action(name, arg) && !self.po_action(name, arg) { self.ed_action(name, arg); } }
             Action::InfoBox(t) => self.open_info(t),
             Action::InfoClose => self.kill_tag("info_"),
