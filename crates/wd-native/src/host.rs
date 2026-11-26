@@ -102,11 +102,11 @@ impl Host {
             let Ok(file) = std::fs::File::open(&path) else { continue };
             let Ok(reader) = png::Decoder::new(std::io::BufReader::new(file)).read_info() else { continue };
             let (w, h) = (reader.info().width as f64, reader.info().height as f64);
-            unsafe { core::wd_ui_size(stem.as_ptr(), stem.len(), w, h); }
+            for k in [stem.clone(), format!("/{stem}")] { unsafe { core::wd_ui_size(k.as_ptr(), k.len(), w, h); } }
             let b = stem.as_bytes();
             if b.len() > 3 && b[b.len() - 3] == b'_' && b[b.len() - 2].is_ascii_digit() && b[b.len() - 1].is_ascii_digit() {
                 let alias = format!("{}{}", &stem[..stem.len() - 3], &stem[stem.len() - 2..]);
-                unsafe { core::wd_ui_size(alias.as_ptr(), alias.len(), w, h); }
+                for k in [alias.clone(), format!("/{alias}")] { unsafe { core::wd_ui_size(k.as_ptr(), k.len(), w, h); } }
             }
         }
     }
