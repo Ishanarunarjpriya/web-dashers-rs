@@ -114,6 +114,7 @@ impl Host {
     fn load_level(&mut self, id: &str) -> Result<(), String> {
         let key = format!("level_{id}");
         self.game.coins = (self.coin_ids("secret", &key), self.coin_ids("user", &key), self.store.get_f("gd_totalsecretcoins", 0.0), self.store.get_f("gd_totalusercoins", 0.0));
+        self.game.ldm = self.store.get_f("opt_enableLDM", 0.0) != 0.0;
         self.game.load_level(id)?;
         self.level_id = id.to_string();
         Ok(())

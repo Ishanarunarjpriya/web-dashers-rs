@@ -42,7 +42,7 @@ impl Game {
         self.level = id.to_string();
         let key = format!("level_{id}");
         unsafe {
-            core::wd_set_ldm(0);
+            core::wd_set_ldm(self.ldm as u32);
             core::wd_set_official(1);
             let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(1);
             core::wd_visual_seed(seed);
@@ -94,7 +94,9 @@ impl Game {
         let (cx, cy) = (core::wd_game_scene(0), core::wd_game_scene(1));
         let hidden = false;
         let mp = core::wd_mirror_progress();
-        self.pv.frame(&self.assets, if paused { 0.0 } else { dt }, (cx, cy), self.menu, hidden, self.restart_flag, mp);
+        let n = core::wd_pv_events();
+        let events = if n > 0 { let p = core::wd_result_ptr(); unsafe { String::from_utf8_lossy(std::slice::from_raw_parts(p, n)).into_owned() } } else { String::new() };
+        self.pv.frame(&self.assets, if paused { 0.0 } else { dt }, (cx, cy), self.menu, hidden, self.restart_flag, mp, paused, self.ldm, &events);
         self.restart_flag = false;
     }
 
@@ -137,7 +139,7 @@ impl Game {
         if on { self.fx.draw_portal_particles(c, &self.assets, ox, oy); }
         if !self.menu { self.pv.draw_world(c, &self.assets); }
         while i < count { let o = base + i * 12; draw_sprite(c, o, &self.table, &self.assets); i += 1; }
-        if !self.menu { self.pv.draw_top(c); }
+        if !self.menu { self.pv.draw_top(c, &self.assets); }
         // ground
         if let Some(g) = &self.ground {
             let (gy, tint) = (buf[15], buf[23] as i64);

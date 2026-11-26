@@ -59,6 +59,26 @@ struct Item { kind: &'static str, name: String, depth: f64, order: usize, x: f64
 
 struct Pt { x: f64, y: f64, age: f64 }
 
+#[derive(Clone, Copy)]
+enum Tint { None, Fixed(i64), Grad(i64, i64) }
+struct Particle { x: f64, y: f64, vx: f64, vy: f64, age: f64, life: f64 }
+struct Emitter {
+    speed: (f64, f64), angle: (f64, f64), life: (f64, f64), scale: (f64, f64), alpha: (f64, f64), gx: f64, gy: f64, freq: f64,
+    spread_x: Option<(f64, f64)>, tint: Tint, parts: Vec<Particle>, acc: f64, on: bool, px: f64, py: f64,
+}
+impl Emitter {
+    fn new(speed: (f64, f64), angle: (f64, f64), life: (f64, f64), scale: (f64, f64), gx: f64, gy: f64, freq: f64, spread_x: Option<(f64, f64)>, tint: Tint) -> Emitter {
+        Emitter { speed, angle, life, scale, alpha: (1.0, 0.0), gx, gy, freq, spread_x, tint, parts: Vec::new(), acc: 0.0, on: false, px: 0.0, py: 0.0 }
+    }
+    fn set(&mut self, on: bool) { if on && !self.on { self.acc = 0.0; } self.on = on; }
+}
+fn mix(a: i64, b: i64, t: f64) -> i64 {
+    let t = t.clamp(0.0, 1.0);
+    let ch = |s: i64| ((a >> s) & 255) as f64 + ((((b >> s) & 255) - ((a >> s) & 255)) as f64) * t;
+    ((ch(16).round() as i64) << 16) | ((ch(8).round() as i64) << 8) | ch(0).round() as i64
+}
+struct StreakPt { x: f64, y: f64, state: f64 }
+
 struct Burst { parts: Vec<(f64, f64, f64, f64, f64, f64)>, tint: i64, flash: f64, fx: f64, fy: f64 }
 
 pub struct PlayerVis {
@@ -80,6 +100,10 @@ pub struct PlayerVis {
     robot: Option<Anim>, spider: Option<Anim>, anims_loaded: bool,
     spider_timer: f64, robot_timer: f64, robot_state: u8,
     cfg_spider: String, cfg_robot: String,
+    em: Vec<Emitter>, // 0 ground, 1 fly, 2 fly2, 3 drag, 4 land1, 5 land2
+    land_idx: bool,
+    streak: Vec<StreakPt>, streak_active: bool, streak_pos: Option<(f64, f64)>,
+    ldm: bool,
 }
 
 /// `iconBaseOf`: `player_01_2_001.png` -> `player_01`
@@ -102,7 +126,15 @@ impl PlayerVis {
     pub fn new() -> PlayerVis {
         PlayerVis { icons: HashMap::new(), items: Vec::new(), wave: Vec::new(), wave_active: false, wave_mini: 1.0, was_dead: false, burst: None, rng: 0x9e3779b97f4a7c15,
             main: 0x04ff00, second: 0x00fbff, cfg_player: "player_01".into(), cfg_ship: "ship_01".into(), cfg_ball: "player_ball_01".into(), cfg_wave: "dart_01".into(), cfg_bird: "bird_01".into(),
-            hidden: false, ufo_last: None, ufo_tilt: 0.0, ufo_rot: f64::NAN, mirror_p: 0.0, ox: 0.0, oy: 0.0, robot: None, spider: None, anims_loaded: false, spider_timer: 0.0, robot_timer: 0.0, robot_state: 0, cfg_spider: "spider_01".into(), cfg_robot: "robot_01".into() }
+            hidden: false, ufo_last: None, ufo_tilt: 0.0, ufo_rot: f64::NAN, mirror_p: 0.0, ox: 0.0, oy: 0.0, robot: None, spider: None, anims_loaded: false, spider_timer: 0.0, robot_timer: 0.0, robot_state: 0, cfg_spider: "spider_01".into(), cfg_robot: "robot_01".into(),
+            em: vec![
+                Emitter::new((110.0, 190.0), (225.0, 315.0), (150.0, 450.0), (0.5, 0.0), 0.0, 600.0, 1000.0 / 30.0, None, Tint::None),
+                Emitter::new((22.0, 38.0), (225.0, 315.0), (150.0, 450.0), (0.5, 0.0), 0.0, 600.0, 1000.0 / 30.0, None, Tint::Grad(16737280, 16711680)),
+                Emitter::new((220.0, 380.0), (180.0, 360.0), (150.0, 450.0), (0.75, 0.0), 0.0, 600.0, 1000.0 / 30.0, None, Tint::Grad(16760320, 16711680)),
+                Emitter::new((223.8, 343.8), (205.0, 295.0), (80.0, 220.0), (0.375, 0.0), -700.0, 600.0, 25.0, Some((-18.0, 18.0)), Tint::None),
+                Emitter::new((250.0, 350.0), (210.0, 330.0), (50.0, 600.0), (0.625, 0.0), 0.0, 1000.0, 0.0, None, Tint::None),
+                Emitter::new((250.0, 350.0), (210.0, 330.0), (50.0, 600.0), (0.625, 0.0), 0.0, 1000.0, 0.0, None, Tint::None),
+            ], land_idx: false, streak: Vec::new(), streak_active: false, streak_pos: None, ldm: false }
     }
 
     fn rnd(&mut self, a: f64, b: f64) -> f64 {
@@ -162,7 +194,8 @@ impl PlayerVis {
     }
 
     /// Reads the player state and rebuilds the layers; `dt` in seconds.
-    pub fn frame(&mut self, assets: &Assets, dt: f64, cam: (f64, f64), menu: bool, hidden: bool, restart: bool, mirror_p: f64) {
+    pub fn frame(&mut self, assets: &Assets, dt: f64, cam: (f64, f64), menu: bool, hidden: bool, restart: bool, mirror_p: f64, paused: bool, ldm: bool, events: &str) {
+        self.ldm = ldm;
         self.hidden = hidden;
         self.mirror_p = mirror_p;
         self.ox = -cam.0; self.oy = cam.1;
@@ -194,6 +227,7 @@ impl PlayerVis {
         let wave_now = a[6] != 0.0 && !dead && !menu;
         if wave_now && !self.wave_active { self.wave.clear(); self.wave_active = true; } else if !wave_now && self.wave_active { self.wave_active = false; self.wave.clear(); }
         self.wave_update(dt, cam.0, (a[1], T - a[0]), mini);
+        self.emitters_frame(&a, dt, cam, menu, dead, paused, restart, events);
         // the burst
         if let Some(b) = &mut self.burst {
             let ms = dt * 1000.0;
@@ -368,6 +402,122 @@ impl PlayerVis {
         self.wave_mini = if mini { 0.6 } else { 1.0 };
     }
 
+    fn emit(e: &mut Emitter, n: usize, x: f64, y: f64, rng: &mut dyn FnMut(f64, f64) -> f64) {
+        for _ in 0..n {
+            let a = rng(e.angle.0, e.angle.1).to_radians(); let sp = rng(e.speed.0, e.speed.1);
+            let life = rng(e.life.0, e.life.1);
+            let ox = e.spread_x.map_or(0.0, |s| rng(s.0, s.1));
+            e.parts.push(Particle { x: x + ox, y, vx: a.cos() * sp, vy: a.sin() * sp, age: 0.0, life });
+        }
+    }
+
+    /// Particle emitters, the motion streak and the landing dust (`frame` of player_vis.js).
+    fn emitters_frame(&mut self, a: &[f64], dt: f64, cam: (f64, f64), menu: bool, dead: bool, paused: bool, restart: bool, events: &str) {
+        let (x, y, rot) = (a[1], a[0], a[2]);
+        let (wx, wy) = (x, T - y);
+        let (gf, mir, ufo, wave, ship) = (a[11] != 0.0, a[12] != 0.0, a[8] != 0.0, a[6] != 0.0, a[5] != 0.0);
+        let live = !self.ldm && !menu && !dead && !self.hidden;
+        if restart { for e in self.em.iter_mut() { e.parts.clear(); } self.streak.clear(); }
+        let mut rng_state = self.rng;
+        let mut rng = |lo: f64, hi: f64| -> f64 { rng_state ^= rng_state << 13; rng_state ^= rng_state >> 7; rng_state ^= rng_state << 17; lo + (rng_state >> 11) as f64 / (1u64 << 53) as f64 * (hi - lo) };
+        if !live {
+            for i in 0..4 { self.em[i].set(false); }
+            self.streak_active = false;
+            if self.ldm { self.streak.clear(); self.wave.clear(); }
+        } else {
+            let (cs, sn) = (rot.cos(), rot.sin());
+            self.em[0].px = wx - 20.0; self.em[0].py = wy + if gf { -26.0 + if ufo { -5.0 } else { 0.0 } } else { 26.0 + if ufo { 5.0 } else { 0.0 } };
+            let on_g = a[13] != 0.0 && !ship && !wave;
+            self.em[0].set(on_g);
+            let dxo = if wave { 0.0 } else if ufo { 0.0 } else { -24.0 };
+            let dyo = (if wave { 4.0 } else if ufo { 5.0 } else { 18.0 }) * if gf { -1.0 } else { 1.0 };
+            let (fx, fy) = (wx + dxo * cs - dyo * sn, wy + dxo * sn + dyo * cs);
+            let jit = rng(-1.0, 1.0) * 4.0;
+            for i in [1, 2] { self.em[i].px = fx; self.em[i].py = fy + jit; }
+            self.streak_pos = Some((if wave { fx } else if ufo { fx } else { fx + 8.0 }, fy));
+            let trail_mode = ship || ufo || wave;
+            if trail_mode && !self.streak_active { self.streak.clear(); self.streak_active = true; } else if !trail_mode && self.streak_active { self.streak_active = false; self.streak.clear(); }
+            self.streak_update(dt);
+            let fly_on = ship || ufo;
+            self.em[1].set(fly_on);
+            let fly2 = (ship && a[19] != 0.0) || (ufo && a[18] != 0.0);
+            self.em[2].set(fly2);
+            self.em[3].px = wx; self.em[3].py = if gf { T - y + cam.1 + 10.0 } else { T - y + cam.1 + 30.0 };
+            self.em[3].angle = if mir { (245.0, 335.0) } else { (205.0, 295.0) };
+            self.em[3].gx = if mir { 700.0 } else { -700.0 };
+            let drag = ship && a[13] != 0.0 && (if gf { a[14] != 0.0 } else { a[14] == 0.0 });
+            self.em[3].set(drag);
+        }
+        if !paused {
+            let ms = dt * 1000.0;
+            for e in self.em.iter_mut() {
+                if e.on && e.freq > 0.0 { e.acc += ms; while e.acc >= e.freq { e.acc -= e.freq; let (px, py) = (e.px, e.py); Self::emit(e, 1, px, py, &mut rng); } }
+                for p in e.parts.iter_mut() { p.age += ms; p.vx += e.gx * dt; p.vy += e.gy * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+                e.parts.retain(|p| p.age < p.life);
+            }
+        }
+        // landing dust
+        for ev in events.split('|') {
+            let mut it = ev.splitn(2, ':');
+            if it.next() == Some("land") && !self.ldm && !menu {
+                let flipped = it.next().and_then(|s| s.split(',').next()).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0) != 0.0;
+                self.land_idx = !self.land_idx;
+                let i = if self.land_idx { 4 } else { 5 };
+                let (lx, ly) = (x, if flipped { T - y - 30.0 } else { T - y + 30.0 });
+                Self::emit(&mut self.em[i], 10, lx, ly, &mut rng);
+            }
+        }
+        self.rng = rng_state;
+        let main = self.main;
+        let _ = main;
+    }
+
+    fn streak_update(&mut self, dt: f64) {
+        let fade = 1.0 / 0.231;
+        let max_pts = ((0.231 * 60.0 + 2.0).floor() * 5.0) as usize;
+        let Some(pos) = self.streak_pos else { return };
+        let d = dt * fade;
+        for p in self.streak.iter_mut() { p.state -= d; }
+        self.streak.retain(|p| p.state > 0.0);
+        if self.streak_active && self.streak.len() < max_pts {
+            let n = self.streak.len(); let mut add = true;
+            if n > 0 {
+                let last = &self.streak[n - 1];
+                let (dx, dy) = (pos.0 - last.x, pos.1 - last.y); let sq = dx * dx + dy * dy;
+                if sq.sqrt() > 100.0 { self.streak.clear(); }
+                else if sq < 100.0 { add = false; }
+                else if n > 1 { let l2 = &self.streak[n - 2]; let (ex, ey) = (pos.0 - l2.x, pos.1 - l2.y); if ex * ex + ey * ey < 200.0 { add = false; } }
+            }
+            if add { self.streak.push(StreakPt { x: pos.0, y: pos.1, state: 1.0 }); }
+        }
+    }
+
+    fn draw_particles(&self, c: &mut Canvas, assets: &Assets, which: &[usize]) {
+        let Some((img, f)) = self.find(assets, "square.png") else { return };
+        for &i in which {
+            let e = &self.em[i];
+            for p in &e.parts {
+                let t = p.age / p.life;
+                let tint = match e.tint { Tint::None => if i == 0 || i >= 4 { self.main } else { -1 }, Tint::Fixed(c) => c, Tint::Grad(a, b) => mix(a, b, (t * 24.0).round() / 24.0) };
+                let sc = e.scale.0 + (e.scale.1 - e.scale.0) * t;
+                c.frame(img, &f, Sprite { x: p.x + self.ox, y: p.y + self.oy, rot: 0.0, sx: sc, sy: sc, alpha: e.alpha.0 + (e.alpha.1 - e.alpha.0) * t, tint, additive: true, flip_x: false, flip_y: false });
+            }
+        }
+    }
+
+    fn draw_streak(&self, c: &mut Canvas) {
+        if self.streak.len() < 2 { return; }
+        let col = self.second as u32;
+        for i in 0..self.streak.len() - 1 {
+            let (a, b) = (&self.streak[i], &self.streak[i + 1]);
+            let (dx, dy) = (b.x - a.x, b.y - a.y); let len = (dx * dx + dy * dy).sqrt().max(1e-9);
+            let (nx, ny) = (-dy / len * 4.0, dx / len * 4.0);
+            let p = |x: f64, y: f64| (x + self.ox, y + self.oy);
+            let (a1, a2, b1, b2) = (p(a.x + nx, a.y + ny), p(a.x - nx, a.y - ny), p(b.x + nx, b.y + ny), p(b.x - nx, b.y - ny));
+            c.fill_tris(&[[a1.0, a1.1, b1.0, b1.1, a2.0, a2.1], [b1.0, b1.1, b2.0, b2.1, a2.0, a2.1]], col, ((a.state + b.state) * 0.5 * 0.7).clamp(0.0, 1.0), true);
+        }
+    }
+
     fn kill(&mut self, a: &[f64]) {
         let (sx, sy) = (a[1] + self.ox, T - a[0] + self.oy);
         let mut parts = Vec::new();
@@ -385,6 +535,8 @@ impl PlayerVis {
     /// The icon layers, in world space (drawn after the level's normal layer).
     pub fn draw_world(&self, c: &mut Canvas, assets: &Assets) {
         if self.hidden { return; }
+        self.draw_streak(c);
+        self.draw_particles(c, assets, &[0, 1, 2, 3]);
         let mut items: Vec<&Item> = self.items.iter().collect();
         items.sort_by(|a, b| a.depth.partial_cmp(&b.depth).unwrap_or(std::cmp::Ordering::Equal).then(a.order.cmp(&b.order)));
         for it in items {
@@ -396,7 +548,8 @@ impl PlayerVis {
     }
 
     /// The wave trail (drawn after the top layer).
-    pub fn draw_top(&self, c: &mut Canvas) {
+    pub fn draw_top(&self, c: &mut Canvas, assets: &Assets) {
+        self.draw_particles(c, assets, &[4, 5]);
         if self.wave.len() < 2 || self.hidden { return; }
         let m = self.wave_mini;
         let (hw, ghw) = (7.0 * m, 14.0 * m);
