@@ -827,7 +827,8 @@ impl Game {
         }
         let mp = self.mirror_progress();
         let shift = self.fx.bg.update(cam_x, cam_y, mp);
-        if let Some(g) = self.fx.ground.as_mut() { if shift != 0.0 { g.shift(shift); } self.fx.ground_frame = g.update(cam_x, cam_y, sx, sy, has2); }
+        let ground_cam = self.fx.slide.unwrap_or(cam_x); // during the slide-in the ground follows `_slideGroundX`
+        if let Some(g) = self.fx.ground.as_mut() { if shift != 0.0 { g.shift(shift); } self.fx.ground_frame = g.update(ground_cam, cam_y, sx, sy, has2); }
     }
 
     pub fn render_restart(&mut self) {

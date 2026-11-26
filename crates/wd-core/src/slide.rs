@@ -35,8 +35,8 @@ impl Game {
         let speed = if self.g.player_speed.is_nan() { crate::physics::speed_portal::ONE_TIMES } else { self.g.player_speed };
         self.e.player_world_x += delta * speed * D;
         let ground_x = ground_x + delta * speed * D * 0.25;
+        // `_cameraX` stays where `_startGame` put it: objects and background stand still, only the ground moves (`_slideGroundX`)
         self.fx.slide = Some(ground_x);
-        self.camera_x = ground_x;
         { let mut sim = Sim::new(&mut self.p, &mut self.g, &mut self.e); sim.update_ground_rotation(delta * D); }
         self.update_visibility(self.camera_x);
         self.fx.player_x = self.e.player_world_x;
