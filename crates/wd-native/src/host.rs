@@ -40,12 +40,12 @@ pub struct Host {
 impl Host {
     pub fn new(assets: Assets) -> Result<Host, String> {
         let root = assets.root.clone();
+        core::wd_ui_new(crate::canvas::W as f64);
         let ui = UiDraw::new(&root)?;
         let levels = levels::load(&root);
         let hidden = ["level_22", "level_67"];
         let visible: Vec<usize> = (0..levels.len()).filter(|&i| !hidden.contains(&levels[i].id.as_str())).collect();
-        let mut game = Game::new(assets);
-        core::wd_ui_new(crate::canvas::W as f64);
+        let game = Game::new(assets);
         let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0) };
         host.push_levels(0);
         host.load_level("1")?;
