@@ -16,6 +16,20 @@ Build (no Xcode license needed, wasm only):
     FUZZ=20 node tools/compare-triggers.mjs 1 - 3000  # random trigger-heavy levels
     node tools/compare-sprites.mjs                    # which sprites every object creates (visual half of _spawnObject)
 
+Build on Windows (PowerShell):
+
+    winget install Rustlang.Rustup          # or download rustup-init.exe from https://rustup.rs
+    winget install OpenJS.NodeJS            # only needed for the comparison tools in `tools/`
+    rustup target add wasm32-unknown-unknown
+    cargo build --release --target wasm32-unknown-unknown
+    copy target\wasm32-unknown-unknown\release\wd_core.wasm web\wd_core.wasm
+
+The MSVC build tools are not needed: the target is wasm. Then serve the folder and open the game
+(`py -m http.server 8123`, or `npx serve .`, then `http://localhost:8123/web/`). The game is the same
+wasm plus `web/*.js` in every browser; the comparison tools run unchanged with `node tools\compare-run.mjs 1 20 2000 - start`.
+Use `set RUSTUP_HOME=...` / `set CARGO_HOME=...` only if you want a project-local toolchain like the macOS/Linux lines above.
+
+
 ## Status
 - [x] Level parsing (`level.js` parseLevel/parseObject): identical on all 31 shipped levels (373,603 objects) + edge cases
 - [x] Cube jump/gravity update (`updateJump`, cube path + dash + slope boost): identical on 200,000 random states (`node tools/compare-jump.mjs`)
