@@ -65,6 +65,8 @@ impl Host {
         Ok(host)
     }
 
+    fn pv_main(&self) -> u32 { i64::from_str_radix(self.store.get("iconMainColor").unwrap_or("04FF00"), 16).unwrap_or(0x04ff00) as u32 }
+    fn pv_second(&self) -> u32 { i64::from_str_radix(self.store.get("iconSecondaryColor").unwrap_or("00FBFF"), 16).unwrap_or(0x00fbff) as u32 }
     fn menu_music_enabled(&self) -> bool { self.store.get("menuMusicEnabled").map_or(true, |v| v == "true") }
     fn song_file(&self) -> Option<String> {
         let l = self.levels.iter().find(|l| l.id == format!("level_{}", self.level_id))?;
@@ -278,6 +280,10 @@ impl Host {
             if (r >> 30) & 1 != 0 && !self.menu_mode { self.restarted(); }
         }
         if self.sliding && core::wd_game_slide_state() == 2 { self.sliding = false; core::wd_ui_hud_pause(1); self.start_music(); }
+        if !self.paused { self.game.fx.update(dt); }
+        if !self.won && self.game.fx.active { self.game.fx.reset(); }
+        self.game.shake = if self.paused { (0.0, 0.0) } else { self.game.fx.shake() };
+        { let (ex, ey, m) = (core::wd_game_scene(5), core::wd_game_scene(4), self.pv_main()); self.game.fx.portal_update(if self.paused { 0.0 } else { dt }, ex, ey, m, !self.menu_mode && self.store.get_f("opt_enableLDM", 0.0) == 0.0); }
         self.game.pv_step(dt / 1000.0, self.paused);
         let info = self.game.draw(canvas);
         self.cam = (info.cam_x, info.cam_y);
@@ -298,16 +304,21 @@ impl Host {
                     if !self.practice { core::wd_coins_commit(); self.flush_coins(); }
                     self.store.set(&self.best_key(), "100");
                     self.audio.effect("endStart_02", 0.8);
-                    core::wd_ui_banner(self.practice as u32);
-                }
-                if self.win_stage == 1 && self.win_clock >= 2800.0 {
-                    self.win_stage = 2;
-                    let main = self.levels.iter().any(|l| l.id == format!("level_{}", self.level_id));
-                    core::wd_ui_end_coins(main as u32, core::wd_game_coin_count(main as u32), 0, 0);
-                    let msg = "Awesome!";
-                    unsafe { core::wd_ui_end_layer(self.attempts, self.jumps, self.play_time, self.practice as u32, msg.as_ptr(), msg.len()); }
+                    let (m, s2) = (self.pv_main(), self.pv_second());
+                    let o = crate::endfx::Opts { px: core::wd_game_scene(5) - core::wd_game_scene(0), py: 460.0 - core::wd_game_scene(4) + core::wd_game_scene(1), main: m, second: s2, ldm: self.store.get_f("opt_enableLDM", 0.0) != 0.0 };
+                    self.game.fx.begin(o);
                 }
             }
+        }
+        if self.game.fx.text_due { self.game.fx.text_due = false; core::wd_ui_banner(self.practice as u32); }
+        if self.game.fx.end_due {
+            self.game.fx.end_due = false;
+            let main = self.levels.iter().any(|l| l.id == format!("level_{}", self.level_id));
+            let cnt = core::wd_game_coin_count(main as u32);
+            core::wd_ui_end_coins(main as u32, cnt, 0, 0);
+            let msgs = ["Awesome!", "Good\nJob!", "Well\nDone!", "Impressive!", "Amazing!", "Incredible!", "Skillful!", "Brilliant!", "Not\nbad!", "Warp\nSpeed!", "Challenge\nBreaker!", "Reflex\nMaster!", "I am\nspeechless...", "You are...\nThe One!", "How is this\npossible!?", "You beat\nme..."];
+            let msg = msgs[(now as usize / 7) % msgs.len()];
+            unsafe { core::wd_ui_end_layer(self.attempts, self.jumps, self.play_time, self.practice as u32, msg.as_ptr(), msg.len()); }
         }
         let assets = &self.game.assets;
         self.ui.draw(canvas, assets, &self.game.pv);

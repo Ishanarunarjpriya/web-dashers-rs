@@ -22,6 +22,9 @@ pub struct Game {
     pub held: bool,
     pub menu: bool,
     pub pv: PlayerVis,
+    pub fx: crate::endfx::EndFx,
+    pub shake: (f64, f64),
+    pub ldm: bool,
     pub restart_flag: bool,
     pub level: String,
     pub music_offset: f64,
@@ -31,7 +34,7 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(assets: Assets) -> Game { Game { assets, bg: None, ground: None, ground2: None, table: Vec::new(), held: false, menu: false, pv: PlayerVis::new(), restart_flag: true, level: String::new(), music_offset: 0.0, coins: (String::new(), String::new(), 0.0, 0.0), ground_w: 1012.0, has_ground2: false } }
+    pub fn new(assets: Assets) -> Game { Game { assets, bg: None, ground: None, ground2: None, table: Vec::new(), held: false, menu: false, pv: PlayerVis::new(), fx: crate::endfx::EndFx::new(), shake: (0.0, 0.0), ldm: false, restart_flag: true, level: String::new(), music_offset: 0.0, coins: (String::new(), String::new(), 0.0, 0.0), ground_w: 1012.0, has_ground2: false } }
 
     /// `loadLevelText` of main.js for a shipped level.
     pub fn load_level(&mut self, id: &str) -> Result<(), String> {
@@ -102,6 +105,7 @@ impl Game {
         let (shake_x, shake_y) = (buf[31], buf[32]);
         let menu_hidden = false;
         let _ = menu_hidden;
+        let (shake_x, shake_y) = (shake_x + self.shake.0, shake_y + self.shake.1);
         let (ox, oy) = (-cam_x + shake_x, cam_y + shake_y);
         c.fill(buf[22] as u32);
         // background: the image over its own mirror, tiled
@@ -118,6 +122,7 @@ impl Game {
                 xx += tw;
             }
         }
+        if !self.menu { self.fx.draw_back(c); }
         let base = 40 + tiles;
         let mut i = 0;
         let mut draw_sprite = |c: &mut Canvas, o: usize, table: &Vec<Option<(String, Frame)>>, assets: &Assets| {
@@ -127,6 +132,9 @@ impl Game {
             c.frame(&sh.img, f, Sprite { x: buf[o + 1] + ox, y: buf[o + 2] + oy, rot: buf[o + 3], sx: buf[o + 4], sy: buf[o + 5], alpha: buf[o + 6], tint: buf[o + 7] as i64, additive: buf[o + 8] == 1.0, flip_x: fl & 1 != 0, flip_y: fl & 2 != 0 });
         };
         while i < count { let o = base + i * 12; if buf[o + 10] == 1.0 { break; } draw_sprite(c, o, &self.table, &self.assets); i += 1; }
+        let on = !self.menu;
+        self.fx.draw_wall(c, &self.assets, ox, oy, core::wd_game_scene(5), core::wd_game_scene(4), 0x04ff00, on);
+        if on { self.fx.draw_portal_particles(c, &self.assets, ox, oy); }
         if !self.menu { self.pv.draw_world(c, &self.assets); }
         while i < count { let o = base + i * 12; draw_sprite(c, o, &self.table, &self.assets); i += 1; }
         if !self.menu { self.pv.draw_top(c); }
@@ -141,7 +149,7 @@ impl Game {
                 if buf[17] != 0.0 { c.image(g, tx, buf[16] - g.h as f64, tint, true); }
             }
         }
-        if !self.menu { self.pv.draw_screen(c, &self.assets); }
+        if !self.menu { self.pv.draw_screen(c, &self.assets); self.fx.draw_front(c, &self.assets); }
         RenderInfo { cam_x, cam_y, dead: buf[6] != 0.0, percent: buf[30] * 100.0 }
     }
 }

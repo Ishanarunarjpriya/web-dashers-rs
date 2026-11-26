@@ -276,3 +276,34 @@ impl Canvas {
         } }
     }
 }
+
+impl Canvas {
+    /// A filled circle added to what is there (`lighter`), or alpha blended.
+    pub fn circle_fill_mode(&mut self, cx: f64, cy: f64, radius: f64, color: u32, alpha: f64, additive: bool) {
+        let (r, g, b) = ((color >> 16) & 255, (color >> 8) & 255, color & 255);
+        let (x0, x1) = (((cx - radius).floor() as i64).max(self.clip.0), ((cx + radius).ceil() as i64).min(self.clip.2));
+        let (y0, y1) = (((cy - radius).floor() as i64).max(self.clip.1), ((cy + radius).ceil() as i64).min(self.clip.3));
+        for py in y0..y1 { for px in x0..x1 {
+            let d = ((px as f64 + 0.5 - cx).powi(2) + (py as f64 + 0.5 - cy).powi(2)).sqrt();
+            let cov = (radius - d + 0.5).clamp(0.0, 1.0);
+            if cov <= 0.0 { continue; }
+            let a = (alpha.clamp(0.0, 1.0) * cov * 255.0) as u32;
+            put(&mut self.px[py as usize * W + px as usize], r * a / 255, g * a / 255, b * a / 255, a, additive);
+        } }
+    }
+
+    /// A circle outline of the given line width, added to what is there.
+    pub fn circle_stroke_add(&mut self, cx: f64, cy: f64, radius: f64, width: f64, color: u32, alpha: f64) {
+        let (r, g, b) = ((color >> 16) & 255, (color >> 8) & 255, color & 255);
+        let outer = radius + width / 2.0;
+        let (x0, x1) = (((cx - outer).floor() as i64).max(self.clip.0), ((cx + outer).ceil() as i64).min(self.clip.2));
+        let (y0, y1) = (((cy - outer).floor() as i64).max(self.clip.1), ((cy + outer).ceil() as i64).min(self.clip.3));
+        for py in y0..y1 { for px in x0..x1 {
+            let d = ((px as f64 + 0.5 - cx).powi(2) + (py as f64 + 0.5 - cy).powi(2)).sqrt();
+            let cov = (width / 2.0 - (d - radius).abs() + 0.5).clamp(0.0, 1.0);
+            if cov <= 0.0 { continue; }
+            let a = (alpha.clamp(0.0, 1.0) * cov * 255.0) as u32;
+            put(&mut self.px[py as usize * W + px as usize], r * a / 255, g * a / 255, b * a / 255, a, true);
+        } }
+    }
+}

@@ -3,6 +3,7 @@ mod assets;
 mod audio;
 mod store;
 mod canvas;
+mod endfx;
 mod fonts;
 mod game;
 mod garage;
