@@ -91,7 +91,7 @@ impl Host {
         self.audio.stop_music();
         // an official song by name; a custom song is not downloaded here
         self.current_song = None;
-        if song_id <= 0 { if let Some(lv) = self.levels.iter().find(|x| x.name == song_name) { let f = lv.song_file.clone().unwrap_or_else(|| lv.name.replace(' ', "")); self.current_song = std::fs::read(self.game.assets.root.join("music").join(format!("{f}.mp3"))).ok().map(std::sync::Arc::new); } }
+        if song_id <= 0.0 { if let Some(lv) = self.levels.iter().find(|x| x.name == song_name) { let f = lv.song_file.clone().unwrap_or_else(|| lv.name.replace(' ', "")); self.current_song = std::fs::read(self.game.assets.root.join("music").join(format!("{f}.mp3"))).ok().map(std::sync::Arc::new); } }
         self.net.active = true; self.net.name = l.get_str("levelName").unwrap_or("Level").to_string(); self.online_offset = 0.0;
         self.created_play_id = Some(id.to_string());
         core::wd_em_close();
