@@ -2,6 +2,7 @@
 use crate::assets::{load_png, Assets, Frame, Image};
 use crate::canvas::{Canvas, Sprite, H, W};
 use std::path::Path;
+use crate::player_vis::PlayerVis;
 use wd_core as core;
 
 fn result(n: usize) -> String {
@@ -20,13 +21,15 @@ pub struct Game {
     table: Vec<Option<(String, Frame)>>,
     pub held: bool,
     pub menu: bool,
+    pub pv: PlayerVis,
+    pub restart_flag: bool,
     pub level: String,
     pub ground_w: f64,
     pub has_ground2: bool,
 }
 
 impl Game {
-    pub fn new(assets: Assets) -> Game { Game { assets, bg: None, ground: None, ground2: None, table: Vec::new(), held: false, menu: false, level: String::new(), ground_w: 1012.0, has_ground2: false } }
+    pub fn new(assets: Assets) -> Game { Game { assets, bg: None, ground: None, ground2: None, table: Vec::new(), held: false, menu: false, pv: PlayerVis::new(), restart_flag: true, level: String::new(), ground_w: 1012.0, has_ground2: false } }
 
     /// `loadLevelText` of main.js for a shipped level.
     pub fn load_level(&mut self, id: &str) -> Result<(), String> {
@@ -79,6 +82,15 @@ impl Game {
         core::wd_game_update(dt_ms, self.held as u32);
     }
 
+    /// `pvStep`: the player's layers for this frame (`dt` seconds).
+    pub fn pv_step(&mut self, dt: f64, paused: bool) {
+        let (cx, cy) = (core::wd_game_scene(0), core::wd_game_scene(1));
+        let hidden = false;
+        let mp = core::wd_mirror_progress();
+        self.pv.frame(&self.assets, if paused { 0.0 } else { dt }, (cx, cy), self.menu, hidden, self.restart_flag, mp);
+        self.restart_flag = false;
+    }
+
     pub fn draw(&mut self, c: &mut Canvas) -> RenderInfo {
         let n = core::wd_render_build();
         let buf = unsafe { std::slice::from_raw_parts(core::wd_render_ptr(), n) };
@@ -111,15 +123,9 @@ impl Game {
             c.frame(&sh.img, f, Sprite { x: buf[o + 1] + ox, y: buf[o + 2] + oy, rot: buf[o + 3], sx: buf[o + 4], sy: buf[o + 5], alpha: buf[o + 6], tint: buf[o + 7] as i64, additive: buf[o + 8] == 1.0, flip_x: fl & 1 != 0, flip_y: fl & 2 != 0 });
         };
         while i < count { let o = base + i * 12; if buf[o + 10] == 1.0 { break; } draw_sprite(c, o, &self.table, &self.assets); i += 1; }
-        // player (a plain square until the icon drawing is ported)
-        if buf[27] == 0.0 && !self.menu {
-            let px = buf[3] - cam_x + shake_x;
-            let py = 460.0 - buf[4] + cam_y + shake_y;
-            let s = if buf[7] != 0.0 { 18.0 } else { 30.0 };
-            c.rect(px - s, py - s, s * 2.0, s * 2.0, 0x04ff00, 1.0);
-            c.rect(px - s + 4.0, py - s + 4.0, s * 2.0 - 8.0, s * 2.0 - 8.0, 0x00fbff, 1.0);
-        }
+        if !self.menu { self.pv.draw_world(c, &self.assets); }
         while i < count { let o = base + i * 12; draw_sprite(c, o, &self.table, &self.assets); i += 1; }
+        if !self.menu { self.pv.draw_top(c); }
         // ground
         if let Some(g) = &self.ground {
             let (gy, tint) = (buf[15], buf[23] as i64);
@@ -131,6 +137,7 @@ impl Game {
                 if buf[17] != 0.0 { c.image(g, tx, buf[16] - g.h as f64, tint, true); }
             }
         }
+        if !self.menu { self.pv.draw_screen(c, &self.assets); }
         RenderInfo { cam_x, cam_y, dead: buf[6] != 0.0, percent: buf[30] * 100.0 }
     }
 }

@@ -239,3 +239,40 @@ impl Canvas {
         }
     }
 }
+
+impl Canvas {
+    /// Fills a set of triangles as one shape (overlaps are not blended twice), like one canvas path.
+    pub fn fill_tris(&mut self, tris: &[[f64; 6]], color: u32, alpha: f64, additive: bool) {
+        if tris.is_empty() || alpha <= 0.0 { return; }
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for t in tris { for i in 0..3 { x0 = x0.min(t[i * 2]); x1 = x1.max(t[i * 2]); y0 = y0.min(t[i * 2 + 1]); y1 = y1.max(t[i * 2 + 1]); } }
+        let bx0 = (x0.floor() as i64).max(self.clip.0); let by0 = (y0.floor() as i64).max(self.clip.1);
+        let bx1 = (x1.ceil() as i64).min(self.clip.2); let by1 = (y1.ceil() as i64).min(self.clip.3);
+        if bx0 >= bx1 || by0 >= by1 { return; }
+        let (mw, mh) = ((bx1 - bx0) as usize, (by1 - by0) as usize);
+        let mut mask = vec![0u8; mw * mh];
+        for t in tris {
+            let (ax, ay, bx, by, cx, cy) = (t[0], t[1], t[2], t[3], t[4], t[5]);
+            let area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+            if area.abs() < 1e-9 { continue; }
+            let (tx0, tx1) = (ax.min(bx).min(cx).floor().max(bx0 as f64) as i64, ax.max(bx).max(cx).ceil().min(bx1 as f64) as i64);
+            let (ty0, ty1) = (ay.min(by).min(cy).floor().max(by0 as f64) as i64, ay.max(by).max(cy).ceil().min(by1 as f64) as i64);
+            for py in ty0..ty1 {
+                for px in tx0..tx1 {
+                    let (qx, qy) = (px as f64 + 0.5, py as f64 + 0.5);
+                    let w0 = ((bx - ax) * (qy - ay) - (by - ay) * (qx - ax)) / area;
+                    let w1 = ((cx - bx) * (qy - by) - (cy - by) * (qx - bx)) / area;
+                    let w2 = ((ax - cx) * (qy - cy) - (ay - cy) * (qx - cx)) / area;
+                    let e = 0.5 / area.abs().sqrt().max(1.0);
+                    if w0 >= -e && w1 >= -e && w2 >= -e { mask[(py - by0) as usize * mw + (px - bx0) as usize] = 255; }
+                }
+            }
+        }
+        let (r, g, b) = ((color >> 16) & 255, (color >> 8) & 255, color & 255);
+        for my in 0..mh { for mx in 0..mw {
+            if mask[my * mw + mx] == 0 { continue; }
+            let a = (alpha.clamp(0.0, 1.0) * 255.0) as u32;
+            put(&mut self.px[(by0 as usize + my) * W + bx0 as usize + mx], r * a / 255, g * a / 255, b * a / 255, a, additive);
+        } }
+    }
+}

@@ -5,6 +5,8 @@ mod fonts;
 mod game;
 mod host;
 mod levels;
+mod plist;
+mod player_vis;
 mod ui_draw;
 
 use canvas::{Canvas, H, W};

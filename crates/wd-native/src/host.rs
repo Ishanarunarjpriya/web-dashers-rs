@@ -94,6 +94,7 @@ impl Host {
         core::wd_menu_mode(0);
         core::wd_game_begin_slide();
         self.sliding = true;
+        self.game.restart_flag = true;
         core::wd_ui_hud();
         core::wd_ui_hud_pause(0);
         core::wd_ui_attempt(1, core::wd_game_scene(0));
@@ -116,6 +117,7 @@ impl Host {
     }
 
     fn restarted(&mut self) {
+        self.game.restart_flag = true;
         self.attempts += 1;
         core::wd_ui_attempt(self.attempts, core::wd_game_scene(0));
     }
@@ -215,6 +217,7 @@ impl Host {
             if (r >> 30) & 1 != 0 && !self.menu_mode { self.restarted(); }
         }
         if self.sliding && core::wd_game_slide_state() == 2 { self.sliding = false; core::wd_ui_hud_pause(1); }
+        self.game.pv_step(dt / 1000.0, self.paused);
         let info = self.game.draw(canvas);
         self.cam = (info.cam_x, info.cam_y);
         self.ui.cam = self.cam;
