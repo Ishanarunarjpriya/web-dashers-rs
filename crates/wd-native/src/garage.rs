@@ -63,7 +63,7 @@ impl Host {
         let mut name: String = self.store.get("playerName").unwrap_or("Player").chars().filter(|c| *c != '\r' && *c != '\n').take(20).collect();
         if name.trim().is_empty() { name = "Player".into(); }
         set_kv("playerName", &name);
-        set_kv("customCubeIcon", "0");
+        set_kv("customCubeIcon", if self.game.pv.has_custom() { "1" } else { "0" });
         core::wd_gar_open();
     }
 
@@ -84,10 +84,40 @@ impl Host {
         core::wd_gar_rebuild();
     }
 
+    fn apply_custom_cube(&mut self, img: crate::assets::Image) {
+        let hd = crate::assets::cover_resize(&img, 256);
+        let small = crate::assets::cover_resize(&img, 60);
+        let key = "/custom_cube_icon_hd";
+        unsafe { core::wd_ui_size(key.as_ptr(), key.len(), 256.0, 256.0); }
+        self.ui.set_standalone("custom_cube_icon_hd", Some(hd));
+        self.game.pv.set_custom(Some(small));
+    }
+
+    /// Loads the cube imported earlier.
+    pub(crate) fn load_custom_cube(&mut self) {
+        if let Ok(img) = crate::assets::load_png(&self.store.dir().join("custom_cube.png")) { self.apply_custom_cube(img); }
+    }
+
+    /// `GaragePickFile`: a png from the file dialog, square-cropped to 256 px.
+    pub(crate) fn garage_pick(&mut self) {
+        let Some(path) = rfd::FileDialog::new().add_filter("PNG image", &["png"]).set_title("Pick a cube icon").pick_file() else { return };
+        if std::fs::metadata(&path).map_or(0, |m| m.len()) > 8 * 1024 * 1024 { eprintln!("That image is too large. Please pick one under 8MB."); return; }
+        match crate::assets::load_png(&path) {
+            Ok(img) => {
+                let hd = crate::assets::cover_resize(&img, 256);
+                let _ = crate::assets::save_png(&self.store.dir().join("custom_cube.png"), &hd);
+                self.apply_custom_cube(hd);
+                set_kv("customCubeIcon", "1");
+                core::wd_gar_rebuild();
+            }
+            Err(e) => eprintln!("Could not read that image: {e}"),
+        }
+    }
+
     pub(crate) fn garage_save(&mut self) {
         let changes = text(core::wd_gar_changes());
         for line in changes.lines() {
-            if let Some(i) = line.find('=') { let (k, v) = (&line[..i], &line[i + 1..]); if k != "customCubeIconSrc" { self.store.set(k, v); } }
+            if let Some(i) = line.find('=') { let (k, v) = (&line[..i], &line[i + 1..]); if k == "customCubeIconSrc" { if v.is_empty() { let _ = std::fs::remove_file(self.store.dir().join("custom_cube.png")); self.game.pv.set_custom(None); } } else { self.store.set(k, v); } }
         }
         self.pv_cfg();
     }

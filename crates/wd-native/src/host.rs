@@ -16,6 +16,10 @@ fn text(n: usize) -> String {
     unsafe { String::from_utf8_lossy(std::slice::from_raw_parts(p, n)).into_owned() }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum FadeCmd { None, QuitBack }
+pub struct Fade { from: f64, to: f64, t0: f64, ms: f64, cmd: FadeCmd }
+
 pub struct Host {
     pub game: Game,
     pub(crate) ui: UiDraw,
@@ -50,6 +54,11 @@ pub struct Host {
     pub(crate) ed_frames_ver: u32,
     pub(crate) created_play_id: Option<String>,
     pub(crate) t_now: f64,
+    pub(crate) fade_a: f64,
+    pub(crate) fade: Option<Fade>,
+    pub(crate) pending_created: Option<(String, String)>,
+    pub(crate) ed_custom_song: Option<std::sync::Arc<Vec<u8>>>,
+    pub(crate) ed_song_key: String,
     pub(crate) current_song: Option<std::sync::Arc<Vec<u8>>>,
     pub(crate) online_offset: f64,
     pub(crate) last_save: f64,
@@ -64,8 +73,9 @@ impl Host {
         let hidden = ["level_22", "level_67"];
         let visible: Vec<usize> = (0..levels.len()).filter(|&i| !hidden.contains(&levels[i].id.as_str())).collect();
         let game = Game::new(assets);
-        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), anims_sent: false, net: Net::new(), editor_on: false, ed_id: String::new(), ed_keys: 0, ed_jump: false, ed_pt_event: 0.0, ed_frames_ver: 0, created_play_id: None, t_now: 0.0, current_song: None, online_offset: 0.0, last_save: 0.0 };
+        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), anims_sent: false, net: Net::new(), editor_on: false, ed_id: String::new(), ed_keys: 0, ed_jump: false, ed_pt_event: 0.0, ed_frames_ver: 0, created_play_id: None, t_now: 0.0, fade_a: 0.0, fade: None, pending_created: None, ed_custom_song: None, ed_song_key: String::new(), current_song: None, online_offset: 0.0, last_save: 0.0 };
         host.pv_cfg();
+        host.load_custom_cube();
         host.audio.user_music = host.store.get_f("userMusicVol", 1.0);
         host.audio.user_sfx = host.store.get_f("userSfxVol", 1.0);
         host.send_cp_textures();
@@ -195,8 +205,25 @@ impl Host {
     }
     fn do_resume(&mut self) { if !self.paused { return; } self.paused = false; self.audio.resume(); unsafe { core::wd_ui_pause(0, "".as_ptr(), 0, 0.0, 0.0); } }
 
+    pub(crate) fn fade_to(&mut self, to: f64, ms: f64, cmd: FadeCmd) {
+        if ms <= 0.0 { self.fade_a = to; self.fade = None; return; }
+        self.fade = Some(Fade { from: self.fade_a, to, t0: self.t_now, ms, cmd });
+    }
+
+    fn step_fade(&mut self) {
+        let Some(f) = &self.fade else { return };
+        let k = ((self.t_now - f.t0) / f.ms).clamp(0.0, 1.0);
+        self.fade_a = f.from + (f.to - f.from) * k;
+        if k >= 1.0 { let cmd = f.cmd; self.fade = None; if cmd == FadeCmd::QuitBack { self.quit_back(); self.fade_to(0.0, 400.0, FadeCmd::None); } }
+    }
+
+    /// The pause menu quits at once; the level-complete menu fades out for 400 ms and back in.
     fn quit_to_menu(&mut self) {
         self.audio.effect("quitSound_01", 1.0);
+        if self.won { self.audio.stop_music(); self.fade_to(1.0, 400.0, FadeCmd::QuitBack); } else { self.quit_back(); }
+    }
+
+    fn quit_back(&mut self) {
         self.save_best();
         self.audio.stop_music();
         if self.menu_music_enabled() { self.audio.start_menu_music(); }
@@ -245,6 +272,7 @@ impl Host {
                 "Volume" => { let (m, s) = (core::wd_ui_option(0), core::wd_ui_option(1)); self.audio.set_music_volume(m); self.audio.user_sfx = s; self.store.set("userMusicVol", &m.to_string()); self.store.set("userSfxVol", &s.to_string()); }
                 "ToggleMenuMusic" => { let on = core::wd_ui_option(2) != 0.0; self.store.set("menuMusicEnabled", if on { "true" } else { "false" }); if on { if !self.audio.playing_menu() { self.audio.start_menu_music(); } } else { self.audio.stop_music(); } }
                 e if e.starts_with("Sfx(") => { let n = &e[5..e.len() - 2]; self.audio.effect(n, 1.0); }
+                "Pop(\"GaragePickFile\", 0)" => self.garage_pick(),
                 "Garage" | "Creator" => { if ev == "Creator" { self.creator_event(&ev); } else { self.garage_open(); } }
                 e if e.starts_with("Pop(\"Em") || e.starts_with("Pop(\"Ed") => { self.creator_event(e); }
                 e if e.starts_with("Pop(\"") && self.online_event(e) => {}
@@ -372,6 +400,8 @@ impl Host {
         }
         let assets = &self.game.assets;
         self.ui.draw(canvas, assets, &self.game.pv);
+        if self.fade_a > 0.0 { canvas.fill_round(0.0, 0.0, crate::canvas::W as f64, crate::canvas::H as f64, 0.0, 0, self.fade_a.min(1.0), crate::canvas::Mat::id()); }
+        self.step_fade();
         self.handle_ui();
         if now - self.last_save > 2000.0 { self.last_save = now; self.store.flush(); }
     }

@@ -11,3 +11,4 @@ softbuffer = "0.4"
 png = "0.17"
 rodio = { version = "0.20", default-features = false, features = ["symphonia-mp3", "vorbis"] }
 ureq = { version = "2", default-features = false, features = ["tls"] }
+rfd = "0.15"

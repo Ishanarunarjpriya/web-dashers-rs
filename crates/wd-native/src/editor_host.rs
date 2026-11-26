@@ -89,13 +89,32 @@ impl Host {
         let (txt, song_id) = (l.get_str("levelString").unwrap_or("").to_string(), l.get_num("songId").unwrap_or(-1.0));
         let song_name = l.get_str("song").unwrap_or("").to_string();
         self.audio.stop_music();
-        // an official song by name; a custom song is not downloaded here
         self.current_song = None;
-        if song_id <= 0.0 { if let Some(lv) = self.levels.iter().find(|x| x.name == song_name) { let f = lv.song_file.clone().unwrap_or_else(|| lv.name.replace(' ', "")); self.current_song = std::fs::read(self.game.assets.root.join("music").join(format!("{f}.mp3"))).ok().map(std::sync::Arc::new); } }
-        self.net.active = true; self.net.name = l.get_str("levelName").unwrap_or("Level").to_string(); self.online_offset = 0.0;
+        self.net.name = l.get_str("levelName").unwrap_or("Level").to_string();
+        if song_id > 0.0 {
+            // a downloaded custom song
+            let sid = format!("{}", song_id as i64);
+            if let Some(b) = self.cached_song(&sid) { self.current_song = Some(std::sync::Arc::new(b)); }
+            else { self.pending_created = Some((id.to_string(), txt)); self.request_custom_song(sid, 1); return; }
+        } else if let Some(lv) = self.levels.iter().find(|x| x.name == song_name) {
+            let f = lv.song_file.clone().unwrap_or_else(|| lv.name.replace(' ', ""));
+            self.current_song = std::fs::read(self.game.assets.root.join("music").join(format!("{f}.mp3"))).ok().map(std::sync::Arc::new);
+        }
+        self.finish_play_created(id, &txt);
+    }
+
+    pub(crate) fn finish_play_created(&mut self, id: &str, txt: &str) {
+        self.net.active = true; self.online_offset = 0.0;
         self.created_play_id = Some(id.to_string());
         core::wd_em_close();
-        if let Err(e) = self.play_text(id, &txt) { eprintln!("{e}"); }
+        if let Err(e) = self.play_text(id, txt) { eprintln!("{e}"); }
+    }
+
+    /// A copy of an online level in My Levels.
+    pub(crate) fn add_copied_level(&mut self, l: &crate::online_host::OLevel, text: &str) {
+        let id = self.next_local_id();
+        let obj = format!("{{\"levelName\":{},\"song\":{},\"songId\":-1,\"levelId\":null,\"levelString\":{},\"levelLength\":{},\"normalBest\":0,\"practiceBest\":0,\"description\":{},\"version\":1,\"status\":\"Copy\",\"createdId\":{},\"lastModified\":0}}", Host::json_str(&l.name), Host::json_str(&l.song_name), Host::json_str(text), l.length, Host::json_str(&l.desc), Host::json_str(&id));
+        let mut items = self.created_raw(); items.push(obj); self.write_created(&items);
     }
 
     pub(crate) fn start_editor(&mut self, level: &str, id: &str) -> Result<(), String> {
@@ -150,7 +169,12 @@ impl Host {
                 let pid = core::wd_ed_pending_song();
                 let sid = if pid.is_nan() { id } else { pid };
                 let idx = (-sid - 1.0).max(0.0) as usize;
-                if sid <= 0.0 { if let Some(lv) = self.levels.get(idx) { let f = lv.song_file.clone().unwrap_or_else(|| lv.name.replace(' ', "")); let off = self.game.music_offset + core::wd_ed_pt(3); self.audio.start_song(&f, off); } }
+                if sid > 0.0 {
+                    let key = format!("{}", sid as i64);
+                    if let Some(b) = self.ed_custom_song.clone().filter(|_| self.ed_song_key == key) { let off = self.game.music_offset + core::wd_ed_pt(3); self.audio.start_song_bytes(b, off); }
+                    else if let Some(b) = self.cached_song(&key) { self.ed_song_key = key; let a = std::sync::Arc::new(b); self.ed_custom_song = Some(a.clone()); let off = self.game.music_offset + core::wd_ed_pt(3); self.audio.start_song_bytes(a, off); }
+                    else { self.ed_song_key = key.clone(); self.request_custom_song(key, 0); }
+                } else { if let Some(lv) = self.levels.get(idx) { let f = lv.song_file.clone().unwrap_or_else(|| lv.name.replace(' ', "")); let off = self.game.music_offset + core::wd_ed_pt(3); self.audio.start_song(&f, off); } }
             } else if core::wd_ed_pt(1) != 0.0 { self.audio.pause(); } else { self.audio.stop_music(); }
         }
         if core::wd_ed_pt(1) != 0.0 { core::wd_trig_time(self.t_now); }

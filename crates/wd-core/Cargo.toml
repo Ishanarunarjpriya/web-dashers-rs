@@ -8,3 +8,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libm = "0.2"

@@ -86,3 +86,35 @@ impl Assets {
         Ok(Assets { root, sheets })
     }
 }
+
+/// Writes an image as a png (straight alpha RGBA).
+pub fn save_png(path: &Path, img: &Image) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), img.w as u32, img.h as u32);
+    enc.set_color(png::ColorType::Rgba); enc.set_depth(png::BitDepth::Eight);
+    let mut w = enc.write_header().map_err(|e| e.to_string())?;
+    let mut data = Vec::with_capacity(img.w * img.h * 4);
+    for p in &img.px { data.extend_from_slice(p); }
+    w.write_image_data(&data).map_err(|e| e.to_string())
+}
+
+/// `size` x `size` copy covering the whole square (the middle of a wider image), averaged down.
+pub fn cover_resize(src: &Image, size: usize) -> Image {
+    let side = src.w.min(src.h) as f64;
+    let (ox, oy) = ((src.w as f64 - side) / 2.0, (src.h as f64 - side) / 2.0);
+    let k = side / size as f64;
+    let mut px = Vec::with_capacity(size * size);
+    for y in 0..size { for x in 0..size {
+        let (x0, x1) = (ox + x as f64 * k, ox + (x as f64 + 1.0) * k);
+        let (y0, y1) = (oy + y as f64 * k, oy + (y as f64 + 1.0) * k);
+        let (mut r, mut g, mut b, mut a, mut n) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        let mut sy = y0.floor() as usize;
+        while (sy as f64) < y1 && sy < src.h {
+            let mut sx = x0.floor() as usize;
+            while (sx as f64) < x1 && sx < src.w { let p = src.px[sy * src.w + sx]; let al = p[3] as f64; r += p[0] as f64 * al; g += p[1] as f64 * al; b += p[2] as f64 * al; a += al; n += 1.0; sx += 1; }
+            sy += 1;
+        }
+        px.push(if a > 0.0 { [(r / a) as u8, (g / a) as u8, (b / a) as u8, (a / n) as u8] } else { [0, 0, 0, 0] });
+    } }
+    Image { w: size, h: size, px }
+}

@@ -24,13 +24,14 @@ mod imp {
 }
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
-    pub fn sin(x: f64) -> f64 { x.sin() }
-    pub fn cos(x: f64) -> f64 { x.cos() }
-    pub fn tan(x: f64) -> f64 { x.tan() }
-    pub fn acos(x: f64) -> f64 { x.acos() }
-    pub fn atan(x: f64) -> f64 { x.atan() }
-    pub fn atan2(y: f64, x: f64) -> f64 { y.atan2(x) }
-    pub fn pow(x: f64, y: f64) -> f64 { x.powf(y) }
+    // fdlibm ports (what V8 uses for `Math.sin` and friends), not the platform's libm
+    pub fn sin(x: f64) -> f64 { libm::sin(x) }
+    pub fn cos(x: f64) -> f64 { libm::cos(x) }
+    pub fn tan(x: f64) -> f64 { libm::tan(x) }
+    pub fn acos(x: f64) -> f64 { libm::acos(x) }
+    pub fn atan(x: f64) -> f64 { libm::atan(x) }
+    pub fn atan2(y: f64, x: f64) -> f64 { libm::atan2(y, x) }
+    pub fn pow(x: f64, y: f64) -> f64 { libm::pow(x, y) }
     pub fn random() -> f64 { 0.5 }
 }
 pub use imp::*;

@@ -104,6 +104,7 @@ pub struct PlayerVis {
     land_idx: bool,
     streak: Vec<StreakPt>, streak_active: bool, streak_pos: Option<(f64, f64)>,
     ldm: bool,
+    custom: Option<Image>,
 }
 
 /// `iconBaseOf`: `player_01_2_001.png` -> `player_01`
@@ -134,7 +135,7 @@ impl PlayerVis {
                 Emitter::new((223.8, 343.8), (205.0, 295.0), (80.0, 220.0), (0.375, 0.0), -700.0, 600.0, 25.0, Some((-18.0, 18.0)), Tint::None),
                 Emitter::new((250.0, 350.0), (210.0, 330.0), (50.0, 600.0), (0.625, 0.0), 0.0, 1000.0, 0.0, None, Tint::None),
                 Emitter::new((250.0, 350.0), (210.0, 330.0), (50.0, 600.0), (0.625, 0.0), 0.0, 1000.0, 0.0, None, Tint::None),
-            ], land_idx: false, streak: Vec::new(), streak_active: false, streak_pos: None, ldm: false }
+            ], land_idx: false, streak: Vec::new(), streak_active: false, streak_pos: None, ldm: false, custom: None }
     }
 
     fn rnd(&mut self, a: f64, b: f64) -> f64 {
@@ -165,7 +166,15 @@ impl PlayerVis {
     }
 
     /// `getFrame`: the icon's own atlas, else the shared sheets.
+    pub fn set_custom(&mut self, img: Option<Image>) { self.custom = img; }
+    pub fn has_custom(&self) -> bool { self.custom.is_some() }
+
+    fn cube_layers(&self, prefix: &str) -> Vec<(&'static str, String, f64)> {
+        if self.custom.is_some() { vec![("extra", "__custom_cube__".to_string(), 10.0)] } else { Self::layers(prefix, false) }
+    }
+
     fn find<'a>(&'a self, assets: &'a Assets, name: &str) -> Option<(&'a Image, Frame)> {
+        if name == "__custom_cube__" { return self.custom.as_ref().map(|i| (i, Frame { x: 0.0, y: 0.0, w: i.w as f64, h: i.h as f64, rotated: false, src_w: i.w as f64, src_h: i.h as f64, ss_x: 0.0, ss_y: 0.0 })); }
         if let Some(base) = icon_base(name) {
             if let Some(Some(s)) = self.icons.get(&base) { return s.frames.get(name).map(|f| (&s.img, *f)); }
         }
@@ -288,7 +297,7 @@ impl PlayerVis {
             } else if !ufo_mode { self.ufo_last = None; }
             if ufo { for (k, n, d) in Self::layers(&self.cfg_bird.clone(), true) { if k != "glow" || true { self.push(assets, k, &n, d, bird_x, bird_y, bird_rot, sxs * mini_f, sys * mini_f, inverted); } } }
             let cm = mini_f * 0.55;
-            for (k, n, d) in Self::layers(&player, false) { if k != "glow" { self.push(assets, k, &n, d, cube_x, cube_y, cube_rot, sxs * cm, sys * cm, inverted); } }
+            for (k, n, d) in self.cube_layers(&player) { if k != "glow" { self.push(assets, k, &n, d, cube_x, cube_y, cube_rot, sxs * cm, sys * cm, inverted); } }
             return;
         }
         if ball { for (k, n, d) in Self::layers(&self.cfg_ball.clone(), false) { if k != "glow" { self.push(assets, k, &n, d, px, py, rot, sxs * mini_f, mini_f, inverted); } } return; }
@@ -303,7 +312,7 @@ impl PlayerVis {
         }
         if p[9] != 0.0 { self.part_layout(assets, "spider", p, px, py, dt, inverted); return; }
         if p[10] != 0.0 { self.part_layout(assets, "robot", p, px, py, dt, inverted); return; }
-        for (k, n, d) in Self::layers(&player, false) { if k != "glow" { self.push(assets, k, &n, d, px, py, mrot, sxs * mini_f, sys * mini_f, inverted); } }
+        for (k, n, d) in self.cube_layers(&player) { if k != "glow" { self.push(assets, k, &n, d, px, py, mrot, sxs * mini_f, sys * mini_f, inverted); } }
     }
 
     fn speed_factor(sp: f64) -> f64 {

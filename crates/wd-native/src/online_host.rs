@@ -24,6 +24,7 @@ pub enum NetMsg {
     Play { id: String, name: String, text: String, song: Option<Vec<u8>>, offset: f64, level: OLevel, official_song: i64 },
     PlayFailed(String),
     Copied(OLevel, String),
+    SongData { id: String, bytes: Option<Vec<u8>>, purpose: u8 },
 }
 
 pub struct Net { pub tx: Sender<NetMsg>, pub rx: Receiver<NetMsg>, pub list: Vec<OLevel>, pub special: Option<OLevel>, pub busy: bool, pub active: bool, pub name: String }
@@ -269,6 +270,7 @@ impl Host {
         let Some(l) = l else { return };
         self.net.busy = true;
         self.audio.stop_music(); self.audio.effect("playSound_01", 1.0);
+        self.fade_to(1.0, 150.0, crate::host::FadeCmd::None);
         core::wd_on_play_busy(1);
         let saved = self.saved_raw().into_iter().find(|s| s.get_str("id").unwrap_or("").trim_start_matches("online_") == l.id);
         let cached = saved.and_then(|s| s.get_str("levelString").map(|t| (t.to_string(), s.get_num("officialSong").unwrap_or(0.0) as i64, s.get_str("customSongID").unwrap_or("").to_string(), s.get_num("songOffset").unwrap_or(0.0))));
@@ -303,19 +305,46 @@ impl Host {
                 NetMsg::Error(e) => { eprintln!("online: {e}"); let m = "Could not reach the servers"; unsafe { core::wd_on_error(m.as_ptr(), m.len()); } }
                 NetMsg::Special(mut l) => { self.fill(&mut l); let json = l.json(); self.net.list = vec![l.clone()]; self.net.special = Some(l); unsafe { core::wd_on_special(json.as_ptr(), json.len()); } }
                 NetMsg::Song(n, a) => unsafe { core::wd_on_song(n.as_ptr(), n.len(), a.as_ptr(), a.len()); },
-                NetMsg::PlayFailed(e) => { eprintln!("online: {e}"); self.net.busy = false; core::wd_on_play_busy(0); let m = "Could not reach the servers"; unsafe { core::wd_on_error(m.as_ptr(), m.len()); } }
+                NetMsg::PlayFailed(e) => { eprintln!("online: {e}"); self.net.busy = false; self.fade_to(0.0, 150.0, crate::host::FadeCmd::None); core::wd_on_play_busy(0); let m = "Could not reach the servers"; unsafe { core::wd_on_error(m.as_ptr(), m.len()); } }
                 NetMsg::Play { id, name, text, song, offset, level, official_song } => {
                     self.save_level(&level, Some((&text, official_song, offset)));
                     self.net.busy = false;
+                    self.fade_a = 0.0; self.fade = None;
                     core::wd_on_close();
                     self.net.active = true; self.net.name = name;
                     self.current_song = song.map(std::sync::Arc::new);
                     self.online_offset = offset;
                     if let Err(e) = self.play_text(&id, &text) { eprintln!("{e}"); }
                 }
-                NetMsg::Copied(..) => {}
+                NetMsg::Copied(l, text) => { self.add_copied_level(&l, &text); }
+                NetMsg::SongData { id: _, bytes, purpose } => {
+                    match purpose {
+                        0 => { if let Some(b) = bytes { self.ed_custom_song = Some(std::sync::Arc::new(b)); if self.editor_on && core::wd_ed_pt(1) != 0.0 && core::wd_ed_pt(2) == 0.0 { let off = self.game.music_offset + core::wd_ed_pt(3); self.audio.start_song_bytes(self.ed_custom_song.clone().unwrap(), off); } } }
+                        _ => { if let Some((id, txt)) = self.pending_created.take() { self.current_song = bytes.map(std::sync::Arc::new); self.finish_play_created(&id, &txt); } }
+                    }
+                }
             }
         }
+    }
+
+    /// A custom song by its id: the saved copy, else downloaded on a thread (`purpose`: 0 editor playtest, 1 created level).
+    pub(crate) fn request_custom_song(&mut self, id: String, purpose: u8) {
+        let tx = self.net.tx.clone();
+        let cache_dir = self.store.dir().join("webdashers_songs");
+        std::thread::spawn(move || {
+            let f = cache_dir.join(&id);
+            let bytes = std::fs::read(&f).ok().or_else(|| { let b = song_bytes(&id); if let Some(b) = &b { let _ = std::fs::create_dir_all(&cache_dir); let _ = std::fs::write(&f, b); } b });
+            let _ = tx.send(NetMsg::SongData { id, bytes, purpose });
+        });
+    }
+
+    pub(crate) fn cached_song(&self, id: &str) -> Option<Vec<u8>> { std::fs::read(self.store.dir().join("webdashers_songs").join(id)).ok() }
+
+    /// `_duplicateOnlineLevelToEditor`
+    pub(crate) fn online_copy(&mut self, i: usize) {
+        let Some(l) = self.net.list.get(i).cloned() else { return };
+        let tx = self.net.tx.clone();
+        std::thread::spawn(move || match download(&l.id) { Ok(m) => { let _ = tx.send(NetMsg::Copied(l, m["4"].clone())); } Err(e) => { let _ = tx.send(NetMsg::Error(e)); } });
     }
 
     pub(crate) fn net_reopen(&mut self) {
@@ -338,7 +367,7 @@ impl Host {
             "OnDeleteSaved" => self.store.set("gd_saved_online_levels", "[]"),
             "OnView" => self.online_view(n),
             "OnPlay" => self.online_play(n, false),
-            "OnCopy" => {}
+            "OnCopy" => self.online_copy(n),
             _ => return false,
         }
         true
