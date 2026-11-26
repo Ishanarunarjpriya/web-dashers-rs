@@ -26,7 +26,7 @@ pub struct On {
     pub typed: usize, pub placeholder: usize, pub cursor: usize,
     /// the active difficulty filters (the eight icons) and their nodes
     pub filters: [bool; 8], pub filter_nodes: Vec<usize>, pub plus: usize,
-    pub spin: usize,
+    pub spin: usize, pub sp_root: usize,
     /// a level asked for by its number: just that level, without the page controls
     pub single: bool,
     /// the demon filter: the chosen tier (0 none, 1-5), the one picked in the open popup and its icons
@@ -94,14 +94,14 @@ impl Ui {
     pub fn on_set_error(&mut self, msg: &str) {
         self.on.loading = false; self.on.error = msg.to_string();
         if self.get_tag_count("on_l") > 0 { self.on_open_list(); }
-        if self.on.special.is_some() { self.on_open_special(); }
+        if self.on.special.is_some() { self.on_special_cell(); }
     }
 
     /// the daily / weekly / event level for the open popup
     pub fn on_set_special(&mut self, json: &str) {
         if let Ok(j) = jsonread::parse(json) { self.on.special_level = Some(Self::on_parse_level(&j)); }
         self.on.loading = false; self.on.error.clear();
-        if self.on.special.is_some() { self.on_open_special(); }
+        if self.on.special.is_some() { self.on_special_cell(); }
     }
 
     /// the song's real name and artist, once `getGJSongInfo.php` answered
@@ -672,7 +672,27 @@ impl Ui {
         let close = self.on_img(Some(root), "GJ_WebSheet", "GJ_closeBtn_001.png", nl + 20.0, nt + 20.0, 1.0, 1002.0, tag);
         self.node(close).hit_scale = 2.0;
         self.make_bouncy(close, 1.0, Cond::Always, Action::Pop("OnSpecialClose", 0));
-        // the level cell
+        self.on.sp_root = root;
+        self.on_special_cell();
+    }
+
+    /// the cell of the daily / weekly / event popup: the spinner while the level loads, then the level. It is rebuilt in place when the
+    /// level arrives, so the popup does not slide in a second time (`renderCell` of `_buildSpecialLevelPopup`).
+    pub fn on_special_cell(&mut self) {
+        self.kill_tag("on_dc");
+        let Some(kind) = self.on.special else { return };
+        let root = self.on.sp_root;
+        if self.get(root).is_none() { return; }
+        let (cx, cy) = (self.screen_width / 2.0, 320.0);
+        let tag = "on_dc";
+        let (cell, cell_tint, crown): (&'static str, i64, &'static str) = match kind { 0 => ("GJ_square02", -1, "gj_dailyCrown_001.png"), 1 => ("GJ_square05", 0xafafaf, "gj_weeklyCrown_001.png"), _ => ("GJ_square04", -1, "gj_eventCrown_001.png") };
+        let tex = |ui: &Ui, k: &str| ui.sizes.get(&format!("/{}", k)).map_or(80.0, |s| s.0);
+        let nine = |ui: &mut Ui, frame: &'static str, x: f64, y: f64, w: f64, h: f64, tint: i64, depth: f64| {
+            let r = tex(ui, if frame == "GJ_square01" { "GJ_square01" } else { "GJ_square02" }) * 0.325;
+            let n = ui.shape(Kind::Nine, x, y, w, h, 0, 1.0, depth, tag);
+            { let m = ui.node(n); m.frame = frame.into(); m.radius = r; m.ox = 0.5; m.oy = 0.5; m.tint = if tint < 0 { 0xffffff } else { tint }; m.parent = Some(root); }
+            n
+        };
         let (cell_w, cell_h) = (720.0, 220.0);
         let (ccx, ccy) = (cx, cy + 25.0);
         let (cl, ct) = (ccx - cell_w / 2.0, ccy - cell_h / 2.0);
@@ -682,7 +702,7 @@ impl Ui {
                 else { let m = if self.on.error.is_empty() { "Nothing here".to_string() } else { self.on.error.clone() }; self.on_txt(Some(root), "bigFont", 36.0, &m, ccx, ccy, 0.5, 0.5, 1003.0, tag); }
             }
             Some(l) => {
-                nine(self, st.cell, ccx, ccy, cell_w, cell_h, st.cell_tint, 1003.0);
+                nine(self, cell, ccx, ccy, cell_w, cell_h, cell_tint, 1003.0);
                 let (dw, dh) = diff_size(l.difficulty);
                 let sc = (85.0 / dh).min(90.0 / dw);
                 if let Some(c) = coin_frame(&l) { self.on_img(Some(root), "GJ_GameSheet03", c, cl + 75.0, ccy, 1.0, 1003.5, tag); }
@@ -716,7 +736,7 @@ impl Ui {
                 }
                 let play = self.on_img(Some(root), "GJ_GameSheet03", "GJ_playBtn2_001.png", cl + cell_w - 95.0, ccy, 0.75, d, tag);
                 self.make_bouncy(play, 0.75, Cond::Always, Action::Pop("OnSpecialPlay", 0));
-                let crown = self.on_img(Some(root), "GJ_GameSheet04", st.crown, ccx, ct + 12.0, 1.0, d, tag);
+                let crown = self.on_img(Some(root), "GJ_GameSheet04", crown, ccx, ct + 12.0, 1.0, d, tag);
                 self.node(crown).oy = 0.8;
             }
         }
