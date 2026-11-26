@@ -50,7 +50,8 @@ impl Host {
         let (m, s2) = (hexv(&st, "iconMainColor", "04FF00"), hexv(&st, "iconSecondaryColor", "00FBFF"));
         let g = |k: &str, d: &str| self.store.get(k).unwrap_or(d).to_string();
         let (p, sh, b, w, bi) = (g("iconCurrentPlayer", "player_01"), g("iconCurrentShip", "ship_01"), g("iconCurrentBall", "player_ball_01"), g("iconCurrentWave", "dart_01"), g("iconCurrentBird", "bird_01"));
-        self.game.pv.set_cfg(m, s2, &p, &sh, &b, &w, &bi);
+        let (sp, ro) = (g("iconCurrentSpider", "spider_01"), g("iconCurrentRobot", "robot_01"));
+        self.game.pv.set_cfg(m, s2, &p, &sh, &b, &w, &bi, &sp, &ro);
     }
 
     pub(crate) fn garage_open(&mut self) {
