@@ -11,6 +11,7 @@ pub struct UiDraw {
     table: Vec<(String, String)>,
     table_len: usize,
     pub cam: (f64, f64),
+    pv_ptr: *const crate::player_vis::PlayerVis,
 }
 
 fn text_result(n: usize) -> String {
@@ -24,7 +25,7 @@ impl UiDraw {
         let big = Font::load(&dir, "bigFont")?;
         let gold = Font::load(&dir, "goldFont")?;
         for f in [&big, &gold] { let name = if std::ptr::eq(f, &big) { "bigFont" } else { "goldFont" }; unsafe { core::wd_ui_font(name.as_ptr(), name.len(), f.source.as_ptr(), f.source.len()); } }
-        Ok(UiDraw { fonts: vec![None, Some(big), Some(gold)], standalone: HashMap::new(), table: Vec::new(), table_len: usize::MAX, cam: (0.0, 0.0) })
+        Ok(UiDraw { fonts: vec![None, Some(big), Some(gold)], standalone: HashMap::new(), table: Vec::new(), table_len: usize::MAX, cam: (0.0, 0.0), pv_ptr: std::ptr::null() })
     }
 
     /// The loose images (`standalone[...]` of the web host): `sprites/<key>.png`, or `<key>` with `_` before its last digits (`GJ_button04` -> `GJ_button_04`).
@@ -71,7 +72,8 @@ impl UiDraw {
         }
     }
 
-    pub fn draw(&mut self, c: &mut Canvas, assets: &Assets) {
+    pub fn draw(&mut self, c: &mut Canvas, assets: &Assets, pv: &crate::player_vis::PlayerVis) {
+        self.pv_ptr = pv as *const _;
         let n = core::wd_ui_build(0);
         if n == 0 { return; }
         let ub: Vec<f64> = unsafe { std::slice::from_raw_parts(core::wd_ui_ptr(), n * 16) }.to_vec();
@@ -126,6 +128,13 @@ impl UiDraw {
             let img = self.standalone(&root, f)?;
             let (w, h) = (img.w as f64, img.h as f64);
             return Some((img, (0.0, 0.0, w, h), (w, h), (0.0, 0.0), false));
+        }
+        if let Some(base) = a.strip_prefix("icon_") {
+            // an icon atlas of the player (garage grid)
+            let pv = unsafe { self.pv_ptr.as_ref()? };
+            let sh = pv.icon_loaded(base)?;
+            let fr = sh.frames.get(f)?;
+            return Some((&sh.img, (fr.x, fr.y, fr.w, fr.h), (fr.src_w, fr.src_h), (fr.ss_x, fr.ss_y), true));
         }
         let sh = assets.sheets.get(a)?;
         let fr = sh.frames.get(f)?;

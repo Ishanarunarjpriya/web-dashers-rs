@@ -76,6 +76,14 @@ impl PlayerVis {
         self.icons.get(base).and_then(|s| s.as_ref())
     }
 
+    /// An icon atlas by base name (loaded on first use).
+    pub fn icon_sheet(&mut self, root: &std::path::Path, base: &str) -> Option<&IconSheet> { self.icon(root, base) }
+    pub fn icon_loaded(&self, base: &str) -> Option<&IconSheet> { self.icons.get(base).and_then(|s| s.as_ref()) }
+    /// Colours and icon names from the saved choices (`loadCfg`).
+    pub fn set_cfg(&mut self, main: i64, second: i64, player: &str, ship: &str, ball: &str, wave: &str, bird: &str) {
+        self.main = main; self.second = second; self.cfg_player = player.into(); self.cfg_ship = ship.into(); self.cfg_ball = ball.into(); self.cfg_wave = wave.into(); self.cfg_bird = bird.into();
+    }
+
     /// `getFrame`: the icon's own atlas, else the shared sheets.
     fn find<'a>(&'a self, assets: &'a Assets, name: &str) -> Option<(&'a Image, Frame)> {
         if let Some(base) = icon_base(name) {

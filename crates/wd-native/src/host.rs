@@ -17,29 +17,30 @@ fn text(n: usize) -> String {
 
 pub struct Host {
     pub game: Game,
-    ui: UiDraw,
-    levels: Vec<Level>,
-    visible: Vec<usize>,
+    pub(crate) ui: UiDraw,
+    pub(crate) levels: Vec<Level>,
+    pub(crate) visible: Vec<usize>,
     pub menu_mode: bool,
-    paused: bool,
-    sliding: bool,
-    won: bool,
-    win_clock: f64,
-    win_stage: u8,
-    attempts: u32,
-    jumps: u32,
-    play_time: f64,
-    practice: bool,
-    was_dead: bool,
-    was_held: bool,
-    level_id: String,
-    delta_hist: [f64; 10],
-    delta_idx: usize,
+    pub(crate) paused: bool,
+    pub(crate) sliding: bool,
+    pub(crate) won: bool,
+    pub(crate) win_clock: f64,
+    pub(crate) win_stage: u8,
+    pub(crate) attempts: u32,
+    pub(crate) jumps: u32,
+    pub(crate) play_time: f64,
+    pub(crate) practice: bool,
+    pub(crate) was_dead: bool,
+    pub(crate) was_held: bool,
+    pub(crate) level_id: String,
+    pub(crate) delta_hist: [f64; 10],
+    pub(crate) delta_idx: usize,
     pub quit: bool,
-    cam: (f64, f64),
-    audio: Audio,
-    store: Store,
-    last_save: f64,
+    pub(crate) cam: (f64, f64),
+    pub(crate) audio: Audio,
+    pub(crate) store: Store,
+    pub(crate) anims_sent: bool,
+    pub(crate) last_save: f64,
 }
 
 impl Host {
@@ -51,7 +52,8 @@ impl Host {
         let hidden = ["level_22", "level_67"];
         let visible: Vec<usize> = (0..levels.len()).filter(|&i| !hidden.contains(&levels[i].id.as_str())).collect();
         let game = Game::new(assets);
-        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), last_save: 0.0 };
+        let mut host = Host { game, ui, levels, visible, menu_mode: true, paused: false, sliding: false, won: false, win_clock: 0.0, win_stage: 0, attempts: 1, jumps: 0, play_time: 0.0, practice: false, was_dead: false, was_held: false, level_id: "1".into(), delta_hist: [1000.0 / 60.0; 10], delta_idx: 0, quit: false, cam: (0.0, 0.0), audio: Audio::new(root.clone()), store: Store::open(), anims_sent: false, last_save: 0.0 };
+        host.pv_cfg();
         host.audio.user_music = host.store.get_f("userMusicVol", 1.0);
         host.audio.user_sfx = host.store.get_f("userSfxVol", 1.0);
         host.push_levels(0);
@@ -85,7 +87,7 @@ impl Host {
         core::jsonread::parse(a).ok().map(|j| j.arr().unwrap_or(&[]).iter().filter_map(|v| v.num().map(|n| n.to_string()).or_else(|| v.str().map(|s| s.to_string()))).collect::<Vec<_>>().join(",")).unwrap_or_default()
     }
 
-    pub fn json_str(s: &str) -> String { format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")) }
+    pub(crate) fn json_str(s: &str) -> String { format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")) }
 
     fn push_levels(&mut self, page: usize) {
         let items: Vec<String> = self.visible.iter().map(|&i| { let l = &self.levels[i]; format!("[{},{},{},{}]", Self::json_str(&l.internal), Self::json_str(&l.name), Self::json_str(&l.id), l.song_file.as_ref().map_or("null".to_string(), |s| Self::json_str(s))) }).collect();
@@ -204,6 +206,9 @@ impl Host {
                 "Volume" => { let (m, s) = (core::wd_ui_option(0), core::wd_ui_option(1)); self.audio.set_music_volume(m); self.audio.user_sfx = s; self.store.set("userMusicVol", &m.to_string()); self.store.set("userSfxVol", &s.to_string()); }
                 "ToggleMenuMusic" => { let on = core::wd_ui_option(2) != 0.0; self.store.set("menuMusicEnabled", if on { "true" } else { "false" }); if on { if !self.audio.playing_menu() { self.audio.start_menu_music(); } } else { self.audio.stop_music(); } }
                 e if e.starts_with("Sfx(") => { let n = &e[5..e.len() - 2]; self.audio.effect(n, 1.0); }
+                "Garage" => self.garage_open(),
+                "Pop(\"GarageNeed\", 0)" => self.garage_need(),
+                "Pop(\"GarageSave\", 0)" => self.garage_save(),
                 "Settings" => { core::wd_ui_set_options(self.audio.user_music, self.audio.user_sfx, self.menu_music_enabled() as u32); core::wd_ui_open_settings(); }
                 "Popup(\"Options\")" => { self.apply_options(); core::wd_ui_open_options(); }
                 "OptChanged" => self.apply_options_from_ui(),
@@ -305,7 +310,7 @@ impl Host {
             }
         }
         let assets = &self.game.assets;
-        self.ui.draw(canvas, assets);
+        self.ui.draw(canvas, assets, &self.game.pv);
         self.handle_ui();
         if now - self.last_save > 2000.0 { self.last_save = now; self.store.flush(); }
     }

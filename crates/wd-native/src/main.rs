@@ -5,6 +5,7 @@ mod store;
 mod canvas;
 mod fonts;
 mod game;
+mod garage;
 mod host;
 mod levels;
 mod plist;
