@@ -16,6 +16,12 @@ Build (no Xcode license needed, wasm only):
     FUZZ=20 node tools/compare-triggers.mjs 1 - 3000  # random trigger-heavy levels
     node tools/compare-sprites.mjs                    # which sprites every object creates (visual half of _spawnObject)
 
+Native app (Windows, pure Rust, no browser): `crates/wd-native` links `wd-core` and draws with a software renderer
+(window: winit + softbuffer, sound: rodio, online: ureq). GitHub Actions builds it on every push (`.github/workflows/windows.yml`):
+download the `WebDashers-windows` artifact of the latest run, unzip, run `WebDashers.exe` (keep the `assets` folder next to it).
+Locally on Windows: `cargo build --release -p wd-native`, then `target\release\wd-native.exe --assets ref\assets`.
+Headless pictures: `--shot a.png,b.png --frames N [--play 1] [--clicks x,y,...] [--hold N]`.
+
 Build on Windows (PowerShell):
 
     winget install Rustlang.Rustup          # or download rustup-init.exe from https://rustup.rs
