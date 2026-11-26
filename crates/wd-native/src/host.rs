@@ -294,6 +294,8 @@ impl Host {
         self.apply_options();
     }
 
+    pub fn dump_ui(&mut self) { self.ui.dump = true; }
+
     pub fn pointer(&mut self, kind: u32, x: f64, y: f64) {
         core::wd_ui_pointer(kind, x, y);
         if kind == 0 && core::wd_ui_menu_active() == 0 { self.jump(true); }

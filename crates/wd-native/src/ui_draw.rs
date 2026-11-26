@@ -11,6 +11,7 @@ pub struct UiDraw {
     table: Vec<(String, String)>,
     table_len: usize,
     pub cam: (f64, f64),
+    pub dump: bool,
     pv_ptr: *const crate::player_vis::PlayerVis,
 }
 
@@ -25,7 +26,7 @@ impl UiDraw {
         let big = Font::load(&dir, "bigFont")?;
         let gold = Font::load(&dir, "goldFont")?;
         for f in [&big, &gold] { let name = if std::ptr::eq(f, &big) { "bigFont" } else { "goldFont" }; unsafe { core::wd_ui_font(name.as_ptr(), name.len(), f.source.as_ptr(), f.source.len()); } }
-        Ok(UiDraw { fonts: vec![None, Some(big), Some(gold)], standalone: HashMap::new(), table: Vec::new(), table_len: usize::MAX, cam: (0.0, 0.0), pv_ptr: std::ptr::null() })
+        Ok(UiDraw { fonts: vec![None, Some(big), Some(gold)], standalone: HashMap::new(), table: Vec::new(), table_len: usize::MAX, cam: (0.0, 0.0), dump: false, pv_ptr: std::ptr::null() })
     }
 
     /// The loose images (`standalone[...]` of the web host): `sprites/<key>.png`, or `<key>` with `_` before its last digits (`GJ_button04` -> `GJ_button_04`).
@@ -86,6 +87,7 @@ impl UiDraw {
             }).collect()).unwrap_or_default();
             self.table_len = fl;
         }
+        if self.dump { self.dump = false; for k in 0..n { let o = k * 16; let kind = ub[o] as i32; let key = match kind { 0 => self.table.get(ub[o + 13] as usize).map(|t| format!("{}/{}", t.0, t.1)).unwrap_or_default(), 5 | 1 => texts.get(ub[o + 11] as usize).cloned().unwrap_or_default(), _ => String::new() }; eprintln!("UI {k} kind={kind} x={:.0} y={:.0} sx={:.2} sy={:.2} a={:.2} fl={} w={:.0} h={:.0} tint={} {key}", ub[o+1], ub[o+2], ub[o+3], ub[o+4], ub[o+6], ub[o+8], ub[o+12], ub[o+13], ub[o+7]); } }
         let mut clips: Vec<(i64, i64, i64, i64)> = Vec::new();
         let full = (0, 0, W as i64, H as i64);
         for k in 0..n {

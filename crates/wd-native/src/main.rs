@@ -161,6 +161,7 @@ fn main() {
         for f in 0..frames {
             if ci + 1 < clicks.len() && f % every == every - 1 { let (x, y) = (clicks[ci], clicks[ci + 1]); ci += 2; host.pointer(0, x, y); host.pointer(2, x, y); }
             if hold > 0 { host.jump(f % hold < hold / 4); }
+            if f + 1 == frames && args.iter().any(|a| a == "--dump-ui") { host.dump_ui(); }
             host.frame(1000.0 / 60.0, f as f64 * 1000.0 / 60.0, &mut canvas);
             if (f + 1) % per == 0 { let k = (f + 1) / per - 1; if k < shots.len() { save_png(shots[k], &canvas); } }
         }
