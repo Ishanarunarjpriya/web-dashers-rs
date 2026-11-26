@@ -672,7 +672,14 @@ async function main() {
     const t = document.activeElement; if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
     if ((e.ctrlKey || e.metaKey) && !/^(Control|Meta)/.test(e.code)) return;
     if (w.wd_gar_is_open() && e.code === "Escape") { w.wd_gar_close(); e.preventDefault(); return; }
-    if (menuMode || paused || won || window.WD_EDITOR_ON || w.wd_ui_menu_active()) { const [cp, cl] = put(e.code); if (w.wd_ui_menu_key(cp, cl)) { e.preventDefault(); return; } } // menu shortcuts
+    if (menuMode || paused || won || window.WD_EDITOR_ON || w.wd_ui_menu_active()) { // menu shortcuts
+      // a jump key does what the game-scene `update` does in a menu: open the level select, start the shown level, resume after a pause (75 ms later)
+      const jumpInMenu = !window.WD_EDITOR_ON && !won && isJumpKey(e.code);
+      if (jumpInMenu && e.repeat) { e.preventDefault(); return; }
+      const [cp, cl] = put(jumpInMenu ? "Enter" : e.code);
+      if (jumpInMenu && paused) { if (!w.wd_ui_menu_key_probe(cp, cl)) { /* a popup is open */ } else { setTimeout(() => { const [p2, l2] = put("Enter"); w.wd_ui_menu_key(p2, l2); }, 75); e.preventDefault(); return; } }
+      else if (w.wd_ui_menu_key(cp, cl)) { e.preventDefault(); return; }
+    }
     const k = (id) => kbIs(id, e.code);
     if (window.WD_EDITOR_ON) { // the editor: tabs, moving the selection, zoom
       const act = [["editorTab1", 0], ["editorTab2", 1], ["editorTab3", 2], ["editorMoveUp", 3], ["editorMoveLeft", 4], ["editorMoveDown", 5], ["editorMoveRight", 6], ["zoomIn", 7], ["zoomOut", 8]];

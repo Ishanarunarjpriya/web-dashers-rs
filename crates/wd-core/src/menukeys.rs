@@ -24,6 +24,12 @@ impl Ui {
         }
     }
 
+    /// whether `menu_key` would do something for the key (nothing changes)
+    pub fn menu_key_probe(&self, code: &str) -> bool {
+        if self.typing() { return false; }
+        match code { "Enter" | "NumpadEnter" => !self.has_popup() && (self.level_select_open || self.end_open || self.paused || self.menu_active), _ => false }
+    }
+
     /// a popup is open over the screen
     fn has_popup(&self) -> bool {
         ["pa_", "pb_", "opt_", "set_", "info_", "on_"].iter().any(|t| self.has_tag(t)) && !self.has_tag("on_s") && !self.has_tag("on_l")

@@ -1110,6 +1110,9 @@ pub extern "C" fn wd_ed_cp_color() -> f64 { with_ui(|u| if u.ed.cp.open { ((u.ed
 /// Menu keyboard shortcuts: 1 when the key was used by the menu (`code` is a `KeyboardEvent.code`).
 #[no_mangle]
 pub unsafe extern "C" fn wd_ui_menu_key(ptr: *const u8, len: usize) -> u32 { let c = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.menu_key(&c)) as u32 }
+/// Whether `wd_ui_menu_key` would use the key, without using it (the resume after a pause waits 75 ms first).
+#[no_mangle]
+pub unsafe extern "C" fn wd_ui_menu_key_probe(ptr: *const u8, len: usize) -> u32 { let c = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned(); with_ui(|u| u.menu_key_probe(&c)) as u32 }
 /// Editor keybinds: 0..2 tabs, 3..6 move the selection (up, left, down, right); `big` moves 60 instead of 1.
 #[no_mangle]
 pub extern "C" fn wd_ed_key_action(which: u32, big: u32) { with_ui(|u| u.ed_key_action(which, big != 0)); }
