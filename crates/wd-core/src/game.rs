@@ -360,6 +360,7 @@ impl Game {
         }
         let mut e = Env::default();
         e.manage_layer = true;
+        e.has_level_events = true;
         let mut trig = crate::triggers::Triggers::default();
         trig.phase_limit = u32::MAX;
         trig.time_warp = 1.0;

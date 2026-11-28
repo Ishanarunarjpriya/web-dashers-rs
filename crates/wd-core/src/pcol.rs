@@ -151,6 +151,12 @@ impl<'a> Sim<'a> {
         self.e.stop_jump_latch = true;
     }
 
+    fn landing_game_event(&mut self) {
+        if !self.e.has_level_events || self.p.is_wave { return; }
+        if self.p.gd_fall_start_y.is_some() { self.p.gd_fall_start_y = None; }
+        self.p.gd_land_flag = true;
+    }
+
     pub fn hit_ground(&mut self, skip_burst: bool) {
         if Self::ticking(self.p.j_block_ticks) && !self.p.on_ground { self.release_jump_hold(); }
         self.boost_trail(false);
@@ -158,6 +164,7 @@ impl<'a> Sim<'a> {
         let skip_burst = skip_burst || dash_sliding;
         self.p.slope_launch_spin = false;
         let burst = !skip_burst && !self.p.on_ground;
+        if !self.p.on_ground { self.landing_game_event(); }
         if !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo && !self.p.is_swing { self.p.last_ground_y = self.p.y; }
         self.p.y_velocity = 0.0;
         self.p.on_ground = !dash_sliding;

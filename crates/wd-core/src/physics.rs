@@ -102,6 +102,7 @@ slots! {
         pub dual_bounds_center_y: Option<f64> = None,
         pub in_sideways_step: bool = false,
         pub stop_jump_latch: bool = false,
+        pub has_level_events: bool = false,
     }
 }
 

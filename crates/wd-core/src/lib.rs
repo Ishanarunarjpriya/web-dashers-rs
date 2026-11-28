@@ -196,6 +196,7 @@ pub unsafe extern "C" fn wd_game_set_state(ptr: *mut f64) {
     let gm = guard.as_mut().unwrap();
     let mut it = a.iter().copied();
     gm.p.unpack(&mut it); gm.g.unpack(&mut it); gm.e.unpack(&mut it);
+    gm.e.has_level_events = true;
 }
 
 /// Runs one frame; returns the length of the log (`|`-joined) left in the result buffer.

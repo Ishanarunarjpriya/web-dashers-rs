@@ -85,6 +85,7 @@ for (let t = 0; t < N; t++) {
     else v[f.name] = 0;
   }
   v["e.macro_playing"] = 0; // (a random bool field otherwise)
+  v["e.has_level_events"] = 0;
   Object.assign(v, {
     y: py, last_y: py - (rnd() * 2 - 1) * pick([0.5, 4, 16]), y_velocity: pick([0, rnd() * 40 - 20, -22.36, 22.36, rnd() * 4 - 2]),
     is_mini: +mini, gravity_flipped: +flipped, on_ground: rnd() < 0.4 ? 1 : 0, up_key_down: rnd() < 0.5 ? 1 : 0, was_up_key_down: rnd() < 0.5 ? 1 : 0,
