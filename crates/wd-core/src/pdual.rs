@@ -295,6 +295,17 @@ impl<'a> Sim<'a> {
     pub fn disable_dual_mode(&mut self) {
         if self.other.is_none() { self.log.push("dual:off".into()); return; }
         if !self.e.is_dual { return; }
+        if self.e.second_player && !self.p.is_dead {
+            let mode = mode_id(self.p);
+            self.run_as(false, |s| s.set_player_gamemode(mode, true));
+            let (s2y, s2last, s2ground, s2vel, s2flip, s2mini, s2on_ground, s2on_ceiling, s2can_jump, s2jumping) = {
+                let p = &*self.p;
+                (p.y, p.last_y, p.last_ground_pos_y, p.y_velocity, p.gravity_flipped, p.is_mini, p.on_ground, p.on_ceiling, p.can_jump, p.is_jumping)
+            };
+            let (p1, _) = self.pair();
+            p1.y = s2y; p1.last_y = s2last; p1.last_ground_pos_y = s2ground; p1.y_velocity = s2vel; p1.gravity_flipped = s2flip; p1.is_mini = s2mini;
+            p1.on_ground = s2on_ground; p1.on_ceiling = s2on_ceiling; p1.can_jump = s2can_jump; p1.is_jumping = s2jumping;
+        }
         self.e.is_dual = false;
         self.e.dual_ball_overlap_resolved = false;
         self.e.dual_ball_spawn_lock = false;
