@@ -47,9 +47,11 @@ if (REAL) {
   }
 }
 const gsrc = REAL ? fs.readFileSync(root + "ref/assets/scripts/core/game-scene.js", "utf8") : "";
-let animBlock = null;
+let animBlock = null, AnimCls = null;
 if (REAL) {
-  const a0 = gsrc.indexOf("    if (!window.enableLDM) {\n      window._animTimer += deltaTime;\n      for (let _as of window._animatedSprites) {");
+  const s0 = gsrc.indexOf("  _stepObjectAnimations(deltaTime) {"), s1 = gsrc.indexOf("  _stepBeastAnimations(deltaTime) {");
+  AnimCls = vm.runInContext(`(class A {\n${gsrc.slice(s0, s1)}\n})`, ctx);
+  const a0 = gsrc.indexOf("    this._stepObjectAnimations(deltaTime);\n    if (this._level && this._level._orbSprites) {");
   const a1 = gsrc.indexOf("    this._level.updateAudioScale(this._audio.getMeteringValue(), this._cameraX, screenWidth);", a0);
   const a2 = gsrc.indexOf("\n", a1);
   animBlock = vm.runInContext(`(function (deltaTime) {\n${gsrc.slice(a0, a2)}\n})`, ctx);
@@ -111,6 +113,7 @@ function newLevel() {
   L.freeModeCamera = false; L.freeCamEasing = 10; L.freeCamPadding = 0.5; L._triggerGroupsByUid = new Map(); L._spawnFiredUids = new Set(); L._genericTriggers = []; L._activeEnterEffect = 0;
   ctx.LevelObject.prototype._initGenericTriggers.call(L);
   L._getTriggerFrameName = () => null;
+  { const orig = L._remapTrigger; L._remapTrigger = function (t, r) { const c = orig.call(this, t, r); if (c !== t) { const g = (globalThis.__gen ||= {}); g.remapCopies = (g.remapCopies || 0) + 1; } return c; }; }
   L.resetAll = () => {
     L.resetGenericTriggers();
     L.resetTimeWarpTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers(); L._colorTriggerIdx = 0; L._pulseTriggerIdx = 0; L._activePulses = []; L._touchColorTriggerActivated = new Set(); L._channelBlending = { 1007: true };
@@ -127,7 +130,7 @@ function newLevel() {
   return L;
 }
 
-const fuzzLevel = makeFuzz(rnd, { beast: !!process.env.BEAST, text: !!process.env.TEXT, generic: !process.env.NOGENERIC, genericIds: REAL ? REAL_GENERIC_IDS : undefined });
+const fuzzLevel = makeFuzz(rnd, { beast: !!process.env.BEAST, text: !!process.env.TEXT, generic: !process.env.NOGENERIC, spawny: !!process.env.SPAWNY, genericIds: REAL ? REAL_GENERIC_IDS : undefined });
 const FUZZ = Number(process.env.FUZZ || 0);
 const sources = FUZZ ? Array.from({ length: FUZZ }, (_, i) => ({ label: `fuzz#${i}`, str: fuzzLevel() })) : files.map((f) => ({ label: f, str: fs.readFileSync(root + "ref/assets/levels/" + f, "utf8") }));
 
@@ -413,11 +416,11 @@ for (let li = 0; li < sources.length; li++) {
     idx: [L._moveTriggerIdx, L._rotateTriggerIdx, L._spawnTriggerIdx, L._stopTriggerIdx, L._toggleTriggerIdx, L._followPlayerYTriggerIdx, L._followTriggerIdx, L._onDeathTriggerIdx, L._touchTriggerIdx, L._pickupTriggerIdx, L._countTriggerIdx, L._instantCountTriggerIdx, L._collisionTriggerIdx],
     generic: genericState(),
     toggledOff: Object.keys(L._groupToggledOff).map(Number).sort((a, b) => a - b),
-    armedOnDeath: L._armedOnDeathTriggers.map((t) => L._onDeathTriggers.indexOf(t)),
-    activeTouch: L._activeTouchTriggers.map((t) => L._touchTriggers.indexOf(t)),
+    armedOnDeath: L._armedOnDeathTriggers.map((t) => L._onDeathTriggers.indexOf(src(t))),
+    activeTouch: L._activeTouchTriggers.map((t) => L._touchTriggers.indexOf(src(t))),
     holding: L._activeTouchTriggers.map((t) => !!t._holding),
-    activeCount: L._activeCountTriggers.map((t) => L._countTriggers.indexOf(t)),
-    activeCollision: L._activeCollisionTriggers.map((e) => [L._collisionTriggers.indexOf(e.trig), e.colliding]),
+    activeCount: L._activeCountTriggers.map((t) => L._countTriggers.indexOf(src(t))),
+    activeCollision: L._activeCollisionTriggers.map((e) => [L._collisionTriggers.indexOf(src(e.trig)), e.colliding]),
     itemCounts: L._itemCounts,
     blending: Object.fromEntries(Object.entries(L._channelBlending).map(([k, v]) => [k, !!v])),
     colorIdx: [L._colorTriggerIdx, L._pulseTriggerIdx],
@@ -426,9 +429,9 @@ for (let li = 0; li < sources.length; li++) {
     vis: [L._playerVisTriggerIdx, !!L.playerHidden, L._touchPlayerVisActivated.size],
     anim: [L._animationTriggerIdx, L._touchAnimationTriggerActivated.size, animLog.slice()],
     enter: [L._enterEffectTriggerIdx, L._activeEnterEffect, L._activeExitEffect],
-    pulses: L._activePulses.map((p) => [L._pulseTriggers.indexOf(p.trig), p.elapsed, p.totalDuration]),
-    groupOps: [...(L._pulseGroupOps || new Map())].map(([g, op]) => [Number(g), op ? [L._pulseTriggers.indexOf(op.trig), op.intensity] : null]),
-    alpha: [L._alphaTriggerIdx, ...L._activeAlphaTweens.map((a) => [L._alphaTriggers.indexOf(a.trig), a.elapsed, a.startOpacity])],
+    pulses: L._activePulses.map((p) => [L._pulseTriggers.indexOf(src(p.trig)), p.elapsed, p.totalDuration]),
+    groupOps: [...(L._pulseGroupOps || new Map())].map(([g, op]) => [Number(g), op ? [L._pulseTriggers.indexOf(src(op.trig)), op.intensity] : null]),
+    alpha: [L._alphaTriggerIdx, ...L._activeAlphaTweens.map((a) => [L._alphaTriggers.indexOf(src(a.trig)), a.elapsed, a.startOpacity])],
   });
   const rustState = () => { const s = rjson(w.wd_trig_state()); return canon(s); };
   const heavy = () => {
@@ -492,7 +495,7 @@ for (let li = 0; li < sources.length; li++) {
     L._scene._physicsTick = Math.round(now / (1000 / 240)); w.wd_trig_tick(L._scene._physicsTick);
     if (rnd() < 0.02) { L._scene._attempts = Math.floor(rnd() * 20); w.wd_trig_attempts(L._scene._attempts); }
     for (let ge = rnd() < 0.15 ? 1 + Math.floor(rnd() * 3) : 0; ge > 0; ge--) { const ev = Math.floor(rnd() * 80), e1 = rnd() < 0.7 ? 0 : Math.floor(rnd() * 2), e2 = rnd() < 0.7 ? 0 : Math.floor(rnd() * 2); L.gameEvent(ev, e1, e2); w.wd_game_event(ev, e1, e2); }
-    if (REAL) { const gs = { _level: L, _state: { gravityFlipped: !!aGrav }, _audio: { getMeteringValue: () => animMeter }, _cameraX: aCam }; animBlock.call(gs, dt * 1000); w.wd_fx_animate(dt * 1000, aCam, aGrav ? 1 : 0, animMeter); }
+    if (REAL) { const gs = Object.assign(Object.create(AnimCls.prototype), { _level: L, _state: { gravityFlipped: !!aGrav }, _audio: { getMeteringValue: () => animMeter }, _cameraX: aCam }); animBlock.call(gs, dt * 1000); w.wd_fx_animate(dt * 1000, aCam, aGrav ? 1 : 0, animMeter); }
     L._scene._playerWorldX = px; L._scene._state.y = py; L._scene._cameraY = cy; L._cameraXRef._v = cx;
     for (const t of L.checkColorTriggers(px)) applyCT(t);
     for (const t of L.checkTouchColorTriggers(px, py)) applyCT(t); if (dual) for (const t of L.checkTouchColorTriggers(px, y2)) applyCT(t);

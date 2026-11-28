@@ -295,7 +295,7 @@ impl Game {
             self.fast_forward_triggers(x);
             self.p.last_collision_world_x = if self.e.player_world_x.is_finite() { Some(self.e.player_world_x) } else { None };
             self.p.last_collision_world_y = Some(y);
-            self.camera_x = self.e.player_world_x - self.g.center_x;
+            self.camera_x = self.e.player_world_x - self.g.center_x + crate::triggers::or0(self.trig.gen.camera_offset.0) + crate::triggers::or0(self.trig.gen.gameplay_offset.0);
         } else {
             if self.start.speed_key >= 0 { if let Some(v) = speeds.get(self.start.speed_key as usize) { self.g.player_speed = *v; } }
             self.enter_start_mode(self.start.game_mode, Some(30.0));
@@ -438,8 +438,6 @@ impl Game {
             }
         }
         g.start_positions.sort_by(|a, b| (a.x - b.x).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal));
-        g.trig.touch_holding = vec![false; g.trig.l.touches.len()];
-            g.trig.count_prev = vec![0.0; g.trig.l.counts.len()];
         g
     }
 
@@ -626,7 +624,7 @@ impl Game {
     pub(crate) fn slide_quantize(&mut self, delta_ms: f64) -> f64 { self.quantize_delta(delta_ms) }
     pub fn quantize_delta_pub(&mut self, delta_ms: f64) -> f64 { self.quantize_delta(delta_ms) }
     fn quantize_delta(&mut self, delta_ms: f64) -> f64 {
-        let speed = if self.speed_hack == 0.0 || self.speed_hack.is_nan() { 1.0 } else { self.speed_hack };
+        let speed = (if self.speed_hack == 0.0 || self.speed_hack.is_nan() { 1.0 } else { self.speed_hack }) * (if self.trig.time_warp == 0.0 || self.trig.time_warp.is_nan() { 1.0 } else { self.trig.time_warp });
         let buf = (delta_ms * speed) / 1000.0 + self.delta_buffer;
         let mut n = crate::physics::js_round(buf / U);
         if n < 0.0 { n = 0.0; }
@@ -661,7 +659,8 @@ impl Game {
         if sub_steps > 60.0 { sub_steps = 60.0; }
         let sub_delta = if sub_steps > 0.0 { quantized / sub_steps } else { 0.0 };
         let vertical = sub_delta * D;
-        let horizontal = sub_delta * self.g.player_speed * D;
+        let trigger_direction = if self.trig.gen.direction < 0.0 { -1.0 } else { 1.0 };
+        let horizontal = sub_delta * self.g.player_speed * D * trigger_direction;
         let initial_y = self.p.y;
         let initial_y2 = self.p2.y;
         let mut i = 0.0;
@@ -836,11 +835,9 @@ impl Game {
         if self.fx.menu_mode { self.menu_step(delta_ms); return false; }
         if self.fx.editor_mode { return false; }
         if self.fx.slide.is_some() { self.slide_step(delta_ms); return false; }
-        self.trig.warped_delta = None;
         let restarted = self.update_inner(delta_ms, jump_held);
         if restarted { self.render_restart(); }
-        let render_delta = self.trig.warped_delta.unwrap_or(delta_ms);
-        self.render_step(render_delta);
+        self.render_step(delta_ms);
         restarted
     }
 
@@ -884,15 +881,13 @@ impl Game {
             }
             return false;
         }
-        let delta_ms = delta_ms * self.trig.time_warp; // `deltaTime *= level._timeWarp` once the frame is known to be a live one
-        self.trig.warped_delta = Some(delta_ms);
         self.animate_sprites(delta_ms);
         let quantized_before = self.delta_buffer;
         let _ = quantized_before;
         let q = self.step_frame_with_delta(delta_ms, jump_held);
         self.coin_pickups();
         if !self.end_camera_override {
-            let offset = self.e.player_world_x - self.g.center_x;
+            let offset = self.e.player_world_x - self.g.center_x + crate::triggers::or0(self.trig.gen.camera_offset.0) + crate::triggers::or0(self.trig.gen.gameplay_offset.0);
             if self.end_x_pos > 0.0 {
                 let max_cam = self.end_x_pos - self.screen_width;
                 if offset >= max_cam - 200.0 {
@@ -910,7 +905,15 @@ impl Game {
                 self.camera_y = c.from_y + (c.to_y - c.from_y) * p;
             }
         }
-        if !self.end_camera_override { self.update_camera_y(q, false); }
+        if !self.end_camera_override {
+            self.camera_y -= self.trig.gen.applied_camera_offset_y;
+            self.camera_y -= self.trig.gen.applied_gameplay_offset_y;
+            self.update_camera_y(q, false);
+            self.trig.gen.applied_camera_offset_y = crate::triggers::or0(self.trig.gen.camera_offset.1);
+            self.camera_y += self.trig.gen.applied_camera_offset_y;
+            self.trig.gen.applied_gameplay_offset_y = crate::triggers::or0(self.trig.gen.gameplay_offset.1);
+            self.camera_y += self.trig.gen.applied_gameplay_offset_y;
+        }
         self.update_visibility(self.camera_x);
         if self.p.is_swing { self.sim_for(false, |s| s.update_swing_rotation(q)); }
         else if self.p.is_flying { self.sim_for(false, |s| s.update_ship_rotation(q)); }
