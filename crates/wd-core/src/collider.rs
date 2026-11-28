@@ -7,6 +7,7 @@ use crate::physics::speed_portal as sp;
 
 pub const A: f64 = 60.0;
 const S_BLOCK_OBJECT_ID: i64 = 1829;
+const H_BLOCK_OBJECT_ID: i64 = 1859;
 
 #[derive(Debug, Clone)]
 pub struct Collider {
@@ -39,6 +40,8 @@ pub struct Collider {
     pub pad_id: Option<i64>,
     pub orb_id: Option<i64>,
     pub multi_activate: bool,
+    pub free_mode: bool,
+    pub flip_y: bool,
     pub orb_rotation: Option<f64>,
     pub coin_id: Option<i64>,
     pub speed_value: Option<f64>,
@@ -59,7 +62,7 @@ impl Collider {
             hypo_a: (0.0, 0.0), hypo_b: (0.0, 0.0), right_a: (0.0, 0.0), slope_solid_below: true,
             slope_type: None, gd_solid_above: false, gd_wall_on_left: false, hitbox_radius: None, particle_color: None,
             portal_x: None, portal_y: None, teleport_target_x: None, teleport_target_y: None, teleport_y_offset: None,
-            pad_id: None, orb_id: None, multi_activate: false, orb_rotation: None, coin_id: None, speed_value: None,
+            pad_id: None, orb_id: None, multi_activate: false, free_mode: false, flip_y: false, orb_rotation: None, coin_id: None, speed_value: None,
             speed_id: None, base_x: 0.0, base_y: 0.0, base_rotation_degrees: 0.0, placeholder: false,
         }
     }
@@ -101,6 +104,7 @@ impl Collider {
         o.field("teleportYOffset", of(self.teleport_y_offset));
         o.field("padId", opt(self.pad_id)); o.field("orbId", opt(self.orb_id));
         o.field("multiActivate", self.multi_activate.to_string());
+        o.field("freeMode", self.free_mode.to_string()); o.field("flipY", self.flip_y.to_string());
         o.field("orbRotation", of(self.orb_rotation));
         o.field("coinId", opt(self.coin_id));
         o.field("speedValue", of(self.speed_value)); o.field("speedId", opt(self.speed_id));
@@ -230,7 +234,7 @@ fn raw<'a>(o: &'a LevelObject, k: &str) -> Option<&'a String> { o.raw.get(k) }
 fn portal_sub(id: i64) -> Option<&'static str> {
     Some(match id {
         10 => "gravity_flip", 11 => "gravity_normal", 12 => "cube", 13 => "fly", 45 => "mirrora", 46 => "mirrorb",
-        47 => "ball", 660 => "wave", 111 => "ufo", 745 => "robot", 1331 => "spider", 747 => "teleport",
+        47 => "ball", 660 => "wave", 111 => "ufo", 745 => "robot", 1331 => "spider", 1933 => "swing", 747 => "teleport",
         286 => "dual_on", 287 => "dual_off",
         _ => return None,
     })
@@ -240,7 +244,7 @@ fn portal_collider_type(sub: &str) -> Option<&'static str> {
     Some(match sub {
         "gravity_flip" => "portal_gravity_down", "gravity_normal" => "portal_gravity_up", "gravity_toggle" => "portal_gravity_toggle",
         "fly" => "portal_fly", "cube" => "portal_cube", "ball" => "portal_ball", "wave" => "portal_wave", "ufo" => "portal_ufo",
-        "robot" => "portal_robot", "spider" => "portal_spider", "teleport" => "portal_teleport",
+        "robot" => "portal_robot", "spider" => "portal_spider", "swing" => "portal_swing", "teleport" => "portal_teleport",
         "mirrora" => "portal_mirror_on", "mirrorb" => "portal_mirror_off", "shrink" => "portal_mini_on", "grow" => "portal_mini_off",
         "dual_on" => "portal_dual_on", "dual_off" => "portal_dual_off",
         _ => return None,
@@ -281,8 +285,8 @@ pub fn spawn_colliders(o: &LevelObject) -> Option<Vec<Collider>> {
         let mut c = Collider::new("dblock", wx, wy, gw * A * hx, gh * A * hy, rot);
         c.objid = o.id;
         out.push(c.register());
-    } else if !no_touch && id == S_BLOCK_OBJECT_ID && grid_ok {
-        let mut c = Collider::new("sblock", wx, wy, gw * A * hx, gh * A * hy, rot);
+    } else if !no_touch && (id == S_BLOCK_OBJECT_ID || id == H_BLOCK_OBJECT_ID) && grid_ok {
+        let mut c = Collider::new(if id == H_BLOCK_OBJECT_ID { "hblock" } else { "sblock" }, wx, wy, gw * A * hx, gh * A * hy, rot);
         c.objid = o.id;
         out.push(c.register());
     } else if !no_touch && def.ty == Some("hazard") {
@@ -320,6 +324,7 @@ pub fn spawn_colliders(o: &LevelObject) -> Option<Vec<Collider>> {
             c.particle_color = def.portal_particle_color;
             c.portal_x = Some(wx);
             c.portal_y = Some(wy);
+            c.free_mode = raw(o, "111").map(|s| s.as_str()).unwrap_or("0") == "1";
             if is_tp {
                 let y_off = teleport_y_offset(o);
                 c.teleport_target_x = Some(wx);
@@ -331,10 +336,12 @@ pub fn spawn_colliders(o: &LevelObject) -> Option<Vec<Collider>> {
     } else if def.ty == Some("pad") {
         let mut c = Collider::new("jump_pad", wx, wy, gw * A * hx, gh * A * hy, rot);
         c.pad_id = o.id;
+        c.flip_y = o.flip_y;
         out.push(c.register());
     } else if def.ty == Some("ring") {
         let mut c = Collider::new("jump_ring", wx, wy, gw * A * hx, gh * A * hy, rot);
         c.orb_id = o.id;
+        c.flip_y = o.flip_y;
         c.multi_activate = raw(o, "99").map(|s| s.as_str()) == Some("1");
         c.orb_rotation = Some(rot);
         out.push(c.register());

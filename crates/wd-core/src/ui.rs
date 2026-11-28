@@ -145,8 +145,8 @@ const INFO: [(&str, &str); 21] = [
     ("Show Percentage", "Shows the percentage you are at in a level."),
     ("Percentage Decimals", "Shows decimals in level progress."),
     ("Progress Bar", "Shows a progress bar at the top of the screen."),
-    ("Ignore Damage", "Allows you to phase throught mostly anything that would kill you normally."),
-    ("Ignore Damage Accuracy", "Flashes your screen red when you would've died with noclip."),
+    ("Noclip", "Allows you to phase throught mostly anything that would kill you normally."),
+    ("Noclip Accuracy", "Flashes your screen red when you would've died with noclip."),
     ("Macro Bot", "Lets you record and replay your inputs for a level."),
     ("Show Hitboxes", "Shows you the hitboxes for objects and your player."),
     ("Hitbox Trail", "Shows the hitbox of exactly where your hitbox has been."),
@@ -168,8 +168,8 @@ const GAMEPLAY_L: [ToggleDef; 6] = [
     ("Show Percentage", "showPercentage", "", 25.0, Some("Show Percentage")),
     ("Percentage Decimals", "percentDecimals", "", 25.0, Some("Percentage Decimals")),
     ("Progress Bar", "progressBar", "", 25.0, Some("Progress Bar")),
-    ("Ignore Damage", "noclip", "", 25.0, Some("Ignore Damage")),
-    ("Ignore Damage Accuracy", "noclipAccuracy", "", 22.0, Some("Ignore Damage Accuracy")),
+    ("Noclip", "noclip", "", 25.0, Some("Noclip")),
+    ("Noclip Accuracy", "noclipAccuracy", "", 22.0, Some("Noclip Accuracy")),
     ("Macro Bot", "macroBot", "", 25.0, Some("Macro Bot")),
 ];
 const VISUAL_L: [ToggleDef; 6] = [

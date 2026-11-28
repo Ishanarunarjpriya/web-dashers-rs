@@ -9,7 +9,7 @@ enum Timer { VaultBuild, VaultCloseBuild, StatsClosed }
 
 const KB_DEFS: [(&str, &str, &str); 24] = [
     ("jump", "Jump P1", "gameplay"), ("jump2", "Jump P2", "gameplay"), ("pause", "Pause", "gameplay"), ("restart", "Restart", "gameplay"),
-    ("Ignore Damage", "Ignore Damage", "gameplay"), ("showHitboxes", "Show Hitboxes", "gameplay"),
+    ("Noclip", "Noclip", "gameplay"), ("showHitboxes", "Show Hitboxes", "gameplay"),
     ("practice", "Practice Mode", "practice"), ("startPosPrev", "StartPos Prev", "practice"), ("startPosNext", "StartPos Next", "practice"),
     ("saveCheckpoint", "Place Checkpoint", "practice"), ("deleteCheckpoint", "Delete Checkpoint", "practice"),
     ("editorTab1", "Build Tab", "editor"), ("editorTab2", "Edit Tab", "editor"), ("editorTab3", "Delete Tab", "editor"),

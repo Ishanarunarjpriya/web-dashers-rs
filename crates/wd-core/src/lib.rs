@@ -291,12 +291,15 @@ pub unsafe extern "C" fn wd_trig_set_anchors(ptr: *const f64, len: usize) {
 }
 #[no_mangle]
 pub extern "C" fn wd_trig_frame(px: f64, py: f64, cx: f64, cy: f64, dt: f64, has_dual: u32, dual_y: f64, inputs: u32) {
-    with_game(|g| g.trigger_frame(triggers::Pos { player_x: px, player_y: py, camera_x: cx, camera_y: cy }, if has_dual != 0 { Some(dual_y) } else { None }, dt,
-        triggers::Input { p1_hold: inputs & 1 != 0, p1_press: inputs & 2 != 0, p2_hold: inputs & 4 != 0, p2_press: inputs & 8 != 0 }));
+    with_game(|g| {
+        g.trigger_frame(triggers::Pos { player_x: px, player_y: py, camera_x: cx, camera_y: cy }, if has_dual != 0 { Some(dual_y) } else { None }, dt,
+            triggers::Input { p1_hold: inputs & 1 != 0, p1_press: inputs & 2 != 0, p2_hold: inputs & 4 != 0, p2_press: inputs & 8 != 0 });
+        g.update_visibility(cx);
+    });
 }
 #[no_mangle]
 pub extern "C" fn wd_trig_reset(which: u32) {
-    with_game(|g| match which { 0 => g.reset_move(), 1 => g.reset_rotate(), 2 => g.reset_toggle(), 3 => g.reset_spawn(), 4 => g.reset_stop(), 5 => g.reset_follow_y(), 6 => g.reset_follow(), 13 => g.reset_color(), 14 => g.reset_pulse(), 15 => g.reset_channel_blending(), 16 => g.cm.reset(), 17 => g.reset_alpha(), 18 => { g.reset_shake(); g.reset_player_vis(); g.reset_animation(); g.reset_enter_effect() } 7 => g.reset_on_death(), 8 => g.reset_touch(), 9 => g.reset_pickup(), 10 => g.reset_count(), 11 => g.reset_instant_count(), _ => g.reset_collision() });
+    with_game(|g| match which { 0 => g.reset_move(), 1 => g.reset_rotate(), 2 => g.reset_toggle(), 3 => g.reset_spawn(), 4 => g.reset_stop(), 5 => g.reset_follow_y(), 6 => g.reset_follow(), 13 => g.reset_color(), 14 => g.reset_pulse(), 15 => g.reset_channel_blending(), 16 => g.cm.reset(), 17 => g.reset_alpha(), 18 => { g.reset_shake(); g.reset_player_vis(); g.reset_animation(); g.reset_enter_effect() } 19 => g.reset_time_warp(), 7 => g.reset_on_death(), 8 => g.reset_touch(), 9 => g.reset_pickup(), 10 => g.reset_count(), 11 => g.reset_instant_count(), _ => g.reset_collision() });
 }
 /// Collision sections (`{index: [collider indices]}`) and the disabled colliders.
 #[no_mangle]
@@ -390,7 +393,7 @@ pub extern "C" fn wd_game_set_smart(on: u32) { with_game(|g| g.sp.smart = on != 
 #[no_mangle]
 pub unsafe extern "C" fn wd_game_set_level_objects(ptr: *const f64, n: usize) {
     let a = std::slice::from_raw_parts(ptr, n * 2);
-    with_game(|g| g.sp.objects = (0..n).map(|i| (a[i * 2], if a[i * 2 + 1].is_nan() { i64::MIN } else { a[i * 2 + 1] as i64 })).collect());
+    with_game(|g| { g.sp.warps.clear(); g.sp.objects = (0..n).map(|i| (a[i * 2], if a[i * 2 + 1].is_nan() { i64::MIN } else { a[i * 2 + 1] as i64 })).collect(); });
 }
 /// `_getSmartStartPosSettings(pos)` into `out` (6 numbers: game mode, mini, speed, dual, gravity flipped, mirrored).
 #[no_mangle]
@@ -693,6 +696,9 @@ pub unsafe extern "C" fn wd_art_id(which: u32, ptr: *const u8, len: isize) -> us
 pub extern "C" fn wd_trig_time(now_ms: f64) { with_game(|g| g.trig.now_ms = now_ms); }
 #[no_mangle]
 pub extern "C" fn wd_trig_shake(now_ms: f64) { with_game(|g| g.apply_shake(now_ms)); }
+/// Test hook: the scene's `_physicsTick` (the shake runs on it).
+#[no_mangle]
+pub extern "C" fn wd_trig_tick(tick: f64) { with_game(|g| g.e.physics_tick = tick); }
 
 /// Spawns the level's sprites (when atlases are loaded) and hands them to the game.
 /// `window.enableLDM`, set by the host before a level is built
@@ -1158,7 +1164,7 @@ static PV_BUF: Mutex<Vec<f64>> = Mutex::new(Vec::new());
 /// Visual state of the primary (`which` 0) or secondary (1) player as flat numbers:
 /// 0 y, 1 world x, 2 rotation, 3 dead, 4 mini, 5 ship, 6 wave, 7 ball, 8 ufo, 9 spider, 10 robot, 11 gravity flipped, 12 mirrored,
 /// 13 on ground, 14 on ceiling, 15 dashing, 16 dash y velocity, 17 y velocity, 18 jumping, 19 up key down,
-/// 20 slope angle (NaN none), 21 player speed, 22 spider teleport timer, 23 spider flash timer, 24 spider flash duration, 25 dual active.
+/// 20 slope angle (NaN none), 21 player speed, 22 spider teleport timer, 23 spider flash timer, 24 spider flash duration, 25 dual active, 26 swing.
 #[no_mangle]
 pub extern "C" fn wd_pv_state(which: u32) -> *const f64 {
     with_game(|g| {
@@ -1167,7 +1173,7 @@ pub extern "C" fn wd_pv_state(which: u32) -> *const f64 {
         let v = vec![
             p.y, g.e.player_world_x, p.rotation, b(p.is_dead), b(p.is_mini), b(p.is_flying), b(p.is_wave), b(p.is_ball), b(p.is_ufo), b(p.is_spider), b(p.is_robot),
             b(p.gravity_flipped), b(p.mirrored), b(p.on_ground), b(p.on_ceiling), b(p.is_dashing), p.dash_y_velocity, p.y_velocity, b(p.is_jumping), b(p.up_key_down),
-            p.on_slope_angle.unwrap_or(f64::NAN), g.g.player_speed, p.spider_teleport_anim_timer, p.spider_flash_timer, p.spider_flash_duration, b(g.e.is_dual),
+            p.on_slope_angle.unwrap_or(f64::NAN), g.g.player_speed, p.spider_teleport_anim_timer, p.spider_flash_timer, p.spider_flash_duration, b(g.e.is_dual), b(p.is_swing),
         ];
         *PV_BUF.lock().unwrap() = v;
     });
@@ -1347,6 +1353,9 @@ pub extern "C" fn wd_on_query() -> usize { out_str(with_ui(|u| u.on_query())) }
 pub extern "C" fn wd_on_page() -> usize { with_ui(|u| u.on_page()) }
 #[no_mangle]
 pub extern "C" fn wd_on_kind() -> u32 { with_ui(|u| u.on_kind() as u32) }
+/// The play menu's back action (the host calls it after the delete button was confirmed).
+#[no_mangle]
+pub extern "C" fn wd_on_menu_back() { with_ui(|u| u.emit(ui::Action::Pop("OnMenuBack", 0))); }
 #[no_mangle]
 pub extern "C" fn wd_on_close() { with_ui(|u| { u.kill_tag("on_"); u.on.special = None; u.on.input = false; }); }
 #[no_mangle]

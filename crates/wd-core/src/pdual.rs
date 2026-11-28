@@ -17,11 +17,12 @@ pub fn reset_state(p: &mut Player) {
     p.mirrored = false; p.is_dashing = false; p.dash_y_velocity = 0.0; p.ignore_portals = false; p.robot_hold = false; p.robot_hold_timer = 0.0;
     p.spider_teleport_noclip_death_pending = false; p.ball_should_rotate = false; p.ball_rotate_opposite = false; p.ball_normal_rotate = 0.86;
     p.ball_hit_pad = false; p.ball_rotation2 = 0.86;
+    p.swing_flip_pending = false; p.spider_orb_input_locked = false;
 }
 
 /// `PlayerObject.reset()`; `world_x` is the scene's `_playerWorldX`.
 pub fn reset_object(p: &mut Player, world_x: f64) {
-    p.last_land_object = None; p.last_land_x = 0.0; p.last_land_y = 0.0; p.last_land_ty = 26.0; p.last_x_offset = 0.0; p.gd_is_on_slope = false; p.gd_was_on_slope = false;
+    p.last_land_object = None; p.last_land_x = 0.0; p.last_land_y = 0.0; p.last_land_ty = 27.0; p.last_x_offset = 0.0; p.gd_is_on_slope = false; p.gd_was_on_slope = false;
     p.gd_last_slope_obj = None; p.gd_last_slope_top = None; p.gd_last_slope_y_pos = None; p.gd_last_slope_steepness = 0.0; p.gd_last_slope_up = Some(false);
     p.gd_slope_rotation = 0.0; p.slope_launch_spin = false; p.prev_slope_obj = None; p.prev_slope_angle = f64::NAN; p.active_slope_obj = None;
     p.active_slope_angle = None; p.on_slope_angle = None; p.slope_entry_x = None;
@@ -36,12 +37,12 @@ fn shared_signature(p: &Player) -> u8 { (p.gravity_flipped as u8) | ((p.mirrored
 pub fn dual_shared_signature(p: &Player) -> u8 { shared_signature(p) }
 
 fn mode_id(p: &Player) -> &'static str {
-    if p.is_flying { "ship" } else if p.is_ball { "ball" } else if p.is_ufo { "ufo" } else if p.is_wave { "wave" } else if p.is_robot { "robot" } else if p.is_spider { "spider" } else { "cube" }
+    if p.is_swing { "swing" } else if p.is_flying { "ship" } else if p.is_ball { "ball" } else if p.is_ufo { "ufo" } else if p.is_wave { "wave" } else if p.is_robot { "robot" } else if p.is_spider { "spider" } else { "cube" }
 }
 
 fn portal_mode(ty: f64) -> Option<&'static str> {
     // portal_cube 13, portal_fly 12, portal_ball 14, portal_wave 15, portal_ufo 16, portal_robot 17, portal_spider 18
-    match ty as i64 { 13 => Some("cube"), 12 => Some("ship"), 14 => Some("ball"), 15 => Some("wave"), 16 => Some("ufo"), 17 => Some("robot"), 18 => Some("spider"), _ => None }
+    match ty as i64 { 13 => Some("cube"), 12 => Some("ship"), 14 => Some("ball"), 15 => Some("wave"), 16 => Some("ufo"), 17 => Some("robot"), 18 => Some("spider"), 26 => Some("swing"), _ => None }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -87,21 +88,16 @@ impl<'a> Sim<'a> {
         r
     }
 
-    /// `_ensureDualFlyBounds(centerY)`; `center_y` is `None` for the call without an argument (JS `null`, which `Number()` turns into 0).
-    pub fn ensure_dual_fly_bounds(&mut self, center_y: Option<f64>) {
-        if !self.e.is_dual { return; }
-        let full_span = F;
-        let has_ship_wave = { let (p1, p2) = self.pair(); p1.is_flying || p1.is_wave || p2.is_flying || p2.is_wave };
-        let span = if has_ship_wave { full_span } else { full_span - A };
-        let floor = self.e.fly_floor_y.unwrap_or(0.0);
-        let ceiling = self.e.fly_ceiling_y.unwrap_or(0.0);
-        let current = if floor.is_finite() && ceiling.is_finite() { Some(ceiling - floor) } else { None };
-        if current.is_none() || (current.unwrap() - span).abs() > 0.01 || !self.e.fly_ground_active {
-            let y = match (center_y, self.e.fly_floor_y) {
-                (None, Some(fl)) if fl.is_finite() && self.e.fly_ground_active => fl + span / 2.0,
-                _ => { let cy = match center_y { Some(v) => v, None => self.primary_y() }; cy + (span - full_span) / 2.0 }
-            };
-            self.level_fly(true, y, Some(span), None);
+    /// `_ensureDualFlyBounds()`: the bounds are centred on `_dualBoundsCenterY` (set by the dual portal), else on the primary player.
+    pub fn ensure_dual_fly_bounds(&mut self) {
+        if !self.e.is_dual || self.e.portal_free_mode { return; }
+        let ten_block = { let (p1, p2) = self.pair(); p1.is_flying || p1.is_wave || p1.is_ufo || p1.is_swing || p2.is_flying || p2.is_wave || p2.is_ufo || p2.is_swing };
+        let span = if ten_block { F } else { F - A };
+        let center = match self.e.dual_bounds_center_y { Some(v) => v, None => self.primary_y() };
+        let floor = (((center - span / 2.0) / A).floor() * A).max(0.0);
+        let ceiling = floor + span;
+        if !self.e.fly_ground_active || self.e.fly_visual_only || self.e.fly_floor_y != Some(floor) || self.e.fly_ceiling_y != Some(ceiling) {
+            self.level_fly(true, center, Some(span), None);
         }
     }
 
@@ -109,14 +105,20 @@ impl<'a> Sim<'a> {
 
     /// `_refreshFlyBoundsAfterDual`
     pub fn refresh_fly_bounds_after_dual(&mut self) {
-        let (flying, wave, ufo, ball, spider, y) = { let p = self.pair().0; (p.is_flying, p.is_wave, p.is_ufo, p.is_ball, p.is_spider, p.y) };
-        if flying || wave || ufo { self.level_fly(true, y, Some(F), None); }
+        if self.e.portal_free_mode { return; }
+        let (flying, wave, ufo, swing, ball, spider, y) = { let p = self.pair().0; (p.is_flying, p.is_wave, p.is_ufo, p.is_swing, p.is_ball, p.is_spider, p.y) };
+        if flying || wave || ufo || swing {
+            let span = self.e.fly_ceiling_y.unwrap_or(0.0) - self.e.fly_floor_y.unwrap_or(0.0);
+            if self.e.fly_ground_active && !self.e.fly_visual_only && span == F { return; }
+            self.level_fly(true, y, Some(F), None);
+        }
         else if ball { self.level_fly(true, y, Some(F - A * 2.0), None); }
         else if spider { let h = A.max(F - A); self.level_fly(true, y, Some(h), Some(h)); }
         else { self.level_fly(false, 0.0, None, None); }
     }
 
     fn skip_ball_sync(from: &Player, to: &Player, o: SyncOpts) -> bool {
+        if from.is_swing && to.is_swing && to.swing_flip_pending && !o.force { return true; }
         if !from.is_ball { return false; }
         if o.force { return false; }
         if o.skip_ball_input { return true; }
@@ -135,7 +137,7 @@ impl<'a> Sim<'a> {
             p2.mirrored = p1.mirrored;
             synced
         };
-        self.ensure_dual_fly_bounds(None);
+        self.ensure_dual_fly_bounds();
         synced
     }
 
@@ -150,7 +152,7 @@ impl<'a> Sim<'a> {
             p1.mirrored = p2.mirrored;
             synced
         };
-        self.ensure_dual_fly_bounds(None);
+        self.ensure_dual_fly_bounds();
         synced
     }
 
@@ -178,6 +180,7 @@ impl<'a> Sim<'a> {
         let saved = (self.p.y, self.p.y_velocity, self.p.gravity_flipped, self.p.up_key_down, self.p.up_key_pressed, self.p.queued_hold, self.p.orb_activation_consumed_for_press, self.p.mirrored, self.p.is_mini);
         let y = saved.0;
         match mode {
+            "swing" => self.enter_swing_mode(Some(y), true),
             "ship" => self.enter_ship_mode(Some(y), true),
             "ball" => self.enter_ball_mode(Some(y)),
             "ufo" => self.enter_ufo_mode(Some(y), true),
@@ -185,8 +188,8 @@ impl<'a> Sim<'a> {
             "robot" => self.enter_robot_mode(true),
             "spider" => self.enter_spider_mode(Some(y), true),
             _ => {
-                self.exit_ship_mode(); self.exit_ball_mode(); self.exit_ufo_mode(); self.exit_wave_mode(); self.exit_robot_mode(); self.exit_spider_mode();
-                self.p.is_flying = false; self.p.is_ball = false; self.p.is_ufo = false; self.p.is_wave = false; self.p.is_robot = false; self.p.is_spider = false;
+                self.exit_swing_mode(); self.exit_ship_mode(); self.exit_ball_mode(); self.exit_ufo_mode(); self.exit_wave_mode(); self.exit_robot_mode(); self.exit_spider_mode();
+                self.p.is_flying = false; self.p.is_swing = false; self.p.is_ball = false; self.p.is_ufo = false; self.p.is_wave = false; self.p.is_robot = false; self.p.is_spider = false;
             }
         }
         self.p.y = saved.0;
@@ -252,7 +255,7 @@ impl<'a> Sim<'a> {
     }
 
     /// `_enableDualMode`
-    pub fn enable_dual_mode(&mut self) {
+    pub fn enable_dual_mode(&mut self, portal_y: Option<f64>) {
         if self.other.is_none() { self.log.push("dual:on".into()); return; }
         if self.e.is_dual { return; }
         self.e.is_dual = true;
@@ -263,11 +266,9 @@ impl<'a> Sim<'a> {
             let (p1, p2) = self.pair();
             reset_state(p2);
             p2.is_dead = false;
-            p2.y_velocity = p1.y_velocity;
             copy_initial_flags(p1, p2);
         }
         let p1y = self.primary_y();
-        self.ensure_dual_fly_bounds(Some(p1y));
         let primary_y = if p1y.is_finite() { p1y } else { 30.0 };
         {
             let p2 = self.pair().1;
@@ -287,7 +288,8 @@ impl<'a> Sim<'a> {
             self.e.dual_ball_spawn_lock = true;
         }
         let p1y = self.primary_y();
-        self.ensure_dual_fly_bounds(Some(p1y));
+        self.e.dual_bounds_center_y = Some(portal_y.unwrap_or(p1y));
+        self.ensure_dual_fly_bounds();
     }
 
     /// `_disableDualMode`

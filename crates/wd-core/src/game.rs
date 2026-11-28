@@ -112,6 +112,7 @@ impl Game {
         self.e.fly_floor_y = None;
         self.e.fly_ceiling_y = None;
         self.e.fly_camera_target = None; // `resetGroundState`: the camera stops following the fly area
+        self.e.portal_free_mode = false;
         self.e.floor_y = 0.0;
         self.e.ceiling_y = None;
         use crate::physics::speed_portal as sp;
@@ -126,6 +127,7 @@ impl Game {
             4 => sim.enter_wave_mode(None),
             5 => sim.enter_robot_mode(false),
             6 => sim.enter_spider_mode(None, false),
+            7 => sim.enter_swing_mode(None, false),
             _ => {}
         }
         self.log.extend(sim.log);
@@ -173,6 +175,7 @@ impl Game {
             if t.touch || t.b.spawn_triggered { continue; }
             if t.x <= target_x { self.execute_toggle_pub(ti); } else { break; }
         }
+        self.check_time_warp(target_x, None, None);
         self.check_animation(target_x);
         self.check_pickup(target_x);
         self.check_count(target_x);
@@ -198,7 +201,7 @@ impl Game {
         self.reset_color();
         self.reset_rotate(); self.reset_alpha(); self.reset_shake(); self.reset_player_vis(); self.reset_animation(); self.reset_enter_effect(); self.reset_pulse(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
         self.reset_channel_blending();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.cm.reset();
@@ -259,7 +262,7 @@ impl Game {
         self.reset_color();
         self.reset_rotate(); self.reset_alpha(); self.reset_shake(); self.reset_player_vis(); self.reset_animation(); self.reset_enter_effect(); self.reset_pulse(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
         self.reset_channel_blending();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.cm.reset();
@@ -308,6 +311,7 @@ impl Game {
     fn begin_ground(&mut self) {
         self.e.fly_ground_active = false; self.e.fly_visual_only = false; self.e.fly_floor_y = None; self.e.fly_ceiling_y = None; self.e.fly_camera_target = None;
         self.e.floor_y = 0.0; self.e.ceiling_y = None;
+        self.e.portal_free_mode = false;
         self.delta_buffer = 0.0; self.space_was_down = false;
     }
 
@@ -320,6 +324,7 @@ impl Game {
             4 => sim.enter_wave_mode(None),
             5 => sim.enter_robot_mode(false),
             6 => sim.enter_spider_mode(None, false),
+            7 => sim.enter_swing_mode(None, false),
             _ => {}
         }
         self.log.extend(sim.log);
@@ -329,7 +334,7 @@ impl Game {
     pub fn restart(&mut self, speed_key: i64, game_mode: i64, start_x: f64) {
         self.reset_objects();
         self.reset_rotate(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.physics_frame = 0.0;
@@ -357,6 +362,7 @@ impl Game {
         e.manage_layer = true;
         let mut trig = crate::triggers::Triggers::default();
         trig.phase_limit = u32::MAX;
+        trig.time_warp = 1.0;
         trig.meta = cols.iter().map(|c| crate::triggers::ColMeta {
             groups: Vec::new(), init_x: c.x, init_y: c.y, init_rot: if c.rotation_degrees == 0.0 || c.rotation_degrees.is_nan() { 0.0 } else { c.rotation_degrees },
             toggled: Default::default(), sec: crate::triggers::section_index(c.x),
@@ -550,7 +556,7 @@ impl Game {
             let list = if prev_x != world_x { self.nearby(prev_x) } else { self.nearby(world_x) };
             for &i in &list { cands.push(self.cols[i].clone()); }
         }
-        self.sim_for(false, |s| { if on { s.cands = cands; s.enable_dual_mode(); } else { s.disable_dual_mode(); } });
+        self.sim_for(false, |s| { if on { s.cands = cands; s.enable_dual_mode(None); } else { s.disable_dual_mode(); } });
     }
 
     /// `_pushButton`
@@ -568,7 +574,7 @@ impl Game {
         }
         let grav_before = self.p.gravity_flipped;
         let mut jumped = false;
-        if !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo && self.p.can_jump {
+        if !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo && !self.p.is_swing && self.p.can_jump {
             self.update_jump(false, 0.0);
             jumped = true;
         } else if self.p.is_ufo {
@@ -586,7 +592,7 @@ impl Game {
             let before = self.p2.gravity_flipped;
             let ball_in = self.p2.is_ball && self.p2.up_key_pressed;
             let spider_in = self.p2.is_spider && self.p2.up_key_pressed;
-            if !self.p2.is_flying && !self.p2.is_wave && !self.p2.is_ufo && self.p2.can_jump {
+            if !self.p2.is_flying && !self.p2.is_wave && !self.p2.is_ufo && !self.p2.is_swing && self.p2.can_jump {
                 self.update_jump(true, 0.0);
             } else if self.p2.is_ufo {
                 self.e.orb_touch = self.scan_orb_touch(true);
@@ -605,6 +611,7 @@ impl Game {
     /// `_releaseButton`
     pub fn release_button(&mut self) {
         for p in [&mut self.p, &mut self.p2] {
+            p.spider_orb_input_locked = false;
             p.robot_touched_pad = true;
             p.up_key_down = false;
             p.up_key_pressed = false;
@@ -708,12 +715,19 @@ impl Game {
                 self.sim_for(false, |s| s.resolve_dual_ball_overlap());
                 if self.e.is_dual && self.p2.is_dead && !self.p.is_dead { self.sim_for(true, |s| s.kill_secondary_target_primary()); }
                 if self.e.is_dual && self.p.is_dead && !self.p2.is_dead { self.sim_for(false, |s| s.kill_secondary()); }
-                if self.e.is_dual { self.sim_for(false, |s| s.ensure_dual_fly_bounds(None)); }
+                if self.e.is_dual { self.sim_for(false, |s| s.ensure_dual_fly_bounds()); }
             }
-            if !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo { self.update_rotation(false, horizontal, vertical); }
-            if self.e.is_dual && !self.p2.is_dead && !self.p2.is_flying && !self.p2.is_wave && !self.p2.is_ufo { self.update_rotation(true, horizontal, vertical); }
+            if !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo && !self.p.is_swing { self.update_rotation(false, horizontal, vertical); }
+            if self.e.is_dual && !self.p2.is_dead && !self.p2.is_flying && !self.p2.is_wave && !self.p2.is_ufo && !self.p2.is_swing { self.update_rotation(true, horizontal, vertical); }
             self.push_hitbox_trail();
             if self.mb.playing { self.macro_apply_current(); } else if self.mb.recording { self.macro_record_frame(); }
+            if !self.p.is_dead {
+                // V2.1 runs the level triggers once per substep, stepped by the substep's time
+                let pos = crate::triggers::Pos { player_x: self.e.player_world_x, player_y: self.p.y, camera_x: self.camera_x, camera_y: self.camera_y };
+                let dual_alive = self.e.is_dual && !self.p2.is_dead;
+                let tin = crate::triggers::Input { p1_hold: self.p.up_key_down, p1_press: self.p.up_key_pressed, p2_hold: dual_alive && self.p2.up_key_down, p2_press: dual_alive && self.p2.up_key_pressed };
+                self.trigger_frame(pos, if dual_alive { Some(self.p2.y) } else { None }, sub_delta / 60.0, tin);
+            }
             i += 1.0;
         }
         self.p.last_y = initial_y;
@@ -820,16 +834,17 @@ impl Game {
         if self.fx.menu_mode { self.menu_step(delta_ms); return false; }
         if self.fx.editor_mode { return false; }
         if self.fx.slide.is_some() { self.slide_step(delta_ms); return false; }
-        self.apply_shake(self.trig.now_ms);
+        self.trig.warped_delta = None;
         let restarted = self.update_inner(delta_ms, jump_held);
         if restarted { self.render_restart(); }
-        self.render_step(delta_ms);
+        let render_delta = self.trig.warped_delta.unwrap_or(delta_ms);
+        self.render_step(render_delta);
         restarted
     }
 
     fn update_inner(&mut self, delta_ms: f64, jump_held: bool) -> bool {
         // `level.updateEndPortalY`
-        let fly_like = self.p.is_flying || self.p.is_wave || self.p.is_ufo || self.p.is_spider;
+        let fly_like = self.p.is_flying || self.p.is_wave || self.p.is_ufo || self.p.is_swing || self.p.is_spider;
         let y = 140.0 + self.camera_y;
         self.end_portal_game_y = if fly_like { y } else { 240f64.max(y) };
         if !self.level_won && !self.p.is_dead && self.end_x_pos > 0.0 && self.e.player_world_x >= self.end_x_pos - 600.0 {
@@ -857,6 +872,7 @@ impl Game {
                 self.last_percent = 99f64.min(0f64.max((self.e.player_world_x / end * 100.0).floor()));
                 if self.last_percent > self.best_percent { self.best_percent = self.last_percent; self.had_new_best = true; }
             }
+            self.apply_shake(0.0);
             self.death_timer += delta_ms;
             let limit = (if self.had_new_best { 1400.0 } else { 1000.0 }) * self.respawn_delay;
             if self.death_timer > limit {
@@ -866,6 +882,8 @@ impl Game {
             }
             return false;
         }
+        let delta_ms = delta_ms * self.trig.time_warp; // `deltaTime *= level._timeWarp` once the frame is known to be a live one
+        self.trig.warped_delta = Some(delta_ms);
         self.animate_sprites(delta_ms);
         let quantized_before = self.delta_buffer;
         let _ = quantized_before;
@@ -891,13 +909,11 @@ impl Game {
             }
         }
         if !self.end_camera_override { self.update_camera_y(q, false); }
-        // triggers
-        let pos = crate::triggers::Pos { player_x: self.e.player_world_x, player_y: self.p.y, camera_x: self.camera_x, camera_y: self.camera_y };
-        let dual_alive = self.e.is_dual && !self.p2.is_dead;
-        let input = crate::triggers::Input { p1_hold: self.p.up_key_down, p1_press: self.p.up_key_pressed, p2_hold: dual_alive && self.p2.up_key_down, p2_press: dual_alive && self.p2.up_key_pressed };
-        if self.p.is_flying { self.sim_for(false, |s| s.update_ship_rotation(q)); }
-        if self.e.is_dual && self.p2.is_flying && !self.p2.is_dead { self.sim_for(true, |s| s.update_ship_rotation(q)); }
-        self.trigger_frame(pos, if dual_alive { Some(self.p2.y) } else { None }, delta_ms / 1000.0, input);
+        self.update_visibility(self.camera_x);
+        if self.p.is_swing { self.sim_for(false, |s| s.update_swing_rotation(q)); }
+        else if self.p.is_flying { self.sim_for(false, |s| s.update_ship_rotation(q)); }
+        if self.e.is_dual && self.p2.is_swing && !self.p2.is_dead { self.sim_for(true, |s| s.update_swing_rotation(q)); }
+        else if self.e.is_dual && self.p2.is_flying && !self.p2.is_dead { self.sim_for(true, |s| s.update_ship_rotation(q)); }
         if self.mirror.enabled { self.step_mirror(delta_ms / 1000.0); }
         false
     }
@@ -917,6 +933,9 @@ pub struct Checkpoint {
     pub ground: Option<crate::ground::Ground>,
     pub dual: bool, pub dual_mode: &'static str, pub dual_mini: bool, pub dual_y: f64, pub dual_y_velocity: f64, pub dual_gravity_flipped: bool,
     pub dual_on_ground: bool, pub dual_on_ceiling: bool, pub dual_can_jump: bool, pub dual_is_jumping: bool,
+    pub swing_flip_pending: bool, pub swing_gd_accel: bool, pub swing_on_ceiling: bool, pub portal_free_mode: bool,
+    pub time_warp: (f64, usize, Vec<i64>), pub dual_bounds_center_y: Option<f64>,
+    pub dual_swing_flip_pending: bool, pub dual_swing_gd_accel: bool, pub dual_swing_was_boosted: bool,
 }
 
 impl Game {
@@ -925,7 +944,7 @@ impl Game {
         if !self.practice_mode || self.p.is_dead { return false; }
         let p = &self.p;
         let p2 = &self.p2;
-        let dual_mode = if p2.is_flying { "ship" } else if p2.is_ball { "ball" } else if p2.is_ufo { "ufo" } else if p2.is_wave { "wave" } else if p2.is_robot { "robot" } else if p2.is_spider { "spider" } else { "cube" };
+        let dual_mode = if p2.is_swing { "swing" } else if p2.is_flying { "ship" } else if p2.is_ball { "ball" } else if p2.is_ufo { "ufo" } else if p2.is_wave { "wave" } else if p2.is_robot { "robot" } else if p2.is_spider { "spider" } else { "cube" };
         self.checkpoints.push(Checkpoint {
             x: self.e.player_world_x, y: p.y, y_velocity: p.y_velocity, gravity_flipped: p.gravity_flipped, is_mini: p.is_mini,
             is_ball: p.is_ball, is_ufo: p.is_ufo, is_wave: p.is_wave, is_spider: p.is_spider, is_robot: p.is_robot, is_swing: p.is_swing, is_flying: p.is_flying,
@@ -937,6 +956,9 @@ impl Game {
             fly_camera_target: self.e.fly_camera_target, speed: self.g.player_speed, physics_frame: self.physics_frame, ground: self.fx.ground.clone(),
             dual: self.e.is_dual, dual_mode, dual_mini: p2.is_mini, dual_y: p2.y, dual_y_velocity: p2.y_velocity, dual_gravity_flipped: p2.gravity_flipped,
             dual_on_ground: p2.on_ground, dual_on_ceiling: p2.on_ceiling, dual_can_jump: p2.can_jump, dual_is_jumping: p2.is_jumping,
+            swing_flip_pending: p.swing_flip_pending, swing_gd_accel: p.gd_accel, swing_on_ceiling: p.on_ceiling, portal_free_mode: self.e.portal_free_mode,
+            time_warp: self.save_time_warp(), dual_bounds_center_y: self.e.dual_bounds_center_y,
+            dual_swing_flip_pending: p2.swing_flip_pending, dual_swing_gd_accel: p2.gd_accel, dual_swing_was_boosted: p2.was_boosted,
         });
         true
     }
@@ -963,10 +985,11 @@ impl Game {
         }
         crate::pdual::reset_object(&mut self.p, self.e.player_world_x);
         self.p.ignore_teleport_until_clear = true;
-        self.p.is_flying = false; self.p.is_ball = false; self.p.is_wave = false; self.p.is_ufo = false; self.p.is_spider = false; self.p.is_robot = false;
+        self.p.is_flying = false; self.p.is_ball = false; self.p.is_wave = false; self.p.is_ufo = false; self.p.is_spider = false; self.p.is_robot = false; self.p.is_swing = false;
         {
             let mut sim = Sim::new(&mut self.p, &mut self.g, &mut self.e);
-            if cp.is_flying { sim.enter_ship_mode(None, true); }
+            if cp.is_swing { sim.enter_swing_mode(None, true); }
+            else if cp.is_flying { sim.enter_ship_mode(None, true); }
             else if cp.is_ball { sim.enter_ball_mode(None); }
             else if cp.is_ufo { sim.enter_ufo_mode(None, true); }
             else if cp.is_wave { sim.enter_wave_mode(None); }
@@ -975,11 +998,18 @@ impl Game {
             self.log.extend(sim.log);
         }
         self.p.is_flying = cp.is_flying; self.p.is_ball = cp.is_ball; self.p.is_wave = cp.is_wave; self.p.is_ufo = cp.is_ufo; self.p.is_spider = cp.is_spider; self.p.is_robot = cp.is_robot;
+        self.p.is_swing = cp.is_swing;
+        self.p.swing_flip_pending = cp.swing_flip_pending;
+        if cp.is_swing {
+            self.p.gd_accel = cp.swing_gd_accel; self.p.on_ceiling = cp.swing_on_ceiling; self.p.on_ground = cp.on_ground; self.p.can_jump = cp.can_jump;
+            self.p.is_jumping = cp.is_jumping; self.p.was_boosted = cp.was_boosted;
+        }
         self.p.robot_hold = cp.robot_hold; self.p.robot_hold_timer = cp.robot_hold_timer;
         self.p.rotation = 0.0; // the checkpoint's `rotation` is a PlayerState field that doesn't exist: `Number(undefined)` -> 0
         self.p.rotate_action_active = cp.rotate_action_active;
         self.p.ignore_portals = true; self.p2.ignore_portals = true;
         self.reset_objects();
+        self.e.portal_free_mode = cp.portal_free_mode;
         self.e.fly_floor_y = cp.fly_floor_y;
         self.e.fly_ceiling_y = cp.fly_ceiling_y;
         self.e.fly_ground_active = cp.fly_ground_active;
@@ -1007,8 +1037,11 @@ impl Game {
             self.p2.on_ground = cp.dual_on_ground; self.p2.on_ceiling = cp.dual_on_ceiling; self.p2.can_jump = cp.dual_can_jump; self.p2.is_jumping = cp.dual_is_jumping;
             let input = self.p.clone();
             self.sim_for(false, |s| s.copy_input_to_secondary(&input));
-            let y = self.p.y;
-            self.sim_for(false, |s| s.ensure_dual_fly_bounds(Some(y)));
+            if self.p2.is_swing {
+                self.p2.swing_flip_pending = cp.dual_swing_flip_pending; self.p2.gd_accel = cp.dual_swing_gd_accel; self.p2.was_boosted = cp.dual_swing_was_boosted;
+            }
+            self.e.dual_bounds_center_y = Some(cp.dual_bounds_center_y.unwrap_or((cp.fly_floor_y.unwrap_or(0.0) + cp.fly_ceiling_y.unwrap_or(0.0)) / 2.0));
+            self.sim_for(false, |s| s.ensure_dual_fly_bounds());
         } else {
             self.e.is_dual = false;
             crate::pdual::reset_state(&mut self.p2);
@@ -1019,7 +1052,10 @@ impl Game {
         self.reset_channel_blending();
         self.reset_toggle();
         self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count();
-        self.check_toggle(cp.x); self.check_pickup(cp.x); self.check_count(cp.x); self.check_collision_triggers(cp.x); self.check_instant_count(cp.x);
+        self.reset_time_warp();
+        self.check_toggle(cp.x);
+        self.restore_time_warp(Some(&cp.time_warp), cp.x);
+        self.check_pickup(cp.x); self.check_count(cp.x); self.check_collision_triggers(cp.x); self.check_instant_count(cp.x);
         self.check_on_death(cp.x); self.check_touch_triggers(cp.x);
         self.delta_buffer = 0.0;
         self.physics_frame = cp.physics_frame;

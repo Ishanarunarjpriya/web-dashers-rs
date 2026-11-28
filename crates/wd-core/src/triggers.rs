@@ -108,6 +108,8 @@ pub struct AlphaTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub
 #[derive(Clone, Debug)]
 pub struct ShakeTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub duration: f64, pub strength: f64, pub interval: f64 }
 #[derive(Clone, Debug)]
+pub struct TimeWarpTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub value: f64 }
+#[derive(Clone, Debug)]
 pub struct PlayerVisTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub hide: bool }
 #[derive(Clone, Debug)]
 pub struct AnimationTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub target: f64, pub animate_id: f64 }
@@ -179,6 +181,7 @@ pub struct Lists {
     pub on_deaths: Vec<OnDeath>, pub touches: Vec<TouchTrig>, pub pickups: Vec<Pickup>, pub counts: Vec<Count>, pub instant_counts: Vec<InstantCount>,
     pub collisions: Vec<CollisionTrig>, pub blocks: Vec<Block>,
     pub colors: Vec<ColorTrig>, pub pulses: Vec<PulseTrig>, pub alphas: Vec<AlphaTrig>, pub shakes: Vec<ShakeTrig>, pub player_vis: Vec<PlayerVisTrig>, pub animations: Vec<AnimationTrig>, pub enter_effects: Vec<EnterEffectTrig>,
+    pub time_warps: Vec<TimeWarpTrig>,
 }
 
 /// Builds the trigger lists of a level (objects as passed to `_spawnLevelObjects`), sorted by x like the original.
@@ -194,6 +197,10 @@ pub fn build_lists(objects: &[LevelObject]) -> Lists {
         let b = Base { uid, spawn_triggered: r_flag(o, "62", "0"), groups: level_object_group_ids(o) };
         let (x, y) = (o.x * 2.0, o.y * 2.0);
         let touch = r_flag(o, "11", "0");
+        if o.id == Some(1935) {
+            let v = o.raw.get("120").map_or(1.0, |s| crate::js::to_number(s));
+            l.time_warps.push(TimeWarpTrig { b: b.clone(), x, y, touch, value: v });
+        }
         let ee = enter_effect_of(id);
         if ee != 0 { l.enter_effects.push(EnterEffectTrig { b: b.clone(), x, effect: ee }); }
         match o.id {
@@ -288,7 +295,7 @@ pub fn build_lists(objects: &[LevelObject]) -> Lists {
     by_x(&mut l.follow_ys, |t| t.x); by_x(&mut l.follows, |t| t.x);
     by_x(&mut l.on_deaths, |t| t.x); by_x(&mut l.touches, |t| t.x); by_x(&mut l.pickups, |t| t.x); by_x(&mut l.counts, |t| t.x);
     by_x(&mut l.instant_counts, |t| t.x); by_x(&mut l.collisions, |t| t.x);
-    by_x(&mut l.colors, |t| t.x); by_x(&mut l.pulses, |t| t.x); by_x(&mut l.alphas, |t| t.x); by_x(&mut l.shakes, |t| t.x); by_x(&mut l.player_vis, |t| t.x); by_x(&mut l.animations, |t| t.x); by_x(&mut l.enter_effects, |t| t.x);
+    by_x(&mut l.colors, |t| t.x); by_x(&mut l.pulses, |t| t.x); by_x(&mut l.alphas, |t| t.x); by_x(&mut l.shakes, |t| t.x); by_x(&mut l.player_vis, |t| t.x); by_x(&mut l.animations, |t| t.x); by_x(&mut l.enter_effects, |t| t.x); by_x(&mut l.time_warps, |t| t.x);
     l
 }
 
@@ -331,6 +338,8 @@ pub struct Pos { pub player_x: f64, pub player_y: f64, pub camera_x: f64, pub ca
 
 #[derive(Default, Clone, Debug)]
 pub struct Triggers {
+    /// `level._timeWarp` and the progress of the time warp triggers
+    pub time_warp: f64, pub time_warp_idx: usize, pub time_warp_touched: BTreeSet<i64>, pub warped_delta: Option<f64>,
     pub center_cache: Option<BTreeMap<i64, (f64, f64)>>,
     pub phase_limit: u32,
     pub l: Lists,
@@ -926,11 +935,15 @@ impl Game {
         let st = js_max(0.0, or0(t.strength));
         if dur <= 0.0 || st <= 0.0 { return; }
         let iv = js_max(0.0, or0(t.interval));
-        self.trig.shake_state = Some(ShakeState { strength: st, end_time: self.trig.now_ms + dur * 1000.0, interval: iv, last_step: f64::NEG_INFINITY });
+        self.trig.shake_state = Some(ShakeState { strength: st, end_time: self.shake_clock() + dur * 1000.0, interval: iv, last_step: f64::NEG_INFINITY });
     }
 
-    /// `applyShakeToOffsets(nowMs)`
-    pub fn apply_shake(&mut self, now: f64) {
+    /// The shake runs on the physics ticks (`tickBased`): `_physicsTick * u * 1000`.
+    fn shake_clock(&self) -> f64 { self.e.physics_tick * (1.0 / 240.0) * 1000.0 }
+
+    /// `applyShakeToOffsets(nowMs)` (the shake state is always tick based now, so the argument is ignored)
+    pub fn apply_shake(&mut self, _now: f64) {
+        let now = self.shake_clock();
         let Some(mut s) = self.trig.shake_state else { return };
         if now > s.end_time {
             self.trig.shake_state = None;
@@ -966,6 +979,49 @@ impl Game {
                 self.trig.touch_shake.insert(uid);
                 self.execute_shake(ti);
             }
+        }
+    }
+
+    // ---- time warp triggers ----
+    fn execute_time_warp(&mut self, ti: usize) {
+        let t = &self.trig.l.time_warps[ti];
+        if self.trig.trigger_toggled_off(&t.b.groups) { return; }
+        if t.value.is_finite() { self.trig.time_warp = js_max(0.1, js_min(2.0, t.value)); }
+    }
+
+    /// `checkTimeWarpTriggers(playerX, playerY, secondaryY)`
+    pub fn check_time_warp(&mut self, px: f64, py: Option<f64>, py2: Option<f64>) {
+        while self.trig.time_warp_idx < self.trig.l.time_warps.len() {
+            let ti = self.trig.time_warp_idx;
+            let t = &self.trig.l.time_warps[ti];
+            if t.x > px { break; }
+            let run = !t.b.spawn_triggered && !t.touch;
+            self.trig.time_warp_idx += 1;
+            if run { self.execute_time_warp(ti); }
+        }
+        let Some(py) = py else { return };
+        let half = 30.0 + if self.p.is_mini { 18.0 } else { 30.0 };
+        let half2 = 30.0 + if self.p2.is_mini { 18.0 } else { 30.0 };
+        for ti in 0..self.trig.l.time_warps.len() {
+            let t = &self.trig.l.time_warps[ti];
+            if !t.touch || t.b.spawn_triggered || self.trig.time_warp_touched.contains(&t.b.uid) || self.trig.trigger_toggled_off(&t.b.groups) { continue; }
+            let hit = ((t.x - px).abs() <= half && (t.y - py).abs() <= half)
+                || py2.map_or(false, |y2| (t.x - px).abs() <= half2 && (t.y - y2).abs() <= half2);
+            if hit {
+                let uid = t.b.uid;
+                self.trig.time_warp_touched.insert(uid);
+                self.execute_time_warp(ti);
+            }
+        }
+    }
+
+    pub fn reset_time_warp(&mut self) { self.trig.time_warp = 1.0; self.trig.time_warp_idx = 0; self.trig.time_warp_touched.clear(); }
+    pub fn save_time_warp(&self) -> (f64, usize, Vec<i64>) { (self.trig.time_warp, self.trig.time_warp_idx, self.trig.time_warp_touched.iter().copied().collect()) }
+    /// `restoreTimeWarpState(saved, playerX)`
+    pub fn restore_time_warp(&mut self, saved: Option<&(f64, usize, Vec<i64>)>, px: f64) {
+        match saved {
+            None => self.check_time_warp(px, None, None),
+            Some((v, i, t)) => { self.trig.time_warp = *v; self.trig.time_warp_idx = *i; self.trig.time_warp_touched = t.iter().copied().collect(); }
         }
     }
 
@@ -1499,6 +1555,7 @@ impl Game {
         for i in matches!(shakes) { self.execute_shake(i); }
         for i in matches!(player_vis) { self.trig.player_hidden = self.trig.l.player_vis[i].hide; }
         for i in matches!(pulses) { self.start_pulse(i); }
+        for i in matches!(time_warps) { self.execute_time_warp(i); }
         for i in matches!(spawns) { self.queue_spawn(i); }
         for i in matches!(on_deaths) { self.arm_on_death(i); }
         for i in matches!(touches) { self.arm_touch(i); }
@@ -1598,11 +1655,12 @@ impl Game {
         if self.trig.phase_limit >= 42 { self.check_instant_count(px); }
         if self.trig.phase_limit >= 43 { self.check_touch_instant_count(px, pos.player_y); }
         if self.trig.phase_limit >= 44 { if let Some(y2) = dual_y { self.check_touch_instant_count(px, y2); } }
-        self.update_visibility(pos.camera_x);
         self.check_pulse(px);
         self.step_pulse(dt);
         self.cm.step(dt);
         self.check_enter_effect(px);
+        self.check_time_warp(px, Some(pos.player_y), dual_y);
+        self.apply_shake(0.0);
     }
 
     // ---- inspection (tests) ----
@@ -1638,6 +1696,7 @@ impl Game {
         o.field("groupOpacity", format!("{{{}}}", t.group_opacity.iter().map(|(k, v)| format!("{}:{}", str_lit(&gkey(*k)), num(*v))).collect::<Vec<_>>().join(",")));
         o.field("alpha", format!("[{}]", std::iter::once(t.alpha_idx.to_string()).chain(t.active_alpha.iter().map(|a| format!("[{},{},{}]", a.trig, num(a.elapsed), num(a.start)))).collect::<Vec<_>>().join(",")));
         o.field("itemCounts", format!("{{{}}}", t.item_counts.iter().map(|(k, v)| format!("\"{}\":{}", k, num(*v))).collect::<Vec<_>>().join(",")));
+        o.field("timeWarp", format!("[{},{},{}]", num(t.time_warp), t.time_warp_idx, t.time_warp_touched.len()));
         let off: Vec<String> = t.toggled_off.iter().map(|g| g.to_string()).collect();
         o.field("toggledOff", format!("[{}]", off.join(",")));
         o.finish()
@@ -1683,8 +1742,9 @@ impl Game {
         let ans: Vec<String> = l.animations.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"animateId\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, num(t.target), num(t.animate_id))).collect();
         let ees: Vec<String> = l.enter_effects.iter().map(|t| format!("{{{},\"x\":{},\"effect\":{}}}", b(&t.b), num(t.x), t.effect)).collect();
         let als: Vec<String> = l.alphas.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"duration\":{},\"targetGroup\":{},\"targetOpacity\":{}}}", b(&t.b), num(t.x), num(t.y), num(t.duration), k(t.target_group), num(t.target_opacity))).collect();
-        format!("{{\"move\":[{}],\"rotate\":[{}],\"spawn\":[{}],\"stop\":[{}],\"toggle\":[{}],\"followY\":[{}],\"follow\":[{}],\"onDeath\":[{}],\"touch\":[{}],\"pickup\":[{}],\"count\":[{}],\"instantCount\":[{}],\"collision\":[{}],\"blocks\":[{}],\"color\":[{}],\"pulse\":[{}],\"alpha\":[{}],\"shake\":[{}],\"playerVis\":[{}],\"animation\":[{}],\"enterEffect\":[{}]}}",
-            moves.join(","), rotates.join(","), spawns.join(","), stops.join(","), toggles.join(","), fys.join(","), fols.join(","), ods.join(","), tts.join(","), pks.join(","), cts.join(","), ics.join(","), cls.join(","), bls.join(","), cols.join(","), pls.join(","), als.join(","), shs.join(","), pvs.join(","), ans.join(","), ees.join(","))
+        let tws: Vec<String> = l.time_warps.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"value\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, num(t.value))).collect();
+        format!("{{\"timeWarp\":[{}],\"move\":[{}],\"rotate\":[{}],\"spawn\":[{}],\"stop\":[{}],\"toggle\":[{}],\"followY\":[{}],\"follow\":[{}],\"onDeath\":[{}],\"touch\":[{}],\"pickup\":[{}],\"count\":[{}],\"instantCount\":[{}],\"collision\":[{}],\"blocks\":[{}],\"color\":[{}],\"pulse\":[{}],\"alpha\":[{}],\"shake\":[{}],\"playerVis\":[{}],\"animation\":[{}],\"enterEffect\":[{}]}}",
+            tws.join(","), moves.join(","), rotates.join(","), spawns.join(","), stops.join(","), toggles.join(","), fys.join(","), fols.join(","), ods.join(","), tts.join(","), pks.join(","), cts.join(","), ics.join(","), cls.join(","), bls.join(","), cols.join(","), pls.join(","), als.join(","), shs.join(","), pvs.join(","), ans.join(","), ees.join(","))
     }
 }
 

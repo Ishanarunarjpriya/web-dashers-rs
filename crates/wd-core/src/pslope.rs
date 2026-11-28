@@ -22,7 +22,7 @@ pub struct Cand {
 }
 
 #[derive(Debug, Clone)]
-pub struct Push { pub y: f64, pub grace: bool, pub fall: bool, pub head: Option<bool> }
+pub struct Push { pub y: f64, pub grace: bool, pub fall: bool, pub head: Option<bool>, pub h_block: bool, pub ship_head_tangent: Option<f64> }
 
 #[derive(Debug, Clone, Default)]
 pub struct SlopeResult { pub landed: bool, pub died: bool, pub push: Option<Push>, pub candidate: Option<Cand> }
@@ -97,13 +97,15 @@ impl<'a> Sim<'a> {
         Some(c.y + c.hypo_ay + (world_x - c.x - c.hypo_ax) * (c.hypo_by - c.hypo_ay) / dx)
     }
 
-    fn gd_cube_slope_collision(&self, c: &Col, piece_width: f64, players_y: f64, player_size: f64) -> SlopeResult {
+    fn gd_cube_slope_collision(&self, c: &Col, piece_width: f64, players_y: f64, player_size: f64, nearby: &[Col]) -> SlopeResult {
         let upside_down = self.p.gravity_flipped;
         let half_w = or0(c.w) / 2.0;
         let half_h = or0(c.h) / 2.0;
         if !(half_w > 0.0) || !(half_h > 0.0) { return SlopeResult::none(); }
         let (min_x, max_x, min_y, max_y) = (c.x - half_w, c.x + half_w, c.y - half_h, c.y + half_h);
-        if piece_width + player_size <= min_x || piece_width - player_size >= max_x || players_y + player_size <= min_y || players_y - player_size >= max_y {
+        let held_head_contact = self.was_holding_ship_head_slope(c, piece_width);
+        if piece_width + player_size <= min_x || piece_width - player_size >= max_x
+            || (!held_head_contact && (players_y + player_size <= min_y || players_y - player_size >= max_y)) {
             return SlopeResult::none();
         }
         let line_y = match Self::gd_slope_line_y(c, piece_width) { Some(v) => v, None => return SlopeResult::none() };
@@ -123,7 +125,7 @@ impl<'a> Sim<'a> {
         let cos_rot = m::cos(or0(self.p.gd_slope_rotation));
         let ride_half = player_size / (if cos_rot == 0.0 || cos_rot.is_nan() { 1.0 } else { cos_rot });
         if !was_on_slope {
-            if !(players_y + player_size > min_y + 2.0 && players_y - player_size < max_y - 2.0) { return SlopeResult::none(); }
+            if !held_head_contact && !(players_y + player_size > min_y + 2.0 && players_y - player_size < max_y - 2.0) { return SlopeResult::none(); }
         } else if if !upside_down { max_y < players_y - ride_half - stick } else { min_y > players_y + ride_half + stick } {
             return SlopeResult::none();
         }
@@ -144,15 +146,18 @@ impl<'a> Sim<'a> {
             if target >= max_y { target = max_y; }
         }
         let (ship, ufo, wave) = (self.p.is_flying, self.p.is_ufo, self.p.is_wave);
-        let flyer = ship || ufo || wave;
+        let flyer = ship || ufo || wave || self.p.is_swing;
         let holding = self.p.up_key_down;
         if upside_down != is_floor_top && flyer {
-            let head_stick = if slope_intersection || sliding_down || !holding { 0.0 } else if was_on_slope { 4.0 } else { 2.0 };
+            if ship && piece_width > max_x { return SlopeResult::none(); }
+            let held_ship_head = self.is_holding_ship_head_slope(c) && c.slope_surface_y(piece_width).is_some();
+            let tangent = if held_ship_head { Some(m::tan(c.slope_angle_rad()) * self.g.player_speed) } else { None };
+            let head_stick = if ship { 0.0 } else if slope_intersection || sliding_down || !holding { 0.0 } else if was_on_slope { 4.0 } else { 2.0 };
             let into = if upside_down { players_y < target + head_stick } else { players_y > target - head_stick };
             if !into { return SlopeResult::none(); }
             if slope_intersection || wave { return SlopeResult { landed: false, died: true, ..Default::default() }; }
             let fall = !holding && sliding_down;
-            return SlopeResult { landed: false, died: false, push: Some(Push { y: target, grace: false, fall, head: Some(!(fall && was_on_slope)) }), candidate: None };
+            return SlopeResult { landed: false, died: false, push: Some(Push { y: target, grace: false, fall, head: Some(!(fall && was_on_slope)), h_block: false, ship_head_tangent: tangent }), candidate: None };
         }
         if upside_down != is_floor_top {
             let touching = if upside_down { players_y < target } else { players_y > target };
@@ -161,18 +166,21 @@ impl<'a> Sim<'a> {
             if moving_away { return SlopeResult::none(); }
             if self.p.is_ball {
                 if slope_intersection { return SlopeResult { landed: false, died: true, ..Default::default() }; }
-                return SlopeResult { landed: false, died: false, push: Some(Push { y: target, grace: false, fall: false, head: None }), candidate: None };
+                return SlopeResult { landed: false, died: false, push: Some(Push { y: target, grace: false, fall: false, head: None, h_block: false, ship_head_tangent: None }), candidate: None };
             }
             let crash = if upside_down { players_y + 4.0 < target } else { players_y - 4.0 > target };
+            if self.head_block_covers(piece_width, line_y, min_x, max_x, player_size, nearby) {
+                return SlopeResult { landed: false, died: false, push: Some(Push { y: target, grace: false, fall: false, head: None, h_block: true, ship_head_tangent: None }), candidate: None };
+            }
             if !crash { return SlopeResult::none(); }
             if self.gd_slope_grace() {
-                return SlopeResult { landed: false, died: false, push: Some(Push { y: target, grace: true, fall: false, head: None }), candidate: None };
+                return SlopeResult { landed: false, died: false, push: Some(Push { y: target, grace: true, fall: false, head: None, h_block: false, ship_head_tangent: None }), candidate: None };
             }
             return SlopeResult { landed: false, died: true, ..Default::default() };
         }
-        let special = !slope_intersection && sliding_down && (if ship { !holding } else if ufo || wave { true } else { !self.p.is_jumping });
+        let special = !slope_intersection && sliding_down && (if ship { !holding } else if ufo || wave || self.p.is_swing { true } else { !self.p.is_jumping });
         let touching = if upside_down { players_y > target } else { players_y < target };
-        let mut within = special && (if upside_down { players_y > target - stick } else { players_y < target + stick });
+        let mut within = !ship && special && (if upside_down { players_y > target - stick } else { players_y < target + stick });
         if within && !touching && ufo { within = if upside_down { self.p.y_velocity >= 0.0 } else { self.p.y_velocity <= 0.0 }; }
         let mut collide = touching || within;
         if wave && holding && sliding_down { collide = false; }
@@ -218,7 +226,7 @@ impl<'a> Sim<'a> {
     fn legacy_slope_collision(&self, c: &Col, piece_width: f64, players_y: f64, players_last_y: f64, player_size: f64, gamemode_addition: f64) -> SlopeResult {
         let surface_y = match c.slope_surface_y(piece_width) { Some(v) => v, None => return SlopeResult::none() };
         let last_surface_y = surface_y;
-        if !self.p.is_flying && self.slope_back_wall_hit(c, piece_width, players_y, Some(surface_y)) {
+        if !self.p.is_flying && !self.p.is_swing && self.slope_back_wall_hit(c, piece_width, players_y, Some(surface_y)) {
             return SlopeResult { landed: false, died: true, ..Default::default() };
         }
         if let Some(cap) = self.slope_flat_cap_land(c, piece_width, players_y, players_last_y, player_size, gamemode_addition) { return cap; }
@@ -232,7 +240,7 @@ impl<'a> Sim<'a> {
         let tangent = m::tan(angle) * (self.g.player_speed * self.g.slope_tangent_d);
         let none = SlopeResult::none();
 
-        if self.p.is_flying && !self.p.is_ufo {
+        if (self.p.is_flying && !self.p.is_ufo) || self.p.is_swing {
             let g_flip = self.p.gravity_flipped;
             let slope_tol = player_size;
             let acts_as_floor = (!is_ceil_slope && !g_flip) || (is_ceil_slope && g_flip);
@@ -291,8 +299,8 @@ impl<'a> Sim<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn handle_slope_collision(&self, c: &Col, piece_width: f64, players_y: f64, players_last_y: f64, player_size: f64, wave_hit: f64, gamemode_addition: f64) -> SlopeResult {
-        if self.p.is_wave {
+    pub fn handle_slope_collision(&self, c: &Col, piece_width: f64, players_y: f64, players_last_y: f64, player_size: f64, wave_hit: f64, gamemode_addition: f64, nearby: &[Col]) -> SlopeResult {
+        if self.p.is_wave && !self.p.wave_slide_active {
             let surface_y = match c.slope_surface_y(piece_width) { Some(v) => v, None => return SlopeResult::none() };
             let inside_solid = if c.slope_solid_below { players_y - wave_hit < surface_y } else { players_y + wave_hit > surface_y };
             let back_wall = self.slope_back_wall_hit(c, piece_width, players_y, Some(surface_y));
@@ -304,7 +312,7 @@ impl<'a> Sim<'a> {
             return SlopeResult { landed: false, died: true, ..Default::default() };
         }
         if let Some(cap) = self.slope_flat_cap_land(c, piece_width, players_y, players_last_y, player_size, gamemode_addition) { return cap; }
-        self.gd_cube_slope_collision(c, piece_width, players_y, if self.p.is_wave { wave_hit } else { player_size })
+        self.gd_cube_slope_collision(c, piece_width, players_y, if self.p.is_wave { wave_hit } else { player_size }, nearby)
     }
 }
 

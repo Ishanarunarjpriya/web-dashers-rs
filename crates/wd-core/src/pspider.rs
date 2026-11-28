@@ -3,7 +3,7 @@ use crate::jsmath as m;
 use crate::pcol::{Col, T_SLOPE};
 use crate::physics::{gd_trunc, Sim, P};
 
-struct Bounds { left: f64, right: f64, lower: f64, upper: f64 }
+pub(crate) struct Bounds { pub left: f64, pub right: f64, pub lower: f64, pub upper: f64 }
 
 fn or0(v: f64) -> f64 { if v == 0.0 || v.is_nan() { 0.0 } else { v } }
 
@@ -22,7 +22,7 @@ fn search_bounds(o: &Col) -> Bounds {
 }
 
 impl<'a> Sim<'a> {
-    fn find_spider_teleport_hazard(&self, going_up: bool, world_x: f64, player_size: f64, target_center_y: f64, cols: &[Col]) -> Option<Bounds> {
+    pub(crate) fn find_spider_teleport_hazard(&self, going_up: bool, world_x: f64, player_size: f64, target_center_y: f64, cols: &[Col]) -> Option<Bounds> {
         if !target_center_y.is_finite() { return None; }
         let x_pad = 9f64.max(player_size - 5.0);
         let y_pad = x_pad;
@@ -46,7 +46,7 @@ impl<'a> Sim<'a> {
         nearest
     }
 
-    fn find_spider_teleport_surface(&self, going_up: bool, world_x: f64, player_size: f64, cols: &[Col]) -> Option<f64> {
+    pub(crate) fn find_spider_teleport_surface(&self, going_up: bool, world_x: f64, player_size: f64, cols: &[Col]) -> Option<f64> {
         let x_pad = 9f64.max(player_size - 5.0);
         let mut best: Option<f64> = None;
         if going_up {
@@ -132,6 +132,10 @@ impl<'a> Sim<'a> {
                 self.p.can_jump = true;
                 self.p.is_jumping = false;
             } else {
+                if going_up && self.e.portal_free_mode {
+                    self.theres_nothing_there_teleport(world_x, player_size, true, cols);
+                    return;
+                }
                 self.flip_gravity(going_up, 1.0);
                 self.p.y_velocity = 0.0;
                 self.p.on_ground = false;

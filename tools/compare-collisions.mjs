@@ -26,6 +26,33 @@ const levels = fs.readdirSync(root + "ref/assets/levels").filter((f) => f.endsWi
   cols.forEach((c, i) => (c.uid = i));
   return cols;
 }).filter((c) => c.length);
+if (process.env.EXTRA) {
+  // synthetic levels with the V2.1 objects (swing portal, spider pad/orb, head blocks, flipped pads/orbs, free-mode portals, rotated spikes)
+  const SLOPE_IDS = [289, 291, 299, 305, 315, 321, 324, 326, 333, 337, 363, 366, 369];
+  const IDS = [1, 1, 1, 1829, 1859, 1859, 8, 8, 39, 103, 392, 35, 67, 140, 1332, 3005, 3005, 36, 84, 141, 1022, 1333, 1330, 1594, 3004, 3004, 1704, 1751, 12, 13, 47, 660, 111, 745, 1331, 1933, 1933, 286, 287, 10, 11, 99, 101, 200, 201, 202, 203, ...SLOPE_IDS];
+  const synth = [];
+  for (let k = 0; k < 40; k++) {
+    const objs = [];
+    for (let n = 0; n < 60; n++) {
+      const id = pick(IDS);
+      const rot = rnd() < 0.5 ? 0 : pick([90, 180, 270, 45, 30, -90]);
+      const flipY = id >= 35 && id !== 8 && rnd() < 0.5 ? 1 : 0;
+      objs.push(`1,${id},2,${Math.floor(rnd() * 500)},3,${Math.floor(rnd() * 300) + 15},6,${rot},4,${rnd() < 0.2 ? 1 : 0},5,${flipY},111,${rnd() < 0.5 ? 1 : 0},99,${rnd() < 0.3 ? 1 : 0}`);
+    }
+    const lvl = ctx.parseLevel("kA4,0;" + objs.join(";"));
+    const cols = [];
+    for (const lo of lvl.objects) {
+      const def = ctx.getObjectFromId(lo.id);
+      if (!def || def.type === ctx.triggerType) continue;
+      const self = { objects: [], objectSprites: {}, _groupColliders: {}, _addCollisionToSection() {}, _getTeleportPortalYOffset: ctx.tpOffset, _secretCoinCompleted: new Set(), _userCoinCompleted: new Set() };
+      ctx.spawnCol.call(self, lo, def, lo.x * 2, lo.y * 2, parseInt(lo.id ?? 0, 10), 0, 0, 0, null);
+      for (const c of self.objects) if (c instanceof ctx.Collider) cols.push(c);
+    }
+    cols.forEach((c, i) => (c.uid = i));
+    synth.push(cols);
+  }
+  levels.length = 0; levels.push(...synth.filter((c) => c.length));
+}
 console.log("levels with colliders:", levels.length);
 
 const N = Number(process.argv[3] || 100000);
@@ -115,7 +142,7 @@ for (let t = 0; t < N; t++) {
     console.log("MINIMAL SET:", set.map((c) => `${c.type} uid=${c.uid} x=${c.x} y=${c.y} w=${c.w} h=${c.h} rot=${c.rotationDegrees} byP=${JSON.stringify(c._activatedByPlayer)} act=${c.activated}`).join("\n  "), "\n player x=", offset + v["g.center_x"], "y=", v.y, "lastY=", v.last_y);
   }
   if (diff.length && process.env.DEBUG_COLS && bad < 2) { const pw = offset + v["g.center_x"]; console.log("NEAR:", near.filter((c) => Math.abs(c.x - pw) < 120 && Math.abs(c.y - js.y) < 120).map((c) => `${c.type} uid=${c.uid} x=${c.x} y=${c.y} w=${c.w} h=${c.h} rot=${c.rotationDegrees} act=${c.activated} byP=${JSON.stringify(c._activatedByPlayer)} r=${c.hitbox_radius}`).join("\n  "), "\n pw=", pw, "py=", v.y, "lastY=", v.last_y, "second=", v["e.second_player"], "ignP=", v.ignore_portals, "ignTele=", v.ignore_teleport_until_clear); }
-  if (diff.length && bad++ < 4) console.log("MISMATCH", mode, "\n ", diff.slice(0, 8).join("\n  "), "\n input:", JSON.stringify(v), "\n offset:", offset, "near:", near.length);
+  if (diff.length && bad++ < 4) console.log("MISMATCH", mode, "\n ", diff.slice(0, Number(process.env.ND || 8)).join("\n  "), "\n input:", JSON.stringify(v), "\n offset:", offset, "near:", near.length);
 }
 console.log("collider types in range:", JSON.stringify(seen), "\neffects:", JSON.stringify(events));
 console.log(`${N} cases (${kills} deaths, ${lands} landings, ${onSlope} ended on a slope): ${bad ? bad + " MISMATCHED" : "all identical"}`);

@@ -8,7 +8,7 @@
   const rnd = (a, b) => a + Math.random() * (b - a);
   const lerp = (a, b, t) => a + (b - a) * t;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const ICON_BASE_RE = /^((?:player_ball|player|ship|dart|bird|spider|robot)_\d{2,3})(?:_.*)?_001\.png$/;
+  const ICON_BASE_RE = /^((?:player_ball|player|ship|dart|bird|spider|robot|swing)_\d{2,3})(?:_.*)?_001\.png$/;
   const iconBaseOf = (n) => { const m = ICON_BASE_RE.exec(String(n || "")); return m ? m[1] : null; };
   const parsePair = (value, fx = 0, fy = 0) => {
     const m = String(value ?? "").match(/\{\s*([-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\s*\}/);
@@ -108,12 +108,15 @@
       cfg.main = parseInt(g("iconMainColor", "04FF00"), 16);
       cfg.second = parseInt(g("iconSecondaryColor", "00FBFF"), 16);
       cfg.player = g("iconCurrentPlayer", "player_01"); cfg.ship = g("iconCurrentShip", "ship_01"); cfg.ball = g("iconCurrentBall", "player_ball_01");
-      cfg.wave = g("iconCurrentWave", "dart_01"); cfg.bird = g("iconCurrentBird", "bird_01"); cfg.spider = g("iconCurrentSpider", "spider_01"); cfg.robot = g("iconCurrentRobot", "robot_01");
+      cfg.wave = g("iconCurrentWave", "dart_01"); cfg.bird = g("iconCurrentBird", "bird_01"); cfg.spider = g("iconCurrentSpider", "spider_01"); cfg.robot = g("iconCurrentRobot", "robot_01"); cfg.swing = g("iconCurrentSwing", "swing_01");
       let s = {}; try { s = JSON.parse(localStorage.getItem("gd_settings") || "{}") || {}; } catch (e) {}
+      cfg.trail = Math.min(7, Math.max(1, parseInt(g("iconCurrentTrail", "1"), 10) || 1)); cfg.fire = Math.min(6, Math.max(1, parseInt(g("iconCurrentShipFire", "1"), 10) || 1)); cfg.death = Math.min(20, Math.max(1, parseInt(g("iconCurrentDeathEffect", "1"), 10) || 1)); cfg.explode = g("iconExplode", "true") !== "false";
+      cfg.slowRobot = g("iconSlowRobotRun", "false") === "true"; cfg.fastRobot = g("iconFastRobotRun", "false") === "true"; cfg.fastSpider = g("iconFastSpiderRun", "false") === "true";
+      cfg.glow = g("iconGlowEnabled", "false") === "true"; cfg.glowColor = parseInt(g("iconGlowColor", "7DFF00"), 16);
       cfg.ldm = !!s.enableLDM; cfg.miniIcon = !!s.enableMiniIcon; cfg.solidWave = !!s.solidWaveTrail; cfg.showHitboxes = !!s.showHitboxes;
     };
     loadCfg();
-    const equippedBases = () => [...new Set([cfg.player, cfg.ship, cfg.ball, cfg.wave, cfg.bird, cfg.spider, cfg.robot].map((n) => iconBaseOf(n + "_001.png")).filter(Boolean))];
+    const equippedBases = () => [...new Set([cfg.player, cfg.ship, cfg.ball, cfg.wave, cfg.bird, cfg.spider, cfg.robot, cfg.swing].map((n) => iconBaseOf(n + "_001.png")).filter(Boolean))];
 
     const extraSheets = {};
     const loadSheet = async (name) => {
@@ -194,7 +197,7 @@
     class Vis {
       constructor(index) {
         this.index = index; this.inverted = index === 1;
-        this.s = new Float64Array(26); this.prev = new Float64Array(26);
+        this.s = new Float64Array(27); this.prev = new Float64Array(27); this.swingFlames = [{ g: 0 }, { g: 0 }, { g: 0 }]; this.swingTime = 0;
         this.items = []; this.prevItems = [];
         this.rotation = 0; this.hidden = false;
         this.dashFrame = 0; this.dashTimer = 0; this.dashShown = false;
@@ -203,7 +206,7 @@
         this.circles = []; this.dashFx = null;
         this.pieces = null; this.burst = null; this.flash = null; this.ended = null;
         this.lastCamY = 0; this.landIdx = false; this.wasDead = false; this.wasActive = false;
-        this.streak = { pts: [], pos: null, active: false, pool: [] }; this.wave = { pts: [], pos: null, active: false, pool: [] };
+        this.streak = newStreak(); this.boost = false; this.lastMode = -1; this.wave = { pts: [], pos: null, active: false, pool: [] };
         this.em = {
           ground: new Emitter({ speed: [110, 190], angle: [225, 315], life: [150, 450], scale: [0.5, 0], alpha: [1, 0], gy: 600, freq: 1000 / 30 }),
           fly: new Emitter({ speed: [22, 38], angle: [225, 315], life: [150, 450], scale: [0.5, 0], alpha: [1, 0], gy: 600, freq: 1000 / 30, tint: { start: 16737280, end: 16711680 } }),
@@ -216,15 +219,14 @@
       }
       primary() { return this.inverted ? cfg.second : cfg.main; }
       secondary() { return this.inverted ? cfg.main : cfg.second; }
-      tintOf(kind) { return kind === "base" ? this.primary() : (kind === "overlay" || kind === "glow") ? this.secondary() : -1; }
+      tintOf(kind) { return kind === "base" ? this.primary() : kind === "glow" ? cfg.glowColor : (kind === "overlay" || kind === "secondary") ? this.secondary() : -1; }
 
       // The layer set of one icon: frame names resolved through the atlas lookup
-      layerFrames(prefix, birdStyle) {
+      layerFrames(prefix, style) {
         const base = `${prefix}_001.png`;
-        const second = birdStyle ? `${prefix}_2_001.png` : `${prefix}_2_001.png`;
-        return birdStyle
-          ? [{ kind: "glow", name: `${prefix}_2_001.png`, depth: 9 }, { kind: "base", name: base, depth: 10 }, { kind: "overlay", name: `${prefix}_3_001.png`, depth: 8 }, { kind: "extra", name: `${prefix}_extra_001.png`, depth: 12 }]
-          : [{ kind: "glow", name: `${prefix}_glow_001.png`, depth: 9 }, { kind: "base", name: base, depth: 10 }, { kind: "overlay", name: second, depth: 8 }, { kind: "extra", name: `${prefix}_extra_001.png`, depth: 12 }];
+        if (style === "bird") return [{ kind: "glow", name: `${prefix}_glow_001.png`, depth: 12.05 }, { kind: "secondary", name: `${prefix}_2_001.png`, depth: 12.2 }, { kind: "base", name: base, depth: 12.3 }, { kind: "overlay", name: `${prefix}_3_001.png`, depth: 12.1 }, { kind: "extra", name: `${prefix}_extra_001.png`, depth: 12.4 }];
+        if (style === "ship") return [{ kind: "glow", name: `${prefix}_glow_001.png`, depth: 12.2 }, { kind: "base", name: base, depth: 12.3 }, { kind: "overlay", name: `${prefix}_2_001.png`, depth: 12.1 }, { kind: "extra", name: `${prefix}_extra_001.png`, depth: 12.4 }];
+        return [{ kind: "glow", name: `${prefix}_glow_001.png`, depth: 9 }, { kind: "base", name: base, depth: 10 }, { kind: "overlay", name: `${prefix}_2_001.png`, depth: 8 }, { kind: "extra", name: `${prefix}_extra_001.png`, depth: 12 }];
       }
 
       push(group, kind, name, depth, x, y, rot, sx, sy, tint, extraKey) {
@@ -253,22 +255,22 @@
         };
         const emit = (group, layers, x, y, r, sx, sy, glowVisible) => {
           for (const l of layers) {
-            if (l.kind === "glow" && !glowVisible) continue;
+            if (l.kind === "glow" && !(glowVisible || cfg.glow)) continue;
             this.push(group, l.kind, l.name, l.depth, x, y, r, sx, sy, l.name === "__custom_cube__" ? -1 : this.tintOf(l.kind));
           }
         };
         if (p.ship || p.ufo) {
-          const off = 10, ship = p.ship;
+          const ship = p.ship, off = ship ? 10 : (gf ? -10 : 10) * mini;
           const cs = Math.cos(rot), sn = Math.sin(rot);
           const shipX = -off * sn * (mir ? -1 : 1), shipY = off * cs;
-          const playerOffset = gf ? -30 * mini : 10 * mini;
+          const playerOffset = (gf ? -10 : 10) * mini;
           const cubeDX = playerOffset * sn * (mir ? -1 : 1), cubeDY = -playerOffset * cs;
           const ufoMode = p.ufo && !p.ship;
-          if (ship) emit("ship", this.layerFrames(cfg.ship), X + shipX, Y + shipY + (gf ? -20 * mini : 0), mrot, sxs * mini, sys * mini, false);
+          if (ship) emit("ship", this.layerFrames(cfg.ship, "ship"), X + shipX, Y + shipY + (gf ? -20 * mini : 0), mrot, sxs * mini, sys * mini, false);
           let birdX = 0, birdY = 0, cubeX, cubeY, cubeRot = mrot, birdRot = mrot;
-          if (p.ufo) { birdX = X + shipX; birdY = Y + shipY + (gf ? -15 : 5); }
+          if (p.ufo) { birdX = X + shipX; birdY = Y + shipY + (gf ? -5 : 5) * mini; }
           if (ship) { const cubeSide = gf ? -1 : 1; cubeX = X + shipX + cubeSide * 20 * mini * sn * (mir ? -1 : 1); cubeY = Y + shipY + (gf ? -20 * mini : 0) - cubeSide * 20 * mini * cs; }
-          else { cubeX = X + cubeDX; cubeY = Y + cubeDY + (p.mini ? 8 * mini : 0) + (gf ? -20 * mini : 0); }
+          else { cubeX = X + cubeDX; cubeY = Y + cubeDY; }
           if (ufoMode) {
             const ux = p.x, last = this.ufoLast || (this.ufoLast = { x: ux, y: p.y });
             const dx = ux - last.x, dy = p.y - last.y;
@@ -293,11 +295,12 @@
             const ox = cubeX - birdX, oy = cubeY - birdY;
             cubeX = birdX + ox * c - oy * s; cubeY = birdY + ox * s + oy * c; cubeRot = ur; birdRot = ur;
           }
-          if (p.ufo) for (const l of this.layerFrames(cfg.bird, true)) { if (l.kind === "extra" && !getFrame(l.name)) continue; this.push("bird", l.kind, l.name, l.depth, birdX, birdY, birdRot, sxs * mini, sys * mini, this.tintOf(l.kind)); }
+          if (p.ufo) for (const l of this.layerFrames(cfg.bird, "bird")) { if (l.kind === "glow" && !cfg.glow) continue; if (l.kind === "extra" && !getFrame(l.name)) continue; this.push("bird", l.kind, l.name, l.depth, birdX, birdY, birdRot, sxs * mini, sys * mini, this.tintOf(l.kind)); }
           const cm = mini * 0.55;
           emit("cube", cubeLayers(), cubeX, cubeY, cubeRot, sxs * cm, sys * cm, false);
           return;
         }
+        if (p.swing) { this.swingLayout(p, X, Y, dt, mini, mrot, sxs); return; }
         if (p.spider) { this.spiderLayout(p, X, Y, dt); return; }
         if (p.robot) { this.robotLayout(p, X, Y, dt); return; }
         if (p.ball) { emit("ball", ballLayers(), X, Y, rot, sxs * mini, mini, false); return; }
@@ -305,7 +308,7 @@
           const m = mini * 0.94;
           const layers = this.layerFrames(cfg.wave);
           for (const l of layers) {
-            if (l.kind === "glow") continue;
+            if (l.kind === "glow" && !cfg.glow) continue;
             const off = l.kind === "base" ? [1.5 * (mir ? 1 : -1), -1] : [0, 0];
             this.push("wave", l.kind, l.name, l.depth, X + off[0], Y + off[1], mrot, sxs * m, sys * m, this.tintOf(l.kind));
           }
@@ -334,7 +337,7 @@
           let cr = rotDeg * Math.PI / 180; if (p.mir) cr = -cr; if (p.gf) cr = -cr;
           const bsx = sc.x * (fl.x ? -1 : 1) * mirSign * mini, bsy = sc.y * (fl.y ? -1 : 1) * gravSign * mini;
           const tex = resolve(sd.texture || a.textures[tag]);
-          for (const [vk, off] of [["base", 0], ["overlay", -0.02], ["extra", 0.08]]) {
+          for (const [vk, off] of [...(cfg.glow ? [["glow", -0.04]] : []), ["base", 0], ["overlay", -0.02], ["extra", 0.08]]) {
             const fn = resolve(variantName(tex, vk === "base" ? "base" : vk));
             const fr = getFrame(fn); if (!fr) continue;
             let tint = this.tintOf(vk);
@@ -347,6 +350,34 @@
         const one = 11.540004, half = 9.30222544655, four = 21.3333407279, sp = Number.isFinite(p.speed) ? p.speed : one;
         if (sp >= one) return 1.75 + clamp((sp - one) / Math.max(1e-6, four - one), 0, 1) * 0.35;
         return 1.75 - clamp((one - sp) / Math.max(1e-6, one - half), 0, 1) * 0.15;
+      }
+      // the swing copter: cube-like layers that never flip vertically, plus three fire flames (`_syncSwingFlames`)
+      swingLayout(p, X, Y, dt, mini, mrot, sxs) {
+        const parts = [["glow", "_glow_001.png", 9], ["overlay", "_2_001.png", 8], ["base", "_001.png", 10], ["extra", "_extra_001.png", 12]];
+        for (const [kind, suffix, depth] of parts) {
+          if (kind === "glow" && !cfg.glow) continue;
+          let name = `${cfg.swing}${suffix}`;
+          if (!getFrame(name) && kind !== "extra") name = `swing_01${suffix}`;
+          this.push("swing", kind, name, depth, X, Y, mrot, sxs * mini, mini, this.tintOf(kind));
+        }
+        if (cfg.ldm) return;
+        const fr = getFrame("fireBoost_001.png"); if (!fr) return;
+        const h = (fr.d.sourceSize && fr.d.sourceSize.h) || fr.d.frame.h;
+        this.swingTime += Math.max(0, dt);
+        const mirror = p.mir ? -1 : 1, angle = mrot;
+        this.swingFlames.forEach((fl, i) => {
+          const target = i === 0 || (i === 1 ? !p.gf : p.gf) ? 1 : 0;
+          if (fl.g < target) fl.g = Math.min(target, fl.g + dt / 0.2); else fl.g = Math.max(target, fl.g - dt / 0.5);
+          const gr = fl.g * fl.g * (3 - 2 * fl.g);
+          if (gr <= 0) return;
+          const ox = (i === 0 ? -33 : -28) * mini * mirror * gr, oy = (i === 0 ? 0 : i === 1 ? -23 : 23) * mini * gr;
+          const px = X + ox * Math.cos(angle) - oy * Math.sin(angle), py = Y + ox * Math.sin(angle) + oy * Math.cos(angle);
+          const rot = angle + (i === 0 ? Math.PI / 2 * mirror : i === 1 ? Math.PI - Math.PI / 4 * mirror : Math.PI / 4 * mirror);
+          const sx = mini * 0.825 * gr, sy = mini * (0.975 + 0.195 * Math.sin(this.swingTime * (65 / 1.5) + i)) * gr;
+          // origin (0.5, 0): the sprite hangs from its top edge
+          const cx = px - Math.sin(rot) * (h * sy / 2), cy = py + Math.cos(rot) * (h * sy / 2);
+          this.items.push({ group: "swing", kind: "fx", fr, depth: 7.75, order: this.items.length, x: cx, y: cy, rot, sx, sy, tint: 0xffffff, alpha: 0.9, additive: true });
+        });
       }
       spiderLayout(p, X, Y, dt) {
         const a = anim.spider; if (!a) return;
@@ -421,40 +452,155 @@
             this.items.push({ ...it, x: sx + dx, y: sy + dy, rot: e.startRot + spin, alpha, screen: true });
           }
         }
-        this.streak.pos = { x: wx, y: T - gy };
+        streakSetPos(this.streak, wx, T - gy); this.streak.speed = p.speed;
         streakUpdate(this, dtMs / 1000);
-        if (tl >= 1) { this.streak.active = false; this.streak.pts.length = 0; }
+        if (tl >= 1) { streakStop(this.streak); streakReset(this.streak); }
       }
     }
 
     // ---- trails ----
-    const streakUpdate = (v, dt) => { // StreakManager: fade 0.231s, min segment 10, stroke 8, max segment 100, opacity .7
-      const S = v.streak, fade = 1 / 0.231, minSq = 100, maxPts = Math.floor(0.231 * 60 + 2) * 5;
-      if (!S.pos) return;
-      const d = dt * fade; let k = 0;
-      for (let i = 0; i < S.pts.length; i++) { S.pts[i].state -= d; if (S.pts[i].state > 0) { S.pts[k++] = S.pts[i]; } else S.pool.push(S.pts[i]); }
-      S.pts.length = k;
-      if (S.active && S.pts.length < maxPts) {
-        const n = S.pts.length; let add = true;
-        if (n > 0) {
-          const last = S.pts[n - 1], dx = S.pos.x - last.x, dy = S.pos.y - last.y, sq = dx * dx + dy * dy;
-          if (Math.sqrt(sq) > 100) { for (const q of S.pts) S.pool.push(q); S.pts.length = 0; }
-          else if (sq < minSq) add = false;
-          else if (n > 1) { const l2 = S.pts[n - 2], ex = S.pos.x - l2.x, ey = S.pos.y - l2.y; if (ex * ex + ey * ey < minSq * 2) add = false; }
-        }
-        if (add) { const pt = S.pool.pop() || { x: 0, y: 0, state: 1 }; pt.x = S.pos.x; pt.y = S.pos.y; pt.state = 1; S.pts.push(pt); }
-      }
+    // StreakManager (player.js): the trail behind a boosting or flying icon, seven looks (`window.currentTrail`)
+    const STREAK_STYLES = [null, [0.231, 17], [0.35, 24], [0.55, 13], [0.4, 18], [2.4, 8], [2.4, 6], [0.38, 24]];
+    function newStreak() { return { pts: [], pos: null, posInit: false, active: false, style: 0, baseLife: 0.231, stroke: 17, long: false, distance: 0, breakNext: true, suppress: false, mini: false, speed: 11.54, camX: 0, tex: null }; }
+    const streakReset = (S) => { S.pts.length = 0; S.posInit = false; S.breakNext = true; S.distance = 0; };
+    const streakStart = (S) => { if (!S.active) S.breakNext = true; S.active = true; };
+    const streakStop = (S) => { if (S.active) S.breakNext = true; S.active = false; };
+    const streakSetStyle = (S, id) => {
+      id = Number(id); if (!Number.isInteger(id) || id < 1 || id > 7) id = 1;
+      if (S.style === id) return;
+      S.style = id; [S.baseLife, S.stroke] = STREAK_STYLES[id]; S.long = id === 5 || id === 6; S.tex = `streak_0${id}_001.png`;
+      loadEffectImage(S.tex); streakReset(S);
     };
-    const streakDraw = (v, ox, oy) => {
-      const S = v.streak; if (S.pts.length < 2) return;
-      ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineWidth = 8; ctx.lineCap = "butt";
-      const col = "#" + (v.secondary() & 0xffffff).toString(16).padStart(6, "0");
-      for (let i = 0; i < S.pts.length - 1; i++) {
-        const a = S.pts[i], b = S.pts[i + 1];
-        ctx.globalAlpha = clamp((a.state + b.state) * 0.5 * 0.7, 0, 1); ctx.strokeStyle = col;
-        ctx.beginPath(); ctx.moveTo(a.x + ox, a.y + oy); ctx.lineTo(b.x + ox, b.y + oy); ctx.stroke();
+    const streakSetPos = (S, x, y) => { S.pos = { x, y }; S.posInit = Number.isFinite(x) && Number.isFinite(y); };
+    const streakUpdate = (v, dt) => {
+      const S = v.streak; dt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+      if (!S.posInit) return;
+      const life = S.baseLife;
+      for (const pt of S.pts) if (!S.long || !S.active) pt.state -= dt / life;
+      let alive = 0; for (const pt of S.pts) if (pt.state > 0) S.pts[alive++] = pt;
+      S.pts.length = alive;
+      if (S.suppress) S.breakNext = true;
+      if (S.active && !S.suppress) {
+        const pos = S.pos, size = S.mini ? 0.6 : 1, last = S.pts[S.pts.length - 1];
+        const dist = last ? Math.hypot(pos.x - last.x, pos.y - last.y) : 0;
+        const maxStep = Math.max(100, Math.abs(Number(S.speed) || 11.54) * 60 * dt * 3);
+        if (!last || S.breakNext || dist > maxStep) { S.pts.push({ x: pos.x, y: pos.y, distance: S.distance, state: 1, size, breakBefore: true }); S.breakNext = false; }
+        else if (dist > 0.001) {
+          const pieces = Math.min(128, Math.max(1, Math.ceil(dist / 8))), startDistance = S.distance;
+          for (let j = 1; j <= pieces; j++) {
+            const t = j / pieces;
+            S.pts.push({ x: last.x + (pos.x - last.x) * t, y: last.y + (pos.y - last.y) * t, distance: startDistance + dist * t, state: S.long ? 1 : Math.max(0, 1 - dt * (1 - t) / life), size: last.size + (size - last.size) * t });
+          }
+          S.distance += dist;
+        } else { last.state = 1; last.size = size; }
       }
+      if (S.long) {
+        const reach = W + 240, x = S.pos.x; let drop = 0;
+        while (drop + 1 < S.pts.length && S.pts[drop + 1].x < x - reach) drop++;
+        if (drop) S.pts.splice(0, drop);
+      }
+      if (S.pts.length > 2048) S.pts.splice(0, S.pts.length - 2048);
+    };
+    // images of the icon effects (trail textures, ship fire frames), loaded on demand from ref/assets/icon-effects
+    const effectImgs = new Map();
+    const loadEffectImage = (name) => {
+      if (!name || effectImgs.has(name)) return effectImgs.get(name) || null;
+      const rec = { img: null, colored: false }; effectImgs.set(name, rec);
+      loadImage(`../ref/assets/icon-effects/${name}`).then((img) => {
+        rec.img = img;
+        try { const c = document.createElement("canvas"); c.width = c.height = 32; const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(img, 0, 0, 32, 32); const d = g.getImageData(0, 0, 32, 32).data; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 64 && Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]) > 30) { rec.colored = true; break; } } catch (e) {}
+      }).catch(() => {});
+      return rec;
+    };
+    const hsv2rgb = (h, sat, val) => { const i = Math.floor(h * 6), f = h * 6 - i, p = val * (1 - sat), q = val * (1 - f * sat), t = val * (1 - (1 - f) * sat); const m = ((i % 6) + 6) % 6; const [r, g, b] = [[val, t, p], [q, val, p], [p, val, t], [p, q, val], [t, p, val], [val, p, q]][m]; return (Math.floor(r * 255) << 16) | (Math.floor(g * 255) << 8) | Math.floor(b * 255); };
+    const streakDraw = (v, ox, oy) => {
+      const S = v.streak; if (S.pts.length < 2 || !S.posInit) return;
+      const color = v.secondary(), camX = -ox, pos = S.pos;
+      const pointColor = (pt) => S.style === 2 ? hsv2rgb((pt.distance / 180) % 1, 1, 1) : S.style === 7 ? 0xffffff : color;
+      const progressOf = (pt) => { const fallback = W * 0.5, vis = Number.isFinite(camX) ? pos.x - camX : fallback; return clamp((pos.x - pt.x) / Math.max(1, vis > 0 ? vis : fallback), 0, 1); };
+      const alphaOf = (pt) => { const a = clamp(pt.state, 0, 1); return S.long ? a * (1 - 0.35 * progressOf(pt)) : a * 0.7; };
+      const edges = (pts, width, taper, offset) => {
+        const normals = [];
+        for (let i = 1; i < pts.length; i++) { const dx = pts[i].x - pts[i - 1].x, dy = pts[i].y - pts[i - 1].y, len = Math.hypot(dx, dy) || 1; normals.push({ x: -dy / len, y: dx / len }); }
+        return pts.map((pt, i) => {
+          const a = normals[Math.max(0, i - 1)], b = normals[Math.min(i, normals.length - 1)];
+          let nx = a.x + b.x, ny = a.y + b.y; const n = Math.hypot(nx, ny);
+          if (n < 0.01) { nx = b.x; ny = b.y; } else { nx /= n; ny /= n; }
+          const miter = 1 / Math.max(0.5, nx * b.x + ny * b.y), size = pt.size ?? 1;
+          const shrink = S.style === 5 ? 1 - 0.9 * progressOf(pt) : 1;
+          const half = width * size * 0.5 * (taper ? Math.max(0.02, pt.state) : 1) * shrink, center = offset * size * miter;
+          return { ax: pt.x + nx * (center + half * miter), ay: pt.y + ny * (center + half * miter), bx: pt.x + nx * (center - half * miter), by: pt.y + ny * (center - half * miter) };
+        });
+      };
+      const hex = (c) => "#" + (c & 0xffffff).toString(16).padStart(6, "0");
+      const quad = (e, f, lo, hi) => {
+        const L = (a, b, t) => a + (b - a) * t;
+        const ax = L(e.ax, f.ax, lo) + ox, ay = L(e.ay, f.ay, lo) + oy, bx = L(e.bx, f.bx, lo) + ox, by = L(e.by, f.by, lo) + oy;
+        const cx = L(e.ax, f.ax, hi) + ox, cy = L(e.ay, f.ay, hi) + oy, dx = L(e.bx, f.bx, hi) + ox, dy = L(e.by, f.by, hi) + oy;
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx, cy); ctx.closePath(); ctx.moveTo(bx, by); ctx.lineTo(dx, dy); ctx.lineTo(cx, cy); ctx.closePath(); ctx.fill();
+      };
+      const ribbon = (pts, width, fixed, taper, offset) => {
+        const ed = edges(pts, width, taper, offset);
+        for (let i = 1; i < pts.length; i++) {
+          const a = pts[i - 1], b = pts[i], alpha = (alphaOf(a) + alphaOf(b)) * 0.5;
+          if (alpha <= 0.001) continue;
+          ctx.globalAlpha = Math.min(1, alpha); ctx.fillStyle = hex(fixed ?? pointColor(a));
+          if (S.style === 6) {
+            const span = b.distance - a.distance; if (span <= 0) continue;
+            const period = 40, dash = 24;
+            for (let d = a.distance; d < b.distance - 1e-6;) {
+              const phase = ((d % period) + period) % period, on = phase < dash - 1e-6;
+              const next = Math.min(b.distance, d + Math.max(1e-5, on ? dash - phase : period - phase));
+              if (on) quad(ed[i - 1], ed[i], (d - a.distance) / span, (next - a.distance) / span);
+              d = next;
+            }
+          } else quad(ed[i - 1], ed[i], 0, 1);
+        }
+      };
+      const texTri = (img, s0, s1, s2, d0, d1, d2) => {
+        const det = (s1.x - s0.x) * (s2.y - s0.y) - (s2.x - s0.x) * (s1.y - s0.y); if (!det) return;
+        ctx.save(); ctx.beginPath(); ctx.moveTo(d0.x, d0.y); ctx.lineTo(d1.x, d1.y); ctx.lineTo(d2.x, d2.y); ctx.closePath(); ctx.clip();
+        const a = ((d1.x - d0.x) * (s2.y - s0.y) - (d2.x - d0.x) * (s1.y - s0.y)) / det, b = ((d1.y - d0.y) * (s2.y - s0.y) - (d2.y - d0.y) * (s1.y - s0.y)) / det;
+        const c = ((d2.x - d0.x) * (s1.x - s0.x) - (d1.x - d0.x) * (s2.x - s0.x)) / det, d = ((d2.y - d0.y) * (s1.x - s0.x) - (d1.y - d0.y) * (s2.x - s0.x)) / det;
+        ctx.transform(a, b, c, d, d0.x - a * s0.x - c * s0.y, d0.y - b * s0.x - d * s0.y); ctx.drawImage(img, 0, 0); ctx.restore();
+      };
+      const textured = (pts) => {
+        const rec = S.long ? null : loadEffectImage(S.tex); if (!rec || !rec.img) return false;
+        if (S.style === 2 && !rec.colored) return false;          // a grey texture needs the per-point hue tint: the flat ribbon does that
+        const img = rec.img, W0 = img.width, H0 = img.height, ed = edges(pts, S.stroke, false, 0), span = Math.max(0.001, pts[pts.length - 1].distance - pts[0].distance);
+        const tinted = S.style === 2 || S.style === 7 ? img : (color === 0xffffff ? img : tintedCanvas(img, color));
+        for (let i = 1; i < pts.length; i++) {
+          const a = pts[i - 1], b = pts[i], alpha = (alphaOf(a) + alphaOf(b)) * 0.5; if (alpha <= 0.001) continue;
+          const v0 = (a.distance - pts[0].distance) / span * H0, v1 = (b.distance - pts[0].distance) / span * H0, e = ed[i - 1], f = ed[i];
+          ctx.globalAlpha = Math.min(1, alpha);
+          const P = (x, y) => ({ x: x + ox, y: y + oy });
+          texTri(tinted, { x: W0, y: v0 }, { x: 0, y: v0 }, { x: W0, y: v1 }, P(e.bx, e.by), P(e.ax, e.ay), P(f.bx, f.by));
+          texTri(tinted, { x: 0, y: v0 }, { x: 0, y: v1 }, { x: W0, y: v1 }, P(e.ax, e.ay), P(f.ax, f.ay), P(f.bx, f.by));
+        }
+        return true;
+      };
+      ctx.save(); ctx.globalCompositeOperation = "lighter";
+      let run = [];
+      const drawRun = () => {
+        if (run.length < 2) return;
+        if (textured(run)) return;
+        if (S.style === 3) { ribbon(run, S.stroke * 0.28, null, false, -S.stroke * 0.35); ribbon(run, S.stroke * 0.28, null, false, S.stroke * 0.35); }
+        else if (S.style === 4) ribbon(run, S.stroke, null, true, 0);
+        else if (S.style === 7) { ribbon(run, S.stroke, 0xff4511, true, 0); ribbon(run, S.stroke * 0.45, 0xffdb42, true, 0); }
+        else ribbon(run, S.stroke, null, false, 0);
+      };
+      for (const pt of S.pts) { if (pt.breakBefore) { drawRun(); run = []; } run.push(pt); }
+      drawRun();
       ctx.restore();
+    };
+    const tintCanvases = new Map();
+    const tintedCanvas = (img, color) => {
+      let per = tintCanvases.get(img); if (!per) tintCanvases.set(img, per = new Map());
+      let c = per.get(color); if (c) return c;
+      c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const g = c.getContext("2d");
+      g.drawImage(img, 0, 0); g.globalCompositeOperation = "multiply"; g.fillStyle = "#" + (color & 0xffffff).toString(16).padStart(6, "0"); g.fillRect(0, 0, c.width, c.height);
+      g.globalCompositeOperation = "destination-in"; g.drawImage(img, 0, 0);
+      per.set(color, c); return c;
     };
     // WaveTrail (note: player.js hands it seconds although it expects milliseconds, so points only leave by scrolling off)
     const intersect = (xs, ys, i, p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y) => {
@@ -545,7 +691,7 @@
     const parse = (v, a) => ({
       y: a[0], x: a[1], rot: a[2], dead: !!a[3], mini: !!a[4], ship: !!a[5], wave: !!a[6], ball: !!a[7], ufo: !!a[8], spider: !!a[9], robot: !!a[10],
       gf: !!a[11], mir: !!a[12], onGround: !!a[13], onCeiling: !!a[14], dashing: !!a[15], dashY: a[16], yVel: a[17], jumping: !!a[18], upDown: !!a[19],
-      slope: a[20], speed: a[21], dual: !!a[25],
+      slope: a[20], speed: a[21], dual: !!a[25], swing: !!a[26],
     });
 
     const killEffects = (v, p, ox, oy, camY) => {
@@ -680,7 +826,7 @@
         loadCfg2();
         const evs = o.events || [];
         for (const v of players) {
-          const base = new Float64Array(w.memory.buffer, w.wd_pv_state(v.index), 26);
+          const base = new Float64Array(w.memory.buffer, w.wd_pv_state(v.index), 27);
           v.prev.set(v.s); v.s.set(base);
         }
         const dual = players[0].s[25] !== 0;
@@ -693,10 +839,10 @@
           v.lastCamY = camY;
           // events (shared log, applied to the primary player except the explicit second-player tags)
           // death / respawn edges
-          if (!active) { v.wasActive = false; v.em.ground.stop(); v.em.fly.stop(); v.em.fly2.stop(); v.em.drag.stop(); v.streak.active = false; v.streak.pts.length = 0; v.wave.active = false; v.wave.pts.length = 0; v.pieces = v.burst = v.flash = null; v.prevItems = []; continue; }
-          if (p.dead && !was && !o.menu && !v.ended) { killEffects(v, p, ox, oy, camY); v.streak.active = false; v.streak.pts.length = 0; v.wave.active = false; v.wave.pts.length = 0; for (const e of Object.values(v.em)) { if (e !== v.em.land1 && e !== v.em.land2) { e.stop(); e.clear(); } } }
+          if (!active) { v.wasActive = false; v.em.ground.stop(); v.em.fly.stop(); v.em.fly2.stop(); v.em.drag.stop(); streakStop(v.streak); streakReset(v.streak); v.wave.active = false; v.wave.pts.length = 0; v.pieces = v.burst = v.flash = null; v.prevItems = []; continue; }
+          if (p.dead && !was && !o.menu && !v.ended) { killEffects(v, p, ox, oy, camY); streakStop(v.streak); streakReset(v.streak); v.wave.active = false; v.wave.pts.length = 0; for (const e of Object.values(v.em)) { if (e !== v.em.land1 && e !== v.em.land2) { e.stop(); e.clear(); } } }
           if (!p.dead && was) { v.pieces = v.burst = v.flash = null; v.ended = null; v.circles.length = 0; v.dashFx = null; }
-          if (o.restart) { v.pieces = v.burst = v.flash = null; v.ended = null; v.streak.pts.length = 0; v.wave.pts.length = 0; v.circles.length = 0; v.dashFx = null; v.fx.length = 0; }
+          if (o.restart) { v.pieces = v.burst = v.flash = null; v.ended = null; streakReset(v.streak); v.boost = false; v.wave.pts.length = 0; v.circles.length = 0; v.dashFx = null; v.fx.length = 0; }
           // level end fly-out
           if (!o.won && v.ended) v.ended = null;
           if (o.won && !v.ended && !p.dead && v.prevItems.length) v.startEnd(p, o);
@@ -717,23 +863,40 @@
           // particles and trails (`_updateParticles`)
           const live = !cfg.ldm && !o.menu && !p.dead && !v.ended && !v.hidden;
           const E = v.em;
-          if (!live) { for (const e of [E.ground, E.fly, E.fly2, E.drag]) e.stop(); if (!v.ended) { v.streak.active = false; v.wave.active = false; } if (cfg.ldm) { v.streak.pts.length = 0; v.wave.pts.length = 0; } }
+          if (!live) { for (const e of [E.ground, E.fly, E.fly2, E.drag]) e.stop(); if (!v.ended) { streakStop(v.streak); v.wave.active = false; } if (cfg.ldm) { v.streak.pts.length = 0; v.wave.pts.length = 0; } }
           else {
             const wx = p.x, wy = T - p.y, cs = Math.cos(p.rot), sn = Math.sin(p.rot);
             E.ground.px = wx - 20; E.ground.py = wy + (p.gf ? (-26 + (p.ufo ? -5 : 0)) : (26 + (p.ufo ? 5 : 0)));
-            const onG = p.onGround && !p.ship && !p.wave;
+            const onG = p.onGround && !p.ship && !p.wave && !p.swing;
             onG ? E.ground.start() : E.ground.stop();
-            const dxo = p.wave ? 0 : (p.ufo ? 0 : -24), dyo = (p.wave ? 4 : (p.ufo ? 5 : 18)) * (p.gf ? -1 : 1);
+            const miniFlip = p.ship && p.mini && p.gf, dxo = p.wave || p.ufo ? 0 : (miniFlip ? -24 * 0.6 : -24), dyo = miniFlip ? 10 + (-18 - 10) * 0.6 : (p.wave ? 4 : (p.ufo ? 5 : 18)) * (p.gf ? -1 : 1);
             const fx = wx + dxo * cs - dyo * sn, fy = wy + dxo * sn + dyo * cs, jit = (Math.random() * 2 - 1) * 4;
             E.fly.px = fx; E.fly.py = fy + jit; E.fly2.px = fx; E.fly2.py = fy + jit;
-            v.streak.pos = { x: p.wave ? fx : (p.ufo ? fx : fx + 8), y: fy }; v.wave.pos = { x: wx, y: wy };
-            const trailMode = p.ship || p.ufo || p.wave;
-            if (trailMode && !v.streak.active) { v.streak.pts.length = 0; v.streak.active = true; } else if (!trailMode && v.streak.active) { v.streak.active = false; v.streak.pts.length = 0; }
+            v.wave.pos = { x: wx, y: wy };
+            if (p.swing) {
+              const size = p.mini ? 0.6 : 1, mirror = p.mir ? -1 : 1, rearX = -23 * size * mirror, thrustY = (p.gf ? 23 : -23) * size;
+              E.fly.px = wx + rearX * cs; E.fly.py = wy + rearX * sn; E.fly2.px = wx - thrustY * sn; E.fly2.py = wy + thrustY * cs;
+              E.fly.angle = mirror > 0 ? [155, 205] : [-25, 25];
+              const ang = (p.gf ? 90 : 270) + p.rot * 180 / Math.PI; E.fly2.angle = [ang - 30, ang + 30];
+              v.swingAngles = true;
+            } else if (v.swingAngles) { v.swingAngles = false; E.fly.angle = [225, 315]; E.fly2.angle = [180, 360]; }
+            // the trail (`_updateParticles`): where it hangs on the icon, and when it runs
+            { const S = v.streak, size = p.mini ? 0.6 : 1, flight = p.ship || p.ufo || p.swing, airborne = !p.onGround && !p.onCeiling;
+              streakSetStyle(S, cfg.trail); S.mini = p.mini; S.speed = p.speed;
+              const mode = (p.ship ? 1 : 0) | (p.ball ? 2 : 0) | (p.wave ? 4 : 0) | (p.ufo ? 8 : 0) | (p.spider ? 16 : 0) | (p.robot ? 32 : 0) | (p.swing ? 64 : 0);
+              if (mode !== v.lastMode) { if (v.lastMode >= 0 && !S.long) streakReset(S); v.lastMode = mode; }
+              if (p.ship) { const gravity = p.gf ? -1 : 1, mx = -24 * size, my = 10 + 8 * size * gravity; streakSetPos(S, wx + mx * cs - my * sn, wy + mx * sn + my * cs - (p.gf ? 20 * size : 0)); }
+              else if (p.swing) { const mx = -23 * size; streakSetPos(S, wx + mx * cs, wy + mx * sn); }
+              else if (p.ufo) { const off = 15 * size * (p.gf ? -1 : 1); streakSetPos(S, wx - off * sn, wy + off * cs); }
+              else if (!flight) streakSetPos(S, wx, wy);
+              S.suppress = p.wave;
+              const longTrail = cfg.trail === 5 || cfg.trail === 6;
+              if (!v.hidden && !o.menu && (longTrail || (!p.wave && (flight || (airborne && v.boost) || p.dashing)))) streakStart(S); else streakStop(S); }
             if (p.wave && !v.wave.active) { v.wave.pts.length = 0; v.wave.active = true; } else if (!p.wave && v.wave.active) { v.wave.active = false; v.wave.pts.length = 0; }
             streakUpdate(v, dt);
             waveUpdate(v, dt, camX, p.mini);
-            const flyOn = p.ship || p.ufo; flyOn ? E.fly.start() : E.fly.stop();
-            const fly2 = (p.ship && p.upDown) || (p.ufo && p.jumping); fly2 ? E.fly2.start() : E.fly2.stop();
+            const flyOn = p.ship || p.ufo || p.swing; flyOn ? E.fly.start() : E.fly.stop();
+            const fly2 = (p.ship && p.upDown) || (p.ufo && p.jumping) || p.swing; fly2 ? E.fly2.start() : E.fly2.stop();
             E.drag.px = wx; E.drag.py = p.gf ? T - p.y + camY + 10 : T - p.y + camY + 30;
             E.drag.angle = p.mir ? [245, 335] : [205, 295]; E.drag.gx = p.mir ? 700 : -700;
             const drag = p.ship && p.onGround && (p.gf ? p.onCeiling : !p.onCeiling);
@@ -749,7 +912,8 @@
         for (const ev of evs) {
           const v = players[0], p = parse(v, v.s);
           const [kind, args] = ev.split(":"); const a = (args || "").split(",").map(Number);
-          if (kind === "land" && !cfg.ldm && !o.menu) {
+          if (kind === "boost") { players[a[0] ? 1 : 0].boost = !!a[1]; }
+          else if (kind === "land" && !cfg.ldm && !o.menu) {
             v.landIdx = !v.landIdx; const e = v.landIdx ? v.em.land1 : v.em.land2;
             e.emit(10, p.x, a[0] ? T - p.y - 30 : T - p.y + 30);
           } else if (kind === "grav" && !cfg.ldm && !o.menu) {
@@ -761,8 +925,10 @@
             else color = ({ 35: 0xffff00, 36: 0xffff00, 67: 0x00ffff, 84: 0x00ffff, 1022: 0x00ff00, 1330: 0x000000, 1332: 0xff0000, 1333: 0xff0000, 140: 0xff00ff, 141: 0xff00ff, 1704: 0x00ff00, 1751: 0xff00ff })[id];
             if (color === undefined) color = v.primary();
             v.fx.push({ type: "ring", x, y: T - y, color, max: isPad ? 82 : 68, t: 0, dur: 300 });
-          } else if (kind === "tp" && !cfg.ldm && !o.menu && p.spider) {
-            v.spiderFlash = 0.5; v.spiderTimer += 0.12;
+          } else if (kind === "tp") {
+            v.streak.breakNext = true;
+            if (cfg.ldm || o.menu) continue;
+            if (p.spider) { v.spiderFlash = 0.5; v.spiderTimer += 0.12; }
             const wx = p.x, oldY = T - a[0], newY = T - a[1], tint = mixColors(0xffffff, v.primary(), 0.42);
             v.fx.push({ type: "tpold", x: wx, y: oldY, color: tint, t: 0, dur: 300 });
             v.fx.push({ type: "tpnew", x: wx, y: newY, color: tint, mir: p.mir, t: 0, dur: 400 });

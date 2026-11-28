@@ -98,6 +98,8 @@ slots! {
         pub fly_floor_y: Option<f64> = None,
         pub fly_ceiling_y: Option<f64> = None,
         pub fly_camera_target: Option<f64> = None,
+        pub portal_free_mode: bool = false,
+        pub dual_bounds_center_y: Option<f64> = None,
     }
 }
 
@@ -179,7 +181,7 @@ slots! {
         pub last_land_object: Option<f64> = None,
         pub last_land_x: f64 = 0.0,
         pub last_land_y: f64 = 0.0,
-        pub last_land_ty: f64 = 26.0,
+        pub last_land_ty: f64 = 27.0,
         pub last_x_offset: f64 = 0.0,
         pub ignore_teleport_until_clear: bool = false,
         pub nc_total_frames: f64 = 0.0,
@@ -201,6 +203,12 @@ slots! {
         pub gd_last_slope_up: Option<bool> = None,
         pub gd_slope_rotation: f64 = f64::NAN,
         pub spider_teleport_noclip_death_pending: bool = false,
+        pub swing_flip_pending: bool = false,
+        pub spider_orb_input_locked: bool = false,
+        pub ship_head_uid: Option<f64> = None,
+        pub ship_head_flipped: bool = false,
+        pub prev_ship_head_uid: Option<f64> = None,
+        pub prev_ship_head_flipped: bool = false,
     }
 }
 
@@ -291,6 +299,7 @@ impl<'a> Sim<'a> {
     }
 
     pub fn run_rotate_action(&mut self, direction: f64) {
+        if self.p.is_swing { return; }
         let p = &mut *self.p;
         p.rotate_action_active = true;
         p.rotate_action_time = 0.0;
@@ -347,7 +356,7 @@ impl<'a> Sim<'a> {
         if self.p.is_ball || self.p.is_wave { return; }
         let mut target = match self.p.on_slope_angle { Some(a) => a, None => self.convert_to_closest_rotation() };
         if let Some(slope) = self.p.on_slope_angle {
-            if !self.p.is_robot && !self.p.is_spider && !self.p.is_flying {
+            if !self.p.is_robot && !self.p.is_spider && !self.p.is_flying && !self.p.is_swing {
                 let slope_deg = slope * 180.0 / std::f64::consts::PI;
                 let rot_deg = self.p.rotation * 180.0 / std::f64::consts::PI;
                 let cur_deg = rot_deg.trunc() % 360.0;
@@ -511,6 +520,40 @@ impl<'a> Sim<'a> {
         if self.player_is_falling() { self.p.can_jump = false; }
     }
 
+    fn update_swing_jump(&mut self, dt: f64) {
+        if !(dt > 0.0) { return; }
+        let chi = if self.p.is_mini { 0.85 } else { 1.0 };
+        let incoming = self.p.y_velocity * self.flip_mod();
+        if incoming > -12.8 / chi && incoming < 16.0 / chi {
+            self.p.was_boosted = false;
+            self.p.gd_accel = false;
+        }
+        if self.p.swing_flip_pending {
+            self.p.swing_flip_pending = false;
+            let flipped = !self.p.gravity_flipped;
+            self.flip_gravity(flipped, 0.8);
+            self.p.on_ceiling = false;
+            self.p.is_jumping = false;
+        }
+        if self.p.up_key_pressed && !self.orb_touching(true) {
+            self.p.swing_flip_pending = true;
+            self.p.up_key_pressed = false;
+            self.p.queued_hold = false;
+        }
+        let gravity = 1.916398048 * (if self.p.is_mini { 0.6 } else { 0.4 });
+        self.p.y_velocity = gd_trunc(self.p.y_velocity - gravity * dt * self.flip_mod());
+        if !self.p.was_boosted && !self.p.gd_accel && !self.p.slope_bounce_active {
+            self.p.y_velocity = (-16.0f64).max(16.0f64.min(self.p.y_velocity));
+        }
+    }
+
+    /// player.js `updateSwingRotation(dt)`
+    pub fn update_swing_rotation(&mut self, dt: f64) {
+        if !(dt > 0.0) { return; }
+        let aim = if self.p.on_ground || self.p.on_ceiling { 0.0 } else { m::atan2(-self.p.y_velocity, self.g.player_speed) };
+        self.p.rotation = slerp2d(self.p.rotation, aim, (1.0f64).min(0.15 * dt));
+    }
+
     fn update_ufo_jump(&mut self, dt: f64) {
         let f23 = if self.p.is_mini { 0.85 } else { 1.0 };
         let flip = self.flip_mod();
@@ -553,6 +596,11 @@ impl<'a> Sim<'a> {
 
     /// `updateJump(dt)`.
     pub fn update_jump(&mut self, dt: f64, cols: &[crate::pcol::Col]) {
+        if !self.p.up_key_down { self.p.spider_orb_input_locked = false; }
+        if self.p.spider_orb_input_locked {
+            self.p.up_key_pressed = false;
+            self.p.queued_hold = false;
+        }
         if let Some(v) = self.p.pending_velocity.take() { self.p.y_velocity = v; }
         if self.p.is_dashing {
             if !self.p.up_key_down {
@@ -574,8 +622,9 @@ impl<'a> Sim<'a> {
         if self.p.is_ufo { return self.update_ufo_jump(dt); }
         if self.p.is_spider { return self.update_spider_jump(dt, cols); }
         if self.p.is_robot { return self.update_robot_jump(dt); }
+        if self.p.is_swing { return self.update_swing_jump(dt); }
         let (grav, y_start) = grav_consts(self.g.player_speed);
-        if self.p.up_key_down && self.p.can_jump {
+        if self.p.up_key_down && self.p.can_jump && !self.p.spider_orb_input_locked {
             self.p.is_jumping = true;
             self.p.on_ground = false;
             self.p.can_jump = false;

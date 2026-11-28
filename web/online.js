@@ -150,6 +150,16 @@
     E[`Pop("OnView", ${i})`] = (ev, wd) => { const l = window.__onlineList && window.__onlineList[i]; if (l) { try { localStorage.setItem("viewedLevel_" + l.id, "1"); } catch (e) {} saveLevel(l); songInfo(wd, l); } };
     E[`Pop("OnPlay", ${i})`] = (ev, wd) => { const l = window.__onlineList && window.__onlineList[i]; if (l) playOnline(wd, l); };
     E[`Pop("OnCopy", ${i})`] = (ev, wd) => { const l = window.__onlineList && window.__onlineList[i]; if (l) copyToEditor(wd, l); };
+    // the delete button of the play menu: confirm, drop the level from the saved list, leave the menu
+    E[`Pop("OnDeleteLevel", ${i})`] = (ev, wd) => {
+      const l = window.__onlineList && window.__onlineList[i]; if (!l) return;
+      if (!confirm(`Are you sure you want to delete ${l.name}?`)) return;
+      try {
+        const key = "gd_saved_online_levels", id = String(l.id).replace(/^online_/, "");
+        localStorage.setItem(key, JSON.stringify(JSON.parse(localStorage.getItem(key) || "[]").filter((sl) => String(sl.id).replace(/^online_/, "") !== id)));
+      } catch (err) { console.warn("Failed to delete:", err); return; }
+      wd.w.wd_on_menu_back();
+    };
   }
 
   const download = async (l) => {

@@ -48,7 +48,7 @@ const proj = (c) => {
     slopeType: n(c.slopeType), gdSolidAbove: !!c.gdSolidAbove, gdWallOnLeft: !!c.gdWallOnLeft, hitbox_radius: n(c.hitbox_radius),
     particleColor: n(c.particleColor), portalX: n(c.portalX), portalY: n(c.portalY), teleportTargetX: n(c.teleportTargetX),
     teleportTargetY: n(c.teleportTargetY), teleportYOffset: n(c.teleportYOffset), padId: n(c.padId), orbId: n(c.orbId),
-    multiActivate: !!c.multiActivate, orbRotation: n(c.orbRotation), coinId: n(c.coinId), speedValue: n(c.speedValue), speedId: n(c.speedId),
+    multiActivate: !!c.multiActivate, freeMode: !!c.freeMode, flipY: !!c.flipY, orbRotation: n(c.orbRotation), coinId: n(c.coinId), speedValue: n(c.speedValue), speedId: n(c.speedId),
     _baseX: c._baseX, _baseY: c._baseY, _baseRotationDegrees: c._baseRotationDegrees,
   };
 };

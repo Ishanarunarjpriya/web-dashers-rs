@@ -952,7 +952,7 @@ async function main() {
   let hudText = "";
   const PROF = !!params.get("prof"); let tp = 0; const P = window.__prof = {};
   const lp = PROF ? (k) => { const n = performance.now(); P[k] = (P[k] ?? 0) * 0.97 + (n - tp) * 0.03; tp = n; } : () => {};
-  // the indicators of game-scene.js: "Ignore Damage", accuracy, deaths, CPS and "Botted" in the big font at 40% alpha, and the FPS text in Arial
+  // the indicators of game-scene.js: "Noclip", accuracy, deaths, CPS and "Botted" in the big font at 40% alpha, and the FPS text in Arial
   let fpsAcc = 0, fpsFrames = 0, fpsStr = "FPS: 0";
   const drawHud = () => {
     const S = readSettings();
@@ -962,7 +962,7 @@ async function main() {
     ctx.save(); ctx.globalAlpha = 0.4;
     const t = (str, y, color) => drawBitmapText(f, str, 20, 10, y, 1, 0, 0, color);
     const nc = !!S.noclip, acc = nc && !!S.noclipAccuracy;
-    if (nc) t("Ignore Damage", 10, 0xffffff);
+    if (nc) t("Noclip", 10, 0xffffff);
     if (acc) { t(w.wd_noclip_stat(0).toFixed(2) + "%", 30, 0xffffff); t(w.wd_noclip_stat(1) + " Deaths", 50, 0xffffff); }
     const cpsY = 10 + (nc ? 20 : 0) + (acc ? 40 : 0);
     if (S.showCPS) t(cpsTimes.length + " CPS", cpsY, held && !won && !wasDead ? 0x00ff00 : 0xffffff);

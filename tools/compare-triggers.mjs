@@ -94,7 +94,7 @@ function newLevel() {
     REC.scene._state = { y: 0 }; REC.scene._cameraY = 0; REC.scene._playerWorldX = 0; REC.scene.time = { now: 0, delayedCall() {} };
     const L = new ctx.LevelObject(REC.scene, { _v: 0 });
     L.resetAll = () => {
-      L.resetColorTriggers(); L.resetAlphaTriggers(); L.resetRotateTriggers(); L.resetPulseTriggers(); L.resetEnterEffectTriggers(); L.resetSpawnTriggers(); L.resetMoveTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers(); L.resetToggleTriggers(); L.resetAnimationTriggers(); L.resetShakeTriggers(); L.resetChannelBlending(); L.resetPlayerVisibilityTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetCollisionTriggers(); L.resetInstantCountTriggers();
+      L.resetColorTriggers(); L.resetAlphaTriggers(); L.resetRotateTriggers(); L.resetPulseTriggers(); L.resetEnterEffectTriggers(); L.resetSpawnTriggers(); L.resetMoveTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers(); L.resetToggleTriggers(); L.resetAnimationTriggers(); L.resetShakeTriggers(); L.resetChannelBlending(); L.resetPlayerVisibilityTriggers(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetCollisionTriggers(); L.resetInstantCountTriggers();
     };
     return L;
   }
@@ -104,11 +104,11 @@ function newLevel() {
     _secretCoinCompleted: new Set(), _userCoinCompleted: new Set(), _secretCoinSlotCount: 0, _userCoinSlotCount: 0,
     _spawnTextObject() {}, _spawnTriggerEditorVisual() {}, _getSectionIndexForWorldX: () => 0, _refreshSpriteSection() {},
     _scene: { _playerWorldX: 0, _state: { y: 0 }, _cameraY: 0, time: { now: 0 } }, _cameraXRef: { _v: 0 }, _channelBlending: { 1007: true }, _colorChannelSprites: {}, _activePulses: [],
-    _activeAlphaTweens: [], _getGlowAlphaMultiplier: () => 0.425, _groupOpacity: {}, _sections: [], _beastSprites: [], _touchPlayerVisActivated: new Set(), shakeOffsetX: 0, shakeOffsetY: 0, _shakeState: null,
+    _timeWarpTriggers: [], _activeAlphaTweens: [], _getGlowAlphaMultiplier: () => 0.425, _groupOpacity: {}, _sections: [], _beastSprites: [], _touchPlayerVisActivated: new Set(), shakeOffsetX: 0, shakeOffsetY: 0, _shakeState: null,
   });
   for (const k of [...Object.values(LISTS), ...OTHER]) L[k] = [];
   L.resetAll = () => {
-    L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers(); L._colorTriggerIdx = 0; L._pulseTriggerIdx = 0; L._activePulses = []; L._touchColorTriggerActivated = new Set(); L._channelBlending = { 1007: true };
+    L.resetTimeWarpTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers(); L._colorTriggerIdx = 0; L._pulseTriggerIdx = 0; L._activePulses = []; L._touchColorTriggerActivated = new Set(); L._channelBlending = { 1007: true };
     L._moveTriggerIdx = L._rotateTriggerIdx = L._spawnTriggerIdx = L._stopTriggerIdx = L._toggleTriggerIdx = L._followPlayerYTriggerIdx = L._followTriggerIdx = 0;
     L._onDeathTriggerIdx = L._touchTriggerIdx = L._pickupTriggerIdx = L._countTriggerIdx = L._instantCountTriggerIdx = L._collisionTriggerIdx = 0;
     L._armedOnDeathTriggers = []; L._activeTouchTriggers = []; L._activeCountTriggers = []; L._activeCollisionTriggers = []; L._itemCounts = {};
@@ -173,7 +173,7 @@ function fuzzLevel() {
       parts.push(o.join(","));
       continue;
     }
-    const id = pick([901, 901, 901, 1346, 1346, 1268, 1268, 1616, 1049, 1049, 1814, 1347, 1347, 1812, 1595, 1817, 1611, 1811, 1815, 1816, 1816, 1816, 29, 30, 899, 105, 221, 1006, 1006, 1007, 1007, 1007, 1520, 1520, 1612, 1613, 1585, 1585, 23, 24, 25, 26, 27, 28, 55, 56, 57, 58, 59]);
+    const id = pick([901, 901, 901, 1346, 1346, 1268, 1268, 1616, 1049, 1049, 1814, 1347, 1347, 1812, 1595, 1817, 1611, 1811, 1815, 1816, 1816, 1816, 29, 30, 899, 105, 221, 1006, 1006, 1007, 1007, 1007, 1520, 1520, 1935, 1935, 1935, 1612, 1613, 1585, 1585, 23, 24, 25, 26, 27, 28, 55, 56, 57, 58, 59]);
     const o = ["1", id, "2", id === 1816 ? 300 + 15 * Math.floor(rnd() * 20) : x, "3", id === 1816 ? 15 * Math.floor(rnd() * 6) : y];
     const add = (k, v) => o.push(String(k), String(v));
     add(51, grp());
@@ -191,6 +191,7 @@ function fuzzLevel() {
     if (id === 1007) add(35, num(-0.3, 1.3));
     if (id === 1520) { add(75, num(-5, 120)); add(84, num(0, 0.6)); }
     if (id === 1585) add(76, Math.floor(rnd() * 12));
+    if (id === 1935 && rnd() < 0.9) add(120, pick([num(0, 3), 0.5, 1, 1.5, 2, 0.05, "abc"]));
     if (id === 1006) { add(52, rnd() < 0.7 ? 0 : 1); add(7, Math.floor(rnd() * 256)); add(8, Math.floor(rnd() * 256)); add(9, Math.floor(rnd() * 256)); add(45, num(0, 1)); add(46, num(0, 1)); add(47, num(0, 1)); if (rnd() < 0.3) { add(48, 1); add(49, `${Math.floor(rnd() * 360)}a${num(0, 2)}a${num(0, 2)}a0a0`); } if (rnd() < 0.3) add(50, pick([1, 2, 3, 4, 8, 20])); }
     if (id === 1812) add(56, rnd() < 0.5 ? 1 : 0);
     if (id === 1595) { add(56, Math.floor(rnd() * 3)); add(81, rnd() < 0.3 ? 1 : 0); add(82, rnd() < 0.4 ? 1 : 0); }
@@ -311,6 +312,8 @@ for (let li = 0; li < sources.length; li++) {
     for (let j = 0; j < rowLen; j++) if (!same(row[j], rows0[i * rowLen + j])) { fail(`collider ${i} (${cols[i].type}) ${colLayout[j].name} rust=${rows0[i * rowLen + j]} js=${row[j]}`); break outer; }
   }
   const jsLists = Object.fromEntries(Object.entries(LISTS).map(([k, v]) => [k, strip(L[v])]));
+  L._timeWarpTriggers.sort((a, b) => a.x - b.x);
+  jsLists.timeWarp = strip(L._timeWarpTriggers.map((t) => ({ uid: t.uid, spawnTriggered: t.spawnTriggered, groups: t.groups, x: t.x, y: t.y, touchTriggered: t.touchTriggered, value: Number(t.raw?.[120] ?? 1) })));
   try { assert.deepStrictEqual(JSON.parse(canon(rjson(w.wd_trig_lists()))), JSON.parse(canon(jsLists))); } catch (e) { fail("trigger lists differ: " + String(e.message).split("\n").slice(0, 60).join(" | ")); }
   if (levelBad) continue;
 
@@ -444,6 +447,7 @@ for (let li = 0; li < sources.length; li++) {
     follow: L._activeFollowTweens.map((a) => [a.elapsed, a.lastFollowX, a.lastFollowY]),
     spawnDelays: L._activeSpawnDelays.map((s) => [s.targetGroup, s.delay, s.elapsed]),
     idx: [L._moveTriggerIdx, L._rotateTriggerIdx, L._spawnTriggerIdx, L._stopTriggerIdx, L._toggleTriggerIdx, L._followPlayerYTriggerIdx, L._followTriggerIdx, L._onDeathTriggerIdx, L._touchTriggerIdx, L._pickupTriggerIdx, L._countTriggerIdx, L._instantCountTriggerIdx, L._collisionTriggerIdx],
+    timeWarp: [L._timeWarp, L._timeWarpTriggerIdx, L._timeWarpTouchActivated.size],
     toggledOff: Object.keys(L._groupToggledOff).map(Number).sort((a, b) => a - b),
     armedOnDeath: L._armedOnDeathTriggers.map((t) => L._onDeathTriggers.indexOf(t)),
     activeTouch: L._activeTouchTriggers.map((t) => L._touchTriggers.indexOf(t)),
@@ -508,8 +512,8 @@ for (let li = 0; li < sources.length; li++) {
     prevCx = cx;
     if (rnd() < 0.002) { // an attempt restarts: everything is reset
       L.resetMoveTriggers(); L.resetRotateTriggers(); L.resetToggleTriggers(); L.resetSpawnTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers();
-      L.resetColorTriggers(); L.resetPulseTriggers(); L.resetChannelBlending(); cm.reset(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetInstantCountTriggers(); L.resetCollisionTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers();
-      for (let k = 0; k < 19; k++) w.wd_trig_reset(k);
+      L.resetColorTriggers(); L.resetPulseTriggers(); L.resetChannelBlending(); cm.reset(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetInstantCountTriggers(); L.resetCollisionTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers();
+      for (let k = 0; k < 20; k++) w.wd_trig_reset(k);
       px = -419; continue;
     }
     const animMeter = rnd() < 0.5 ? 0 : rnd() * 1.3;
@@ -521,7 +525,7 @@ for (let li = 0; li < sources.length; li++) {
     // JS: the trigger calls of game-scene.js `update`
     try {
     now += dt * 1000 * (rnd() < 0.1 ? 3 : 1); L._scene.time.now = now; w.wd_trig_time(now);
-    L.applyShakeToOffsets(now); w.wd_trig_shake(now);
+    L._scene._physicsTick = Math.round(now / (1000 / 240)); w.wd_trig_tick(L._scene._physicsTick);
     if (REAL) { const gs = { _level: L, _state: { gravityFlipped: !!aGrav }, _audio: { getMeteringValue: () => animMeter }, _cameraX: aCam }; animBlock.call(gs, dt * 1000); w.wd_fx_animate(dt * 1000, aCam, aGrav ? 1 : 0, animMeter); }
     L._scene._playerWorldX = px; L._scene._state.y = py; L._scene._cameraY = cy; L._cameraXRef._v = cx;
     for (const t of L.checkColorTriggers(px)) applyCT(t);
@@ -552,10 +556,12 @@ for (let li = 0; li < sources.length; li++) {
     L.checkCountTriggers(px, cm); L.checkCollisionTriggers(px); L.updateCollisionTriggers();
     L.checkTouchCountTriggers(px, py, cm); if (dual) L.checkTouchCountTriggers(px, y2, cm);
     L.checkInstantCountTriggers(px, cm); L.checkTouchInstantCountTriggers(px, py, cm); if (dual) L.checkTouchInstantCountTriggers(px, y2, cm);
-    if (REAL) L.updateVisibility(cx);
     L.checkPulseTriggers(px); L.stepPulseTriggers(dt, cm); cm.step(dt);
-    if (REAL) L.applyColorChannels(cm, true);
     L.checkEnterEffectTriggers(px);
+    L.checkTimeWarpTriggers(px, py, dual ? y2 : null);
+    L.applyShakeToOffsets(now);
+    if (REAL) L.updateVisibility(cx);
+    if (REAL) L.applyColorChannels(cm, true);
     if (REAL) L.applyEnterEffects(cx);
     if (BEAST) ctx.window.BeastAnim.update({ _level: L }, dt * 1000);
     } catch (e) { if (/call stack/.test(String(e.message))) { skipped = true; break; } throw e; }

@@ -11,6 +11,10 @@ pub struct PopA {
     ng_open: bool,
     cr_open: bool,
     news_open: bool,
+    news_root: usize,
+    news_page: usize,
+    news_label: usize,
+    news_geom: (f64, f64, f64, f64, f64),
     news_si: usize,
     news_thumb: usize,
     news_view: (f64, f64),
@@ -73,6 +77,77 @@ pub(crate) fn wrap_arial(text: &str, size: f64, width: f64) -> Vec<String> {
     lines
 }
 
+const NEWS: [(&str, &str, &[&str]); 3] = [
+    ("November 27th, 2026", "QOL Update! - V2.1", &[
+        "AKA. Lasokar's super tuff return to Web Dashers development",
+        "This update includes:",
+        "- Swing gamemode :o",
+        "- Added spider orbs and pads",
+        "- New color selector and icon kit menus",
+        "- Fixed being unable to delete saved lvls",
+        "- Fixed dual going above the ceiling",
+        "- Fixed noclip accuracy wave collisions",
+        "- Player glow!",
+        "- Free Mode",
+        "- Custom trails, ship fires, and death fx",
+        "- Fixed icon layering and ship trail",
+        "- Fixed dual boundaries",
+        "- Fixed D blocks in slopes",
+        "- Made triggers tick based",
+        "- Hitbox consistency fixes",
+        "- Fixed slope snapping when it shouldnt be",
+        "- Rename ignore damage back to noclip",
+        "- Added the ability to import .gdlvl files",
+        "- Added timewarp trigger",
+        "- Added H blocks",
+        "- Added Player renaming",
+        "- Fixed rotated line hitboxes",
+        "- Fixed editor camera up arrow bug",
+        "- Fixed the coloring for some blocks",
+        "- Fixed slope collisions when teleporting as the spider",
+        "- Fixed physics inconsistencies when playtesting in editor",
+        "- Made the news tab functional instead of falling back to having 1 entry (wtf did you do pinkdev)",
+        "- Other bug fixes stuff that I might've added but i forgor",
+    ]),
+    ("November 23rd, 2026", "Minor Bugfix Update - V2.01", &[
+        "A bunch of bugs have been fixed plus minor changes and additions.",
+        "This update includes:",
+        "- Revamped Create Menu UI",
+        "- Fixed some physics and gameplay bugs",
+        "- Revamped Stats Menu",
+        "- Seperated UI from game-scene (now ui-scene) (MAINLY FOR DEVELOPERS)",
+        "- Fixed dash orb cancelling",
+        "- Fixed levels seeming broken for a split moment before fully loading",
+        "- and more i dont remember",
+    ]),
+    ("November 13th, 2026", "MEGA UPDATE - V2.0", &[
+        "V2.0 Mega Update. me (rohanis0000) and PinkDev have combined our updates into 1 huge update for more content for you guys to play with.",
+        "This update includes:",
+        "2.2 icons",
+        "Fixed robot and spider icons/layering",
+        "More colors for the icon kit",
+        "Custom icons",
+        "The Vault and Vault of Secrets",
+        "A new update menu (News)",
+        "Custom keybinds",
+        "3D textures fixed",
+        "MANY, MANY BUG FIXES",
+        "2.209 UI updates",
+        "Daily Levels",
+        "Weekly Demons",
+        "Event Levels",
+        "Level Stats",
+        "Progress Bar",
+        "Startpos Revamp",
+        "Fixed/Added a lot of triggers",
+        "Texture fixes",
+        "Object warping",
+        "Mirror portal transitions",
+        "Minor QOL additions",
+        "and more i think i prolly forgot ngl",
+    ]),
+];
+
 impl Ui {
     pub fn pa_open(&mut self, name: &str) -> bool {
         match name {
@@ -94,7 +169,12 @@ impl Ui {
             ("Newgrounds", 0) => { self.kill_tag("pa_ng"); self.pa.ng_open = false; }
             ("Newgrounds", _) => { self.kill_tag("pa_ng"); self.pa.ng_open = false; self.events.push(Action::OpenUrl("https://www.newgrounds.com/audio")); }
             ("Credits", _) => { self.kill_tag("pa_cr"); self.pa.cr_open = false; }
-            ("News", _) => { self.kill_tag("pa_news"); self.pa.news_open = false; }
+            ("News", _) => { self.kill_tag("pa_news"); self.kill_tag("pa_news_c"); self.pa.news_open = false; }
+            ("NewsPage", dir) => {
+                let n = NEWS.len();
+                self.pa.news_page = if dir == 0 { (self.pa.news_page + n - 1) % n } else { (self.pa.news_page + 1) % n };
+                self.pa_news_render();
+            }
             ("Help", 0) => self.pa_close_help(),
             ("Help", 1) | ("Help", 3) => self.pa_req(2),
             ("Help", 2) => self.pa_req(1),
@@ -298,17 +378,42 @@ impl Ui {
             { let n = self.node(c); n.ox = ox; n.oy = oy; n.flip_x = fx; n.flip_y = fy; }
         }
         self.pa_txt(root, "goldFont", 52.0, "News", cx, nt + 42.0, 0.5, 0.5, 1.0, 1000.3, "pa_news");
-        self.pa_txt(root, "goldFont", 26.0, "1 of 1", nr - 90.0, nt + 62.0, 1.0, 0.5, 1.0, 1000.3, "pa_news");
+        let label = self.pa_txt(root, "goldFont", 26.0, &format!("1 of {}", NEWS.len()), nr - 90.0, nt + 62.0, 1.0, 0.5, 1.0, 1000.3, "pa_news");
+        self.pa.news_label = label;
+        for (x, flip, dir) in [(nl - 40.0, false, 0usize), (nr + 40.0, true, 1usize)] {
+            let a = self.pa_img(root, "GJ_GameSheet03", "GJ_arrow_01_001.png", x, 320.0, 1.0, 1000.3, "pa_news");
+            self.node(a).flip_x = flip;
+            self.make_bouncy(a, 1.0, Cond::Always, Action::Pop("NewsPage", dir));
+        }
         let (box_l, box_r, box_t, box_b) = (nl + 80.0, nr - 80.0, nt + 90.0, nb - 22.0);
         let (box_w, box_h) = (box_r - box_l, box_b - box_t);
         let bb = 4.0;
         let g1 = self.shape(Kind::RoundRect, box_l, box_t, box_w, box_h, 0x8c3b15, 1.0, 1000.4, "pa_news"); { let n = self.node(g1); n.radius = 20.0; n.parent = Some(root); }
         let g2 = self.shape(Kind::RoundRect, box_l + bb, box_t + bb, box_w - bb * 2.0, box_h - bb * 2.0, 0x844022, 1.0, 1000.41, "pa_news"); { let n = self.node(g2); n.radius = 16.0; n.parent = Some(root); }
         let (view_t, view_h) = (box_t + bb, box_h - bb * 2.0);
-        // page 1: the template entry
-        let date = "November 23rd, 2026";
-        let title = "Minor Bug Fix Update - V2.01";
-        let notes = ["A bunch of bugs have been fixed plus minor changes and additions.", "This update includes:", "- Revamped Create Menu UI", "- Fixed some physics and gameplay bugs", "- Revamped Stats Menu", "- Seperated UI from game-scene (now ui-scene) (MAINLY FOR DEVELOPERS)", "- Fixed dash orb cancelling", "- Fixed levels seeming broken for a split moment before fully loading", "- and more i dont remember"];
+        self.pa.news_root = root; self.pa.news_page = 0;
+        self.pa.news_geom = (box_l, box_w, view_t, view_h, bb);
+        // "N of M" label created above as the 5th pa_news node: find it again by tag order
+        self.pa_news_render();
+        let (track_x, track_w, pad) = (box_r - bb - 14.0, 9.0, 4.0);
+        let track_h = view_h - pad * 2.0;
+        let thumb_h = track_h * 0.8;
+        let th = self.shape(Kind::Rect, track_x - track_w / 2.0, view_t + pad, track_w, thumb_h, 0xffffff, 0.22, 1000.7, "pa_news");
+        { let n = self.node(th); n.parent = Some(root); }
+        self.pa.news_thumb = th; self.pa.news_view = (view_t, view_h);
+        let _ = sw;
+        self.pa_close(root, nl + 20.0, nt + 20.0, 0.8, 2.0, Action::Pop("News", 0), 1000.8, "pa_news");
+    }
+
+
+    /// `_newsRenderPage(index)`: date, title and notes of one news entry in the scroll area
+    pub(crate) fn pa_news_render(&mut self) {
+        self.kill_tag("pa_news_c");
+        let (root, page) = (self.pa.news_root, self.pa.news_page);
+        let (box_l, box_w, view_t, view_h, bb) = self.pa.news_geom;
+        let label = self.pa.news_label;
+        if let Some(n) = self.nodes.get_mut(label).and_then(|n| n.as_mut()) { n.text = format!("{} of {}", page + 1, NEWS.len()); }
+        let (date, title, notes) = NEWS[page];
         let pad_x = 30.0;
         let text_x = box_l + bb + pad_x;
         let text_w = box_w - bb * 2.0 - pad_x - 44.0;
@@ -325,19 +430,12 @@ impl Ui {
             y += lines.len() as f64 * 23.0 + (lines.len() as f64 - 1.0) * 6.0 + 18.0;
         }
         let content_height = y + 20.0 - view_t;
-        let (content, si) = self.scroll_area(root, box_l + bb + (box_w - bb * 2.0) / 2.0, view_t + view_h / 2.0, box_w - bb * 2.0, view_h, content_height - 16.0, 1000.5, "pa_news");
+        let (content, si) = self.scroll_area(root, box_l + bb + (box_w - bb * 2.0) / 2.0, view_t + view_h / 2.0, box_w - bb * 2.0, view_h, content_height - 16.0, 1000.5, "pa_news_c");
         let base = view_t + 8.0;
         for (font, size, t, ay) in items {
-            self.pa_txt(content, font, size, &t, text_x, ay - base, 0.0, 0.0, 1.0, 1000.52, "pa_news");
+            self.pa_txt(content, font, size, &t, text_x, ay - base, 0.0, 0.0, 1.0, 1000.52, "pa_news_c");
         }
-        let (track_x, track_w, pad) = (box_r - bb - 14.0, 9.0, 4.0);
-        let track_h = view_h - pad * 2.0;
-        let thumb_h = track_h * 0.8;
-        let th = self.shape(Kind::Rect, track_x - track_w / 2.0, view_t + pad, track_w, thumb_h, 0xffffff, 0.22, 1000.7, "pa_news");
-        { let n = self.node(th); n.parent = Some(root); }
-        self.pa.news_si = si; self.pa.news_thumb = th; self.pa.news_view = (view_t, view_h);
-        let _ = sw;
-        self.pa_close(root, nl + 20.0, nt + 20.0, 0.8, 2.0, Action::Pop("News", 0), 1000.8, "pa_news");
+        self.pa.news_si = si;
     }
 
     // ---- Help / Support (`_buildhelppopup`) ----

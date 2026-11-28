@@ -22,6 +22,7 @@ impl<'a> Sim<'a> {
         if let Some(c) = cam { args.push(n(c)); }
         self.log.push(format!("fly:[{}]", args.join(",")));
         if self.e.manage_layer {
+            if enabled && self.e.portal_free_mode { return; }
             if enabled {
                 let height = h.unwrap_or(F);
                 // `_computeFlyBounds(centerY, height, isPortal = visualOnly = false)`
@@ -65,6 +66,7 @@ impl<'a> Sim<'a> {
     }
     pub fn enter_ship_mode(&mut self, portal_y: Option<f64>, from_checkpoint: bool) {
         if self.p.is_flying { return; }
+        self.exit_swing_mode();
         self.exit_spider_mode(); self.exit_robot_mode(); self.exit_ball_mode(); self.exit_wave_mode();
         self.p.is_flying = true;
         self.glitter(true);
@@ -79,6 +81,7 @@ impl<'a> Sim<'a> {
     }
     pub fn enter_ball_mode(&mut self, portal_y: Option<f64>) {
         if self.p.is_ball { return; }
+        self.exit_swing_mode();
         self.exit_spider_mode(); self.exit_robot_mode(); self.exit_wave_mode();
         self.p.is_ball = true;
         self.p.ball_should_rotate = false;
@@ -111,6 +114,7 @@ impl<'a> Sim<'a> {
     }
     pub fn enter_wave_mode(&mut self, portal_y: Option<f64>) {
         if self.p.is_wave { return; }
+        self.exit_swing_mode();
         self.exit_spider_mode(); self.exit_robot_mode(); self.exit_ship_mode(); self.exit_ball_mode();
         self.p.is_wave = true;
         self.p.y_velocity = 0.0;
@@ -135,6 +139,7 @@ impl<'a> Sim<'a> {
     }
     pub fn enter_spider_mode(&mut self, portal_y: Option<f64>, from_portal: bool) {
         if self.p.is_spider { return; }
+        self.exit_swing_mode();
         let portal_vy = if from_portal { Some(self.p.y_velocity) } else { None };
         self.exit_ship_mode(); self.exit_robot_mode(); self.exit_ball_mode(); self.exit_wave_mode();
         let saved = portal_vy.filter(|v| v.is_finite());
@@ -173,6 +178,7 @@ impl<'a> Sim<'a> {
     }
     pub fn enter_robot_mode(&mut self, from_portal: bool) {
         if self.p.is_robot { return; }
+        self.exit_swing_mode();
         let portal_vy = if from_portal { Some(self.p.y_velocity) } else { None };
         self.exit_ship_mode(); self.exit_ball_mode(); self.exit_wave_mode(); self.exit_spider_mode(); self.exit_ufo_mode();
         let saved = portal_vy.filter(|v| v.is_finite());
@@ -203,6 +209,7 @@ impl<'a> Sim<'a> {
     }
     pub fn enter_ufo_mode(&mut self, portal_y: Option<f64>, from_checkpoint: bool) {
         if self.p.is_ufo { return; }
+        self.exit_swing_mode();
         self.exit_spider_mode(); self.exit_robot_mode(); self.exit_ball_mode(); self.exit_wave_mode(); self.exit_ship_mode();
         self.p.is_ufo = true;
         self.glitter(true);
@@ -228,4 +235,37 @@ impl<'a> Sim<'a> {
         self.fly_off();
     }
 
+    pub fn enter_swing_mode(&mut self, portal_y: Option<f64>, from_checkpoint: bool) {
+        if self.p.is_swing {
+            if let Some(y) = portal_y { self.fly_on(y, F); }
+            return;
+        }
+        self.exit_ship_mode(); self.exit_ball_mode(); self.exit_wave_mode(); self.exit_ufo_mode(); self.exit_spider_mode(); self.exit_robot_mode();
+        self.p.is_swing = true;
+        self.p.on_ceiling = false;
+        self.p.swing_flip_pending = false;
+        self.glitter(true);
+        if !from_checkpoint { self.p.y_velocity *= 0.5; }
+        self.p.on_ground = false;
+        self.p.can_jump = false;
+        self.p.is_jumping = false;
+        self.stop_rotation();
+        self.p.rotation = 0.0;
+        let spawn_y = portal_y.unwrap_or(self.p.y);
+        self.fly_on(spawn_y, F);
+    }
+    pub fn exit_swing_mode(&mut self) {
+        if !self.p.is_swing { return; }
+        self.p.is_swing = false;
+        self.p.on_ceiling = false;
+        self.p.swing_flip_pending = false;
+        self.glitter(false);
+        if !self.p.slope_riding { self.p.y_velocity *= 0.5; }
+        self.p.on_ground = false;
+        self.p.can_jump = false;
+        self.p.is_jumping = false;
+        self.stop_rotation();
+        self.p.rotation = 0.0;
+        self.fly_off();
+    }
 }

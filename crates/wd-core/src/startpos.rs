@@ -12,6 +12,8 @@ pub struct StartPosState {
     pub smart: bool,
     /// `window.levelObjects` reduced to the (x, id) pairs the two scans look at, in level order
     pub objects: Vec<(f64, i64)>,
+    /// time warp triggers (id 1935, neither touch nor spawn triggered) by index into `objects`: the clamped speed factor
+    pub warps: std::collections::BTreeMap<usize, f64>,
 }
 
 fn game_mode_of(id: i64) -> Option<i64> { match id { 12 => Some(0), 13 => Some(1), 47 => Some(2), 111 => Some(3), 660 => Some(4), 745 => Some(5), 1331 => Some(6), _ => None } }
@@ -28,8 +30,15 @@ fn px_per_second_for_portal(id: i64) -> Option<f64> {
 
 impl Game {
     /// Remember the level objects the smart start pos and song offset scans need.
-    pub fn sp_load(&mut self, objects: &[crate::level::LevelObject]) {
-        self.sp.objects = objects.iter().map(|o| (o.x, o.id.unwrap_or(i64::MIN))).collect();
+    pub fn sp_load<'a>(&mut self, objects: impl IntoIterator<Item = &'a crate::level::LevelObject>) {
+        self.sp.objects.clear();
+        self.sp.warps.clear();
+        for (i, o) in objects.into_iter().enumerate() {
+            self.sp.objects.push((o.x, o.id.unwrap_or(i64::MIN)));
+            if o.id != Some(1935) || o.raw.get("11").map(|s| s.as_str()) == Some("1") || o.raw.get("62").map(|s| s.as_str()) == Some("1") { continue; }
+            let v = o.raw.get("120").map_or(1.0, |s| crate::js::to_number(s));
+            if v.is_finite() { self.sp.warps.insert(i, 0.1f64.max(2f64.min(v))); }
+        }
     }
 
     /// `_getSmartStartPosSettings(pos)`: the mode, size, speed, gravity... the level has at `pos_x`, from the header and the portals before it.
@@ -56,23 +65,30 @@ impl Game {
     /// `calculateSongOffsetForX(targetX, startSpeedKey, levelObjects)`: seconds of song before world x.
     pub fn song_offset_for_x(&self, target_x: f64) -> f64 {
         let target = { let t = if target_x.is_nan() { 0.0 } else { target_x }; t.max(0.0) };
-        let mut events: Vec<(f64, f64)> = Vec::new();
-        for &(raw_x, id) in &self.sp.objects {
-            let Some(pps) = px_per_second_for_portal(id) else { continue };
+        // (world x, Ok(pixels per second) for a speed portal | Err(factor) for a time warp trigger)
+        let mut events: Vec<(f64, Result<f64, f64>)> = Vec::new();
+        for (i, &(raw_x, id)) in self.sp.objects.iter().enumerate() {
+            let warp = self.sp.warps.get(&i).copied();
+            let pps = px_per_second_for_portal(id);
+            if pps.is_none() && !(id == 1935) { continue; }
+            if pps.is_none() && warp.is_none() && id == 1935 {
+                // a touch / spawn triggered time warp is skipped; one with a bad value passes the first test and is dropped below
+                continue;
+            }
             if !raw_x.is_finite() { continue; }
             let wx = raw_x * 2.0;
             if wx < 0.0 || wx > target { continue; }
-            events.push((wx, pps));
+            if let Some(w) = warp { events.push((wx, Err(w))); } else if let Some(p) = pps { events.push((wx, Ok(p))); }
         }
         events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-        let (mut cur_x, mut cur_pps, mut secs) = (0.0f64, px_per_second_for_key(self.start.speed_key), 0.0f64);
-        for (x, pps) in events {
+        let (mut cur_x, mut cur_pps, mut secs, mut warp) = (0.0f64, px_per_second_for_key(self.start.speed_key), 0.0f64, 1.0f64);
+        for (x, ev) in events {
             let next = 0f64.max(target.min(x));
-            secs += 0f64.max(next - cur_x) / cur_pps.max(0.000001);
+            secs += 0f64.max(next - cur_x) / (cur_pps * warp).max(0.000001);
             cur_x = next;
-            cur_pps = pps;
+            match ev { Ok(p) => cur_pps = p, Err(w) => warp = w }
         }
-        secs += 0f64.max(target - cur_x) / cur_pps.max(0.000001);
+        secs += 0f64.max(target - cur_x) / (cur_pps * warp).max(0.000001);
         secs.max(0.0)
     }
 

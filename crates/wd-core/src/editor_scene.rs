@@ -717,9 +717,9 @@ impl Ui {
         self.ed.marks.clear(); self.ed.last_trail = [None, None];
         self.ed.pt_saved = (self.ed.cam_x, self.ed.cam_y, self.ed.zoom);
         // `_getLatestEditorStartPosition`: the start position furthest right (the list is sorted by x; ties keep the later object)
-        let objs: Vec<(f64, i64)> = self.ed.level.objects.iter().map(|o| (o.o.x, o.o.id.unwrap_or(i64::MIN))).collect();
+        let ed_objects = &self.ed.level.objects;
         let music = crate::with_game(|g| {
-            g.sp.objects = objs;
+            g.sp_load(ed_objects.iter().map(|o| &o.o));
             g.fx.editor_mode = false;
             g.fx.vis_min = -1; g.fx.vis_max = -1; // the editor view shows every section; the game culls again
             g.level_won = false; g.end_camera_override = false; g.end_cam = None;

@@ -151,6 +151,8 @@ impl Ui {
                 if let Some(i) = ic { if let Some(n) = self.nodes.get_mut(i).and_then(|n| n.as_mut()) { n.frame = FR[self.on.demon_sel].into(); n.sx = 0.85; n.sy = 0.85; } }
                 self.kill_tag("on_p"); true
             }
+            // the delete button asks the host (confirm, remove from the saved list) and the host closes the menu through `wd_on_menu_back`
+            "OnDeleteLevel" => true,
             "OnDeleteSaved" => { self.on.levels.clear(); self.on.page = 0; self.on.pages = 1; self.on_open_list(); true }
             "OnDaily" => { self.on.special = Some(arg as u8); self.on.special_level = None; self.on.loading = true; self.on.error.clear(); self.on_open_special(); true }
             "OnSpecialClose" => { self.kill_tag("on_d"); self.on.special = None; true }
@@ -562,7 +564,7 @@ impl Ui {
         let dup = self.image("GJ_GameSheet03", "GJ_duplicateBtn_001.png", 55.0, side_y0 + 350.0, 504.0, 1.0); self.node(dup).tag = tag;
         self.make_bouncy(dup, 1.0, Cond::Always, Action::Pop("OnCopy", idx));
         let close = self.image("GJ_GameSheet03", "GJ_deleteBtn_001.png", side_x, side_y0 + side_gap, 504.0, 1.0); self.node(close).tag = tag;
-        self.make_bouncy(close, 1.0, Cond::Always, Action::Pop("OnMenuBack", 0));
+        self.make_bouncy(close, 1.0, Cond::Always, Action::Pop("OnDeleteLevel", idx));
         let rf = self.image("GJ_GameSheet03", "GJ_updateBtn_001.png", side_x, side_y0 + side_gap * 2.0, 504.0, 1.0); self.node(rf).tag = tag;
         self.make_bouncy(rf, 1.0, Cond::Always, Action::Pop("OnMenuRefresh", 0));
         for (k, frame) in [(3.0, "GJ_infoBtn_001.png"), (4.0, "GJ_levelLeaderboardBtn_001.png"), (5.0, "GJ_like2Btn_001.png")] {

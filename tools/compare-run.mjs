@@ -56,7 +56,7 @@ for (let r = 0; r < RUNS; r++) {
   // initial values
   const v = {};
   for (const f of layout) v[f.name] = f.type === "Option<f64>" || f.type === "Option<bool>" ? NaN : 0;
-  Object.assign(v, { y: 30, last_y: 30, last_ground_y: NaN, last_land_ty: 26, last_ground_pos_y: 30, on_ground: 1, can_jump: 1, ball_normal_rotate: 0.86, ball_rotation2: 0.86, nc_accuracy: 100, spider_flash_duration: 0.5, gd_last_slope_steepness: NaN, gd_slope_rotation: NaN });
+  Object.assign(v, { y: 30, last_y: 30, last_ground_y: NaN, last_land_ty: TYPES.indexOf("deco"), last_ground_pos_y: 30, on_ground: 1, can_jump: 1, ball_normal_rotate: 0.86, ball_rotation2: 0.86, nc_accuracy: 100, spider_flash_duration: 0.5, gd_last_slope_steepness: NaN, gd_slope_rotation: NaN });
   Object.assign(v, { "g.player_speed": SP, "g.center_x": 419, "g.slope_jump_boost": 1, "g.slope_ramp_time": 0.1, "g.slope_ramp_floor": 0.4, "g.slope_launch_num": 0.8, "g.slope_launch_cap": 1.1, "g.slope_launch_gain": 1.4,
     "g.no_clip": +noClip, "g.no_clip_accuracy": 0, "g.slope_boost_skip_snap": 1, "g.slope_exit_cap": Infinity, "g.slope_swing_cap": 13, "g.robot_pad_touch": 0, "g.gd_cube_slopes": process.env.LEGACY ? 0 : 1, "g.slope_reach_guard": 1, "g.slope_flat_cap": 1, "g.slope_back_wall": 1, "g.slope_tangent_d": 1,
     "e.floor_y": 0, "e.ceiling_y": NaN, "e.player_world_x": 0, "e.manage_layer": 1, "e.try_collect_secret": 1, "e.try_collect_user": 1, "e.mirror_toggles": 1, "e.physics_tick": 0 });
@@ -107,8 +107,9 @@ for (let r = 0; r < RUNS; r++) {
   if (PRACTICE) {
     L.objects = cols; L._resetremovedobject = {}; L._secretCoinRunCollected = new Set(); L._userCoinRunCollected = new Set(); L._audioScaleSprites = []; L.objectSprites = [];
     for (const k of ["_toggleTriggers", "_pickupTriggers", "_countTriggers", "_collisionTriggers", "_instantCountTriggers", "_onDeathTriggers", "_touchTriggers"]) L[k] = [];
+    L._timeWarp = 1; L._timeWarpTriggerIdx = 0; L._timeWarpTouchActivated = new Set(); L._timeWarpTriggers = []; L._portalFreeMode = false;
     L._armedOnDeathTriggers = []; L._activeTouchTriggers = []; L._activeCountTriggers = []; L._activeCollisionTriggers = []; L._itemCounts = {}; L._groupToggledOff = {}; L._groupOffsets = {}; L._groupRotations = {};
-    for (const k of ["resetGroundTiles", "resetColorTriggers", "resetAlphaTriggers", "resetPulseTriggers", "resetEnterEffectTriggers", "resetAnimationTriggers", "resetShakeTriggers", "resetChannelBlending", "resetPlayerVisibilityTriggers", "resetVisibility", "applyShakeToOffsets", "updateVisibility", "updateObjectDebugIds", "_updateGlowVisibility"]) L[k] = () => {};
+    for (const k of ["resetGroundTiles", "resetColorTriggers", "resetAlphaTriggers", "resetPulseTriggers", "resetEnterEffectTriggers", "resetAnimationTriggers", "resetShakeTriggers", "resetTimeWarpTriggers", "checkTimeWarpTriggers", "resetChannelBlending", "resetPlayerVisibilityTriggers", "resetVisibility", "applyShakeToOffsets", "updateVisibility", "updateObjectDebugIds", "_updateGlowVisibility"]) L[k] = () => {};
     L.additiveContainer = { x: 0, y: 0 }; L.container = { x: 0, y: 0 }; L.topContainer = { add() {} };
     Object.assign(S, { _updateBackground() {}, _applyMirrorEffect() {}, time: { now: 0 }, add: { image: () => ({ setOrigin() { return this; }, setScrollFactor() { return this; }, setDepth() { return this; }, setScale() { return this; } }) }, _slideIn: false, _mirrorAnimating: false, _practiceBypassPending: false });
     S._audio = { playEffect() {}, startMusic() {}, musicPlaying: true };
@@ -258,6 +259,7 @@ for (let r = 0; r < RUNS; r++) {
     const qd = S._physicsBlock(delta);
     if (CAMERA) {
       S._cameraBlock(qd);
+      if (S._state.isSwing) o.updateSwingRotation(qd); else if (S._state.isFlying) o.updateShipRotation(qd);
     }
     vmSet: { const out = finish(); out.__logNow = out.__log.slice(); o.__log.length = 0;
       out.floor = L.getFloorY(); out.ceil = L.getCeilingY() ?? NaN; out.db = S._deltaBuffer; out.pf = S._physicsFrame; globalThis.__js = out; }

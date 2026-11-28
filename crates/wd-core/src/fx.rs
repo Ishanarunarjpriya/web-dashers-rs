@@ -811,8 +811,10 @@ impl Game {
     pub fn apply_fly_log(&mut self) {
         let ops: Vec<(bool, f64, Option<f64>, Option<f64>)> = self.log.iter().filter_map(|l| parse_fly(l)).collect();
         let cam_y = self.camera_y;
+        let free = self.e.portal_free_mode; // `setFlyMode(true, ...)` does nothing while a free-mode portal is active
         if let Some(g) = self.fx.ground.as_mut() {
             for (en, y, h, cam) in ops {
+                if en && free { continue; }
                 let height = h.unwrap_or(600.0);
                 g.set_fly_mode(en, y, height, false, cam.unwrap_or(height), cam_y);
             }
