@@ -957,6 +957,11 @@ impl Game {
         buf[30] = self.e.player_world_x / if self.end_x_pos > 0.0 { self.end_x_pos } else { 1.0 };
         buf[31] = self.trig.shake_off.0; buf[32] = self.trig.shake_off.1;
         if self.fx.editor_mode { buf[33] = self.fx.ed_cam.2; buf[34] = self.fx.ed_cam.0; buf[35] = self.fx.ed_cam.1; }
+        else {
+            let z = self.trig.gen.zoom;
+            buf[38] = if z == 0.0 || z.is_nan() { 1.0 } else { z };
+            buf[39] = if self.trig.gen.angle.is_nan() { 0.0 } else { self.trig.gen.angle };
+        }
         buf[36] = self.mirror_progress(); buf[37] = self.p.mirrored as u8 as f64;
         buf.extend_from_slice(&gf.tile_x);
         for (top, _, _, si) in order {
