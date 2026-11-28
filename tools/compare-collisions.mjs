@@ -124,6 +124,7 @@ for (let t = 0; t < N; t++) {
   const dt = pick([0.9 / 240, 0.9 / 960, rnd() * 0.05, 0.0037]);
   if (CALL === "jump") { for (const m of ["is_flying", "is_wave", "is_ball", "is_ufo", "is_spider", "is_robot"]) v[m] = 0; v["is_" + pick(["spider", "spider", "spider", "ball", "ufo", "robot", "flying"])] = 1; v.is_dashing = 0; v.pending_velocity = NaN; }
   const isJump = CALL === "jump";
+  if (isJump) v["e.orb_touch"] = +H.jsPlayer(v, near).o._isTouchingAvailableOrbForInput(false);
 
   const cloneCol = (c) => Object.assign(Object.create(Object.getPrototypeOf(c)), c, { _activatedByPlayer: c._activatedByPlayer && { ...c._activatedByPlayer }, _dashHoldTicksByPlayer: c._dashHoldTicksByPlayer && { ...c._dashHoldTicksByPlayer } });
   const pre = near.map(cloneCol);
