@@ -142,6 +142,8 @@ impl<'a> Sim<'a> {
         p.is_dashing && !p.is_flying && !p.is_ball && !p.is_wave && !p.is_ufo && !p.is_spider && !p.is_robot && !p.is_swing
     }
 
+    fn ticking(t: Option<f64>) -> bool { matches!(t, Some(v) if v > 0.0) }
+
     pub fn release_jump_hold(&mut self) {
         self.p.up_key_down = false;
         self.p.up_key_pressed = false;
@@ -150,7 +152,7 @@ impl<'a> Sim<'a> {
     }
 
     pub fn hit_ground(&mut self, skip_burst: bool) {
-        if self.p.j_block_ticks > 0.0 && !self.p.on_ground { self.release_jump_hold(); }
+        if Self::ticking(self.p.j_block_ticks) && !self.p.on_ground { self.release_jump_hold(); }
         self.boost_trail(false);
         let dash_sliding = self.is_dash_spinning();
         let skip_burst = skip_burst || dash_sliding;
@@ -266,9 +268,9 @@ impl<'a> Sim<'a> {
     pub fn check_collisions(&mut self, piece_offset: f64, cols: &mut Vec<Col>) {
         self.p.nc_total_frames += 1.0;
         self.p.died_this_frame = false;
-        if self.p.safe_head_ticks > 0.0 { self.p.safe_head_ticks -= 1.0; }
-        if self.p.flip_head_ticks > 0.0 { self.p.flip_head_ticks -= 1.0; }
-        if self.p.j_block_ticks > 0.0 { self.p.j_block_ticks -= 1.0; }
+        for t in [&mut self.p.safe_head_ticks, &mut self.p.flip_head_ticks, &mut self.p.j_block_ticks] {
+            if let Some(v) = *t { if v > 0.0 { *t = Some(v - 1.0); } }
+        }
         self.force_ids.clear();
         if self.p.spider_teleport_noclip_death_pending {
             self.p.died_this_frame = true;
@@ -396,6 +398,7 @@ impl<'a> Sim<'a> {
             }
             let make_guide = is_pc && !self.is_activated(&cols[i]);
             if make_guide { self.vlog.push(Self::fx_line(&cols[i])); }
+            if is_pc && !self.is_activated(&cols[i]) { self.p.gd_land_flag = false; }
             let portal_y = cols[i].portal_y.unwrap_or(cols[i].y);
             let free = cols[i].free_mode;
             if ty == T_TELEPORT {
@@ -506,6 +509,7 @@ impl<'a> Sim<'a> {
                 if !self.is_activated(&cols[i]) {
                     self.set_activated(&mut cols[i], true);
                     self.vlog.push(Self::fx_line(&cols[i]));
+                    self.p.gd_land_flag = false;
                     let pad_id = cols[i].id;
                     if pad_id == Some(67.0) {
                         let tick = self.e.physics_tick;
@@ -554,6 +558,7 @@ impl<'a> Sim<'a> {
                         self.p.gd_accel = pad_id == Some(1332.0) || self.p.is_swing;
                         if self.p.is_robot && self.g.robot_pad_touch { self.p.robot_touched_pad = true; }
                         self.p.is_jumping = true;
+                        self.p.gd_land_flag = false;
                         self.p.on_ground = false;
                         self.p.can_jump = false;
                         self.p.y_velocity = crate::physics::gd_trunc(fm * pad_vel);
@@ -594,6 +599,7 @@ impl<'a> Sim<'a> {
                 }
                 if (cols[i].multi_activate || !self.is_activated(&cols[i])) && needs_click {
                     self.vlog.push(Self::fx_line(&cols[i]));
+                    self.p.gd_land_flag = false;
                     if is_dash {
                         let hold = self.dash_hold_ticks(&cols[i]) + 1.0;
                         self.set_dash_hold_ticks(&mut cols[i], hold);
@@ -703,6 +709,7 @@ impl<'a> Sim<'a> {
                             }
                             if self.p.is_swing { self.p.gd_accel = true; }
                             self.p.is_jumping = true;
+                            self.p.gd_land_flag = false;
                             self.p.on_ground = false;
                             self.p.can_jump = false;
                             if flip_before {
@@ -750,7 +757,7 @@ impl<'a> Sim<'a> {
                 t if t == T_SLOPE => {
                     let res = self.handle_slope_collision(&cols[i], piece_width, players_y, players_last_y, player_size, wave_hit, gamemode_addition, cols);
                     if res.died {
-                        if self.p.safe_head_ticks > 0.0 { continue; }
+                        if Self::ticking(self.p.safe_head_ticks) { continue; }
                         if self.g.no_clip { self.p.died_this_frame = true; continue; }
                         self.kill_player();
                         return;
@@ -842,7 +849,7 @@ impl<'a> Sim<'a> {
                     let wave_land_top = self.p.is_wave && (self.p.y_velocity >= 0.0 || self.p.on_ground) && a3e7 > top && a3e7 - top <= wave_tol;
                     let land_top = normal_land_top || coyote_top || skip_top || wave_land_top;
                     let safe_on_surface = if self.p.is_wave { land_bot || land_top } else { standing };
-                    if (self.p.safe_head_ticks > 0.0 || self.p.flip_head_ticks > 0.0) && !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo && !safe_on_surface
+                    if (Self::ticking(self.p.safe_head_ticks) || Self::ticking(self.p.flip_head_ticks)) && !self.p.is_flying && !self.p.is_wave && !self.p.is_ufo && !safe_on_surface
                         && piece_width + solid_size - 5.0 > left && piece_width - solid_size + 5.0 < right {
                         let mut hit_head = false;
                         if !self.p.gravity_flipped && land_top && self.p.y_velocity > 0.0 {
@@ -855,11 +862,11 @@ impl<'a> Sim<'a> {
                             hit_head = true;
                         }
                         if hit_head {
-                            if self.p.flip_head_ticks > 0.0 {
+                            if Self::ticking(self.p.flip_head_ticks) {
                                 let flipped = !self.p.gravity_flipped;
                                 self.flip_gravity(flipped, 1.0);
                                 self.p.y_velocity = if self.p.gravity_flipped { 4.0 } else { -4.0 };
-                                if self.p.j_block_ticks > 0.0 { self.release_jump_hold(); }
+                                if Self::ticking(self.p.j_block_ticks) { self.release_jump_hold(); }
                             }
                             continue;
                         }
@@ -941,9 +948,9 @@ impl<'a> Sim<'a> {
                         }
                     }
                 }
-                t if t == T_HBLOCK => { self.p.safe_head_ticks = 2.0; }
-                t if t == T_FBLOCK => { self.p.flip_head_ticks = 2.0; }
-                t if t == T_JBLOCK => { self.p.j_block_ticks = 2.0; }
+                t if t == T_HBLOCK => { self.p.safe_head_ticks = Some(2.0); }
+                t if t == T_FBLOCK => { self.p.flip_head_ticks = Some(2.0); }
+                t if t == T_JBLOCK => { self.p.j_block_ticks = Some(2.0); }
                 t if t == T_FORCEBLOCK => { let c = cols[i].clone(); self.add_block_force(&c, piece_width, players_y); }
                 t if t == T_SBLOCK => {
                     if self.p.is_dashing { self.p.is_dashing = false; self.p.dash_y_velocity = 0.0; }
@@ -1307,6 +1314,6 @@ impl<'a> Sim<'a> {
             self.p.force_acc_x *= 10000.0 / len;
             self.p.force_acc_y *= 10000.0 / len;
         }
-        self.p.force_ticks = 2.0;
+        self.p.force_ticks = Some(2.0);
     }
 }

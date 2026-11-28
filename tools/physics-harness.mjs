@@ -94,12 +94,12 @@ this.tpOffset = ({ ${src.slice(tp, tpEnd).trim()} })._getTeleportPortalYOffset;
     gd_last_slope_obj: ["o", "_gdLastSlopeObj"], gd_last_slope_top: ["o", "_gdLastSlopeTop"], gd_last_slope_y_pos: ["o", "_gdLastSlopeYPos"],
     gd_last_slope_steepness: ["o", "_gdLastSlopeSteepness"], gd_last_slope_up: ["o", "_gdLastSlopeUp"], gd_slope_rotation: ["o", "_gdSlopeRotation"],
     last_land_x: ["derived"], last_land_y: ["derived"], last_land_ty: ["derived"],
-    press_count: ["p", "_pressCount"], force_acc_x: ["derived"], force_acc_y: ["derived"],
+    press_count: ["p", "_pressCount"], gd_fall_start_y: ["p", "_gdFallStartY"], gd_land_flag: ["p", "_gdLandFlag"], gd_prev_fall_vel: ["p", "_gdPrevFallVel"], gd_was_falling: ["p", "_gdWasFalling"], gd_prev_held: ["p", "_gdPrevHeld"], gd_prev_ceiling: ["p", "_gdPrevCeiling"], force_acc_x: ["derived"], force_acc_y: ["derived"],
     ship_head_uid: ["derived"], ship_head_flipped: ["derived"], prev_ship_head_uid: ["derived"], prev_ship_head_flipped: ["derived"],
   };
   const uidFields = new Set(["active_slope_obj", "prev_slope_obj", "last_land_object", "gd_last_slope_obj"]);
   const noneValue = { pending_velocity: null, slope_exit_vel: null, on_slope_angle: null, gd_flip_tick: undefined, active_slope_obj: null, active_slope_angle: null,
-    gd_mode_sig: undefined, gd_mode_tick: undefined, last_collision_world_x: undefined, last_collision_world_y: undefined, last_blue_pad_tick: undefined, gd_last_slope_obj: undefined, gd_last_slope_top: undefined, gd_last_slope_y_pos: undefined, gd_last_slope_up: undefined, prev_slope_obj: null, slope_entry_x: undefined, last_land_object: null, press_count: undefined };
+    gd_mode_sig: undefined, gd_mode_tick: undefined, last_collision_world_x: undefined, last_collision_world_y: undefined, last_blue_pad_tick: undefined, gd_last_slope_obj: undefined, gd_last_slope_top: undefined, gd_last_slope_y_pos: undefined, gd_last_slope_up: undefined, prev_slope_obj: null, slope_entry_x: undefined, last_land_object: null, press_count: undefined, gd_fall_start_y: null };
   const playerFields = layout.filter((f) => !f.name.includes("."));
   const loc = (name) => special[name] || ["p", camel(name)];
 

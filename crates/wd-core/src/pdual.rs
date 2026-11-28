@@ -18,6 +18,7 @@ pub fn reset_state(p: &mut Player) {
     p.spider_teleport_noclip_death_pending = false; p.ball_should_rotate = false; p.ball_rotate_opposite = false; p.ball_normal_rotate = 0.86;
     p.ball_hit_pad = false; p.ball_rotation2 = 0.86;
     p.gravity_scale = 1.0;
+    p.gd_fall_start_y = None; p.gd_land_flag = true; p.gd_prev_fall_vel = None; p.gd_was_falling = false; p.gd_prev_held = None; p.gd_prev_ceiling = false;
 }
 
 /// `PlayerObject.reset()`; `world_x` is the scene's `_playerWorldX`.

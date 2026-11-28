@@ -205,12 +205,18 @@ slots! {
         pub gd_slope_rotation: f64 = f64::NAN,
         pub spider_teleport_noclip_death_pending: bool = false,
         pub gravity_scale: f64 = 1.0,
-        pub force_ticks: f64 = 0.0,
+        pub force_ticks: Option<f64> = None,
         pub force_acc_x: f64 = 0.0,
         pub force_acc_y: f64 = 0.0,
-        pub safe_head_ticks: f64 = 0.0,
-        pub flip_head_ticks: f64 = 0.0,
-        pub j_block_ticks: f64 = 0.0,
+        pub safe_head_ticks: Option<f64> = None,
+        pub flip_head_ticks: Option<f64> = None,
+        pub j_block_ticks: Option<f64> = None,
+        pub gd_fall_start_y: Option<f64> = None,
+        pub gd_land_flag: bool = true,
+        pub gd_prev_fall_vel: Option<f64> = None,
+        pub gd_was_falling: bool = false,
+        pub gd_prev_held: Option<bool> = None,
+        pub gd_prev_ceiling: bool = false,
         pub press_count: Option<f64> = None,
         pub ship_head_uid: Option<f64> = None,
         pub ship_head_flipped: bool = false,
@@ -509,6 +515,7 @@ impl<'a> Sim<'a> {
         if self.p.up_key_pressed && self.p.can_jump {
             self.p.up_key_pressed = false;
             self.p.is_jumping = true;
+            self.p.gd_land_flag = false;
             self.p.on_ground = false;
             self.p.can_jump = false;
             self.p.queued_hold = false;
@@ -557,6 +564,17 @@ impl<'a> Sim<'a> {
         self.p.is_jumping = false;
     }
 
+    fn step_game_events(&mut self) {
+        let v = (if self.p.gravity_flipped { -1.0 } else { 1.0 }) * self.p.y_velocity / 2.0;
+        self.p.gd_prev_fall_vel = Some(v);
+        let falling = self.player_is_falling();
+        if self.p.on_ground { self.p.gd_fall_start_y = Some(self.p.y); }
+        else if falling && !self.p.gd_was_falling { self.p.gd_fall_start_y = Some(self.p.y); }
+        self.p.gd_was_falling = falling;
+        self.p.gd_prev_held = Some(self.p.up_key_down);
+        self.p.gd_prev_ceiling = self.p.on_ceiling;
+    }
+
     pub fn force_mode_factor(&self) -> f64 {
         let p = &*self.p;
         if p.is_flying { if p.is_mini { 0.5875 } else { 0.47 } }
@@ -595,6 +613,7 @@ impl<'a> Sim<'a> {
                 self.p.on_ground = false;
                 self.p.can_jump = false;
                 self.p.is_jumping = true;
+                self.p.gd_land_flag = false;
             }
         }
         let ufo_mult = if self.p.y_velocity * flip >= 2.0 * self.speed_consts().0 { 1.2 } else { 0.8 };
@@ -610,9 +629,10 @@ impl<'a> Sim<'a> {
 
     /// `updateJump(dt)`.
     pub fn update_jump(&mut self, dt: f64, cols: &[crate::pcol::Col]) {
+        self.step_game_events();
         if let Some(v) = self.p.pending_velocity.take() { self.p.y_velocity = v; }
-        if self.p.force_ticks > 0.0 {
-            self.p.force_ticks -= 1.0;
+        if let Some(t) = self.p.force_ticks.filter(|t| *t > 0.0) {
+            self.p.force_ticks = Some(t - 1.0);
             let fy = self.p.force_acc_y;
             if fy != 0.0 {
                 self.p.y_velocity += 2.0 * 0.9 * self.force_mode_factor() * dt * fy;
@@ -645,6 +665,7 @@ impl<'a> Sim<'a> {
         let (grav, y_start) = self.speed_consts();
         if self.p.up_key_down && self.p.can_jump {
             self.p.is_jumping = true;
+            self.p.gd_land_flag = false;
             self.p.on_ground = false;
             self.p.can_jump = false;
             self.p.up_key_pressed = false;
