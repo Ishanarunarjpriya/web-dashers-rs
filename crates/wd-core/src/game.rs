@@ -112,6 +112,7 @@ impl Game {
         self.e.fly_floor_y = None;
         self.e.fly_ceiling_y = None;
         self.e.fly_camera_target = None; // `resetGroundState`: the camera stops following the fly area
+        self.reset_ground_camera();
         self.e.portal_free_mode = false;
         self.e.floor_y = 0.0;
         self.e.ceiling_y = None;
@@ -175,7 +176,6 @@ impl Game {
             if t.touch || t.b.spawn_triggered { continue; }
             if t.x <= target_x { self.execute_toggle_pub(ti); } else { break; }
         }
-        self.check_time_warp(target_x, None, None);
         self.check_animation(target_x);
         self.check_pickup(target_x);
         self.check_count(target_x);
@@ -201,7 +201,7 @@ impl Game {
         self.reset_color();
         self.reset_rotate(); self.reset_alpha(); self.reset_shake(); self.reset_player_vis(); self.reset_animation(); self.reset_enter_effect(); self.reset_pulse(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
         self.reset_channel_blending();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_generic(false);
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.cm.reset();
@@ -262,7 +262,7 @@ impl Game {
         self.reset_color();
         self.reset_rotate(); self.reset_alpha(); self.reset_shake(); self.reset_player_vis(); self.reset_animation(); self.reset_enter_effect(); self.reset_pulse(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
         self.reset_channel_blending();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_generic(false);
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.cm.reset();
@@ -295,7 +295,7 @@ impl Game {
             self.fast_forward_triggers(x);
             self.p.last_collision_world_x = if self.e.player_world_x.is_finite() { Some(self.e.player_world_x) } else { None };
             self.p.last_collision_world_y = Some(y);
-            self.camera_x = self.e.player_world_x - self.g.center_x;
+            self.camera_x = self.e.player_world_x - self.g.center_x + crate::triggers::or0(self.trig.gen.camera_offset.0) + crate::triggers::or0(self.trig.gen.gameplay_offset.0);
         } else {
             if self.start.speed_key >= 0 { if let Some(v) = speeds.get(self.start.speed_key as usize) { self.g.player_speed = *v; } }
             self.enter_start_mode(self.start.game_mode, Some(30.0));
@@ -309,7 +309,7 @@ impl Game {
 
     /// The level-layer part of an attempt start (`resetGroundState`).
     fn begin_ground(&mut self) {
-        self.e.fly_ground_active = false; self.e.fly_visual_only = false; self.e.fly_floor_y = None; self.e.fly_ceiling_y = None; self.e.fly_camera_target = None;
+        self.e.fly_ground_active = false; self.e.fly_visual_only = false; self.e.fly_floor_y = None; self.e.fly_ceiling_y = None; self.e.fly_camera_target = None; self.reset_ground_camera();
         self.e.floor_y = 0.0; self.e.ceiling_y = None;
         self.e.portal_free_mode = false;
         self.delta_buffer = 0.0; self.space_was_down = false;
@@ -334,7 +334,7 @@ impl Game {
     pub fn restart(&mut self, speed_key: i64, game_mode: i64, start_x: f64) {
         self.reset_objects();
         self.reset_rotate(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_generic(false);
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.physics_frame = 0.0;
@@ -365,7 +365,7 @@ impl Game {
         trig.time_warp = 1.0;
         trig.meta = cols.iter().map(|c| crate::triggers::ColMeta {
             groups: Vec::new(), init_x: c.x, init_y: c.y, init_rot: if c.rotation_degrees == 0.0 || c.rotation_degrees.is_nan() { 0.0 } else { c.rotation_degrees },
-            toggled: Default::default(), sec: crate::triggers::section_index(c.x),
+            toggled: Default::default(), sec: crate::triggers::section_index(c.x), init_wh: None,
         }).collect();
         let disabled = vec![false; cols.len()];
         Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), show_hitboxes: false, hitbox_trail_on: false, hitboxes_on_death: false, hitbox_trail: [Vec::new(), Vec::new()], p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
@@ -379,11 +379,13 @@ impl Game {
         let objects = crate::level::filter_coins(crate::level::normalize_teleport_portals(level.objects.clone()), official);
         let mut cols: Vec<Col> = Vec::new();
         let mut groups: Vec<Vec<i64>> = Vec::new();
+        let mut toggle_blocks: std::collections::BTreeMap<usize, crate::collider::ToggleBlock> = Default::default();
         for o in &objects {
             if let Some(list) = crate::collider::spawn_colliders(o) {
                 for c in list.iter().filter(|c| !c.placeholder) {
+                    if let Some(tb) = c.toggle { toggle_blocks.insert(cols.len(), tb); }
                     cols.push(Col::from_collider(c, cols.len() as f64));
-                    groups.push(crate::triggers::object_groups(&o.groups));
+                    groups.push(if c.toggle.is_some() { Vec::new() } else { crate::triggers::object_groups(&o.groups) });
                 }
             }
         }
@@ -402,12 +404,14 @@ impl Game {
             }
         }
         let mut g = Game::new(cols);
+        g.trig.gen.toggle_blocks = toggle_blocks;
         g.coins.link = coin_link;
         for (i, gr) in groups.into_iter().enumerate() {
             for &gid in &gr { g.trig.group_cols.entry(gid).or_default().push(i); }
             g.trig.meta[i].groups = gr;
         }
         g.trig.l = crate::triggers::build_lists(&objects);
+        { let mut gs = std::mem::take(&mut g.trig.gen); crate::generic::build_generic_extras(&mut g.trig.l, &mut gs); g.trig.gen = gs; }
         g.sp_load(&objects);
         g.settings = crate::settings::LevelSettings::parse(&level.settings);
         for (ch, c) in &g.settings.initial_colors { g.cm.set_initial_color(*ch, *c); }
@@ -418,7 +422,7 @@ impl Game {
         g.channel_blending_initial = g.channel_blending.clone();
         let mut last_x = 0.0f64;
         for o in &objects {
-            if matches!(crate::objects::object_from_id(o.id.unwrap_or(0)), Some(d) if d.ty == Some("trigger")) { continue; }
+            if crate::objects::is_trigger_branch(o.id.unwrap_or(0)) { continue; }
             let wx = o.x * 2.0;
             if wx > last_x { last_x = wx; }
         }
@@ -437,7 +441,6 @@ impl Game {
             }
         }
         g.start_positions.sort_by(|a, b| (a.x - b.x).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal));
-        g.trig.touch_holding = vec![false; g.trig.l.touches.len()];
         g
     }
 
@@ -625,7 +628,7 @@ impl Game {
     pub(crate) fn slide_quantize(&mut self, delta_ms: f64) -> f64 { self.quantize_delta(delta_ms) }
     pub fn quantize_delta_pub(&mut self, delta_ms: f64) -> f64 { self.quantize_delta(delta_ms) }
     fn quantize_delta(&mut self, delta_ms: f64) -> f64 {
-        let speed = if self.speed_hack == 0.0 || self.speed_hack.is_nan() { 1.0 } else { self.speed_hack };
+        let speed = (if self.speed_hack == 0.0 || self.speed_hack.is_nan() { 1.0 } else { self.speed_hack }) * (if self.trig.time_warp == 0.0 || self.trig.time_warp.is_nan() { 1.0 } else { self.trig.time_warp });
         let buf = (delta_ms * speed) / 1000.0 + self.delta_buffer;
         let mut n = crate::physics::js_round(buf / U);
         if n < 0.0 { n = 0.0; }
@@ -660,7 +663,8 @@ impl Game {
         if sub_steps > 60.0 { sub_steps = 60.0; }
         let sub_delta = if sub_steps > 0.0 { quantized / sub_steps } else { 0.0 };
         let vertical = sub_delta * D;
-        let horizontal = sub_delta * self.g.player_speed * D;
+        let trigger_direction = if self.trig.gen.direction < 0.0 { -1.0 } else { 1.0 };
+        let horizontal = sub_delta * self.g.player_speed * D * trigger_direction;
         let initial_y = self.p.y;
         let initial_y2 = self.p2.y;
         let mut i = 0.0;
@@ -835,11 +839,9 @@ impl Game {
         if self.fx.menu_mode { self.menu_step(delta_ms); return false; }
         if self.fx.editor_mode { return false; }
         if self.fx.slide.is_some() { self.slide_step(delta_ms); return false; }
-        self.trig.warped_delta = None;
         let restarted = self.update_inner(delta_ms, jump_held);
         if restarted { self.render_restart(); }
-        let render_delta = self.trig.warped_delta.unwrap_or(delta_ms);
-        self.render_step(render_delta);
+        self.render_step(delta_ms);
         restarted
     }
 
@@ -883,15 +885,13 @@ impl Game {
             }
             return false;
         }
-        let delta_ms = delta_ms * self.trig.time_warp; // `deltaTime *= level._timeWarp` once the frame is known to be a live one
-        self.trig.warped_delta = Some(delta_ms);
         self.animate_sprites(delta_ms);
         let quantized_before = self.delta_buffer;
         let _ = quantized_before;
         let q = self.step_frame_with_delta(delta_ms, jump_held);
         self.coin_pickups();
         if !self.end_camera_override {
-            let offset = self.e.player_world_x - self.g.center_x;
+            let offset = self.e.player_world_x - self.g.center_x + crate::triggers::or0(self.trig.gen.camera_offset.0) + crate::triggers::or0(self.trig.gen.gameplay_offset.0);
             if self.end_x_pos > 0.0 {
                 let max_cam = self.end_x_pos - self.screen_width;
                 if offset >= max_cam - 200.0 {
@@ -909,7 +909,15 @@ impl Game {
                 self.camera_y = c.from_y + (c.to_y - c.from_y) * p;
             }
         }
-        if !self.end_camera_override { self.update_camera_y(q, false); }
+        if !self.end_camera_override {
+            self.camera_y -= self.trig.gen.applied_camera_offset_y;
+            self.camera_y -= self.trig.gen.applied_gameplay_offset_y;
+            self.update_camera_y(q, false);
+            self.trig.gen.applied_camera_offset_y = crate::triggers::or0(self.trig.gen.camera_offset.1);
+            self.camera_y += self.trig.gen.applied_camera_offset_y;
+            self.trig.gen.applied_gameplay_offset_y = crate::triggers::or0(self.trig.gen.gameplay_offset.1);
+            self.camera_y += self.trig.gen.applied_gameplay_offset_y;
+        }
         self.update_visibility(self.camera_x);
         if self.p.is_flying || self.p.is_swing { self.sim_for(false, |s| s.update_ship_rotation(q)); }
         if self.e.is_dual && (self.p2.is_flying || self.p2.is_swing) && !self.p2.is_dead { self.sim_for(true, |s| s.update_ship_rotation(q)); }
