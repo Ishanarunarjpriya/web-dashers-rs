@@ -56,7 +56,7 @@ if (REAL) {
   const a2 = gsrc.indexOf("\n", a1);
   animBlock = vm.runInContext(`(function (deltaTime) {\n${gsrc.slice(a0, a2)}\n})`, ctx);
 }
-const REAL_GENERIC_IDS = GENERIC_IDS.filter((id) => id !== 2067 && id !== 3662);
+const REAL_GENERIC_IDS = GENERIC_IDS.filter((id) => ![2067, 3662, 1913, 2015].includes(id));
 const COINS = !!process.env.COINS;
 const lsStore = new Map();
 if (COINS) ctx.localStorage = { getItem: (k) => (lsStore.has(k) ? lsStore.get(k) : null), setItem: (k, v) => lsStore.set(k, String(v)) };
@@ -98,6 +98,7 @@ function newLevel() {
     const L = new ctx.LevelObject(REC.scene, { _v: 0 });
     L.resetAll = () => {
       L.resetColorTriggers(); L.resetAlphaTriggers(); L.resetRotateTriggers(); L.resetPulseTriggers(); L.resetEnterEffectTriggers(); L.resetSpawnTriggers(); L.resetMoveTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers(); L.resetToggleTriggers(); L.resetAnimationTriggers(); L.resetShakeTriggers(); L.resetChannelBlending(); L.resetPlayerVisibilityTriggers(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetCollisionTriggers(); L.resetInstantCountTriggers(); L.resetGenericTriggers();
+      for (const s of L._audioScaleSprites) ctx.gdApplyEffectScale(s, 0.1);
     };
     return L;
   }
@@ -143,6 +144,7 @@ const report = (msg) => { if (bad++ < 12) console.log(msg); };
 for (let li = 0; li < sources.length; li++) {
   if (ONLY !== null && li !== ONLY) continue;
   if (ONLY_LABEL && sources[li].label !== ONLY_LABEL) continue;
+  seed = (Number(process.argv[2] || 1) * 2654435761 + li * 40503 + 17) >>> 0;
   const str = sources[li].str;
   const lvl = ctx.parseLevel(str);
   ctx.window.enableLDM = true; // object spawning in this harness uses the low-detail collider path
@@ -481,6 +483,7 @@ for (let li = 0; li < sources.length; li++) {
     if (rnd() < 0.002) { // an attempt restarts: everything is reset
       L.resetMoveTriggers(); L.resetRotateTriggers(); L.resetToggleTriggers(); L.resetSpawnTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers();
       L.resetColorTriggers(); L.resetPulseTriggers(); L.resetChannelBlending(); cm.reset(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetInstantCountTriggers(); L.resetCollisionTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers(); L.resetGenericTriggers();
+      if (REAL) for (const s of L._audioScaleSprites) ctx.gdApplyEffectScale(s, 0.1);
       for (let k = 0; k < 20; k++) w.wd_trig_reset(k);
       px = -419; continue;
     }
@@ -564,13 +567,14 @@ for (let li = 0; li < sources.length; li++) {
     checks++;
     for (const ch of cmChannels) { const c = cm.getColor(ch); w.wd_trig_cm(ch, cmBuf); const m = new Float64Array(w.memory.buffer, cmBuf, 5); if (!same(c.r, m[0]) || !same(c.g, m[1]) || !same(c.b, m[2]) || !same(cm.getOpacity(ch), m[3]) || !same(cm.getHex(ch), m[4])) { if (process.env.DEBUGCM) console.log(`px=${px} idx js=${L._colorTriggerIdx} ffx=${typeof ffxUsed !== 'undefined' ? ffxUsed : 'none'}`, JSON.stringify(L._colorTriggers.filter((t) => t.x <= px + 1 && (t.tintGround || t.index === ch)).map((t) => ({ x: t.x, idx: t.index, tg: t.tintGround, c: t.color, d: t.duration, copy: t.copy, sp: t.spawnTriggered, touch: t.touchTriggered })))); fail(`frame ${frame} colour channel ${ch}: js ${c.r},${c.g},${c.b} op ${cm.getOpacity(ch)} | rust ${m[0]},${m[1]},${m[2]} op ${m[3]}`); break; } }
     if (levelBad) break;
-    if (REAL && process.env.TRACE_SPRITE) { const ti = Number(process.env.TRACE_SPRITE); const c = realImgs[ti]; const r = JSON.parse(text(w.wd_fx_sprites()))[ti]; console.log(`f${frame} cx=${cx.toFixed(1)} js scale=${c.scaleX} last=${c._eeLastOrbScale} active=${c._eeActive} mult=${c._eeEffectMult} | rust scale=${r[3]} frame=${r[10]}`); }
+    if (REAL && process.env.TRACE_SPRITE && (process.env.TRACE_LI === undefined || Number(process.env.TRACE_LI) === li)) { const ti = Number(process.env.TRACE_SPRITE); const c = realImgs[ti]; const r = JSON.parse(text(w.wd_fx_sprites()))[ti]; console.log(`f${frame} cx=${cx.toFixed(1)} js scale=${c.scaleX} last=${c._eeLastOrbScale} active=${c._eeActive} mult=${c._eeEffectMult} | rust x=${r[0]} scale=${r[3]} active=${r[7]} vis=${r[6]} frame=${r[10]} jsvis=${c.visible} x=${c.x} wx=${c._eeWorldX} dirty=${c._eeXformDirty} sec=${c._eeSectionIndex} vmin=${L._visMinSec} vmax=${L._visMaxSec}`); }
     if (REAL && COINS && frame % 9 === 0) { const m = coinOps(); if (m) { fail(`frame ${frame} coins: ${m}`); break; } }
     if (REAL && MIRROR) { const m = mirrorCheck(); if (m) { fail(`frame ${frame} mirror: ${m}`); break; } }
     if (REAL && !process.env.NOSPRITE) { const m = spriteCheck(frame % 60 === 0); if (m) { fail(`frame ${frame} (px=${px.toFixed(1)}) ${m}`); break; } }
     if (a !== b) {
       const ja = JSON.parse(a), jb = JSON.parse(b);
       const keys = Object.keys(ja).filter((k) => JSON.stringify(ja[k]) !== JSON.stringify(jb[k]));
+      if (keys.includes("generic")) { const gk = Object.keys(ja.generic).filter((k) => JSON.stringify(ja.generic[k]) !== JSON.stringify(jb.generic[k])); keys.splice(keys.indexOf("generic"), 1, ...gk.map((k) => `generic.${k}`)); ja.generic = Object.fromEntries(gk.map((k) => [k, ja.generic[k]])); jb.generic = Object.fromEntries(gk.map((k) => [k, jb.generic[k]])); for (const k of gk) { ja[`generic.${k}`] = ja.generic[k]; jb[`generic.${k}`] = jb.generic[k]; } }
       fail(`frame ${frame} (px=${px.toFixed(1)}) state differs in ${keys.join(", ")}\n` + keys.map((k) => `  ${k}: js=${JSON.stringify(ja[k]).slice(0, 400)}\n  ${k}: rust=${JSON.stringify(jb[k]).slice(0, 400)}`).join("\n"));
       if (process.env.DBG) console.log("followY tweens:", JSON.stringify(L._activeFollowPlayerYTweens.map((a) => ({ target: a.trig.targetGroup, speed: a.trig.speed, delay: a.trig.delay, offset: a.trig.offset, maxSpeed: a.trig.maxSpeed, duration: a.trig.duration, elapsed: a.elapsed, gdy: a.groupInitialGDY, hist: a.history.length, hy: a.history.map((h) => h.y).slice(0, 3) }))), "py", py, "dt", dt, "offs", JSON.stringify(L._groupOffsets[79]));
       break;

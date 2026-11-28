@@ -7,7 +7,7 @@ use crate::js::{parse_float, parse_int};
 use crate::json::{num, str_lit};
 use crate::jsmath as m;
 use crate::level::LevelObject;
-use crate::triggers::{self, easing, js_max, js_min, key, or0, push_unique, r_flag, r_float, r_int, raw, Base, Remap, TOUCH_HALF_HITBOX};
+use crate::triggers::{self, easing, js_max, js_min, or0, push_unique, raw, Base, Remap, TOUCH_HALF_HITBOX};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1176,7 +1176,6 @@ impl Game {
 
     pub fn generic_state_json(&self) -> String {
         let g = &self.trig.gen;
-        let l = &self.trig.l;
         let f = |v: f64| num(v);
         let tween = |t: &Option<Tween>| t.as_ref().map_or("null".to_string(), |t| format!("[{},{},{}]", f(t.from), f(t.to), f(t.elapsed)));
         let mut timers: Vec<String> = g.timers.iter().map(|(k, t)| {
@@ -1195,7 +1194,6 @@ impl Game {
         let st_axis = |a: &Option<StaticAxis>| a.as_ref().map_or("null".to_string(), |a| format!("[{},{},{},{},{}]", a.group, f(a.elapsed), a.exiting, a.from.map_or("null".to_string(), f), a.instant));
         let static_cam = g.static_camera.as_ref().map_or("null".to_string(), |c| format!("[{},{}]", st_axis(&c.x), st_axis(&c.y)));
         let edges = g.camera_edges.as_ref().map_or("null".to_string(), |e| format!("{{{}}}", e.iter().map(|(k, v)| format!("\"{}\":{}", k, v)).collect::<Vec<_>>().join(",")));
-        let _ = l;
         format!("{{\"idx\":[{},{},{}],\"fired\":{},\"touching\":[{}],\"sequence\":[{}],\"scaleTweens\":[{}],\"timeEvents\":[{}],\"levelTime\":{},\"points\":{},\"timeWarp\":{},\
 \"timers\":{{{}}},\"persistentItems\":{},\"persistentTimers\":{},\"eventLinks\":[{}],\"eventStamps\":[{}],\"groupScales\":{{{}}},\"hasGroupScales\":{},\"scaledColliders\":{},\"linkVisible\":{},\
 \"endTriggered\":{},\"cameraOffset\":[{},{},{},{}],\"offsetTweens\":[{},{}],\"zoom\":[{},{}],\"angle\":[{},{},{}],\"flags\":[{},{},{},{},{},{},{}],\"direction\":{},\"gravity\":[{},{}],\"respawnTime\":{},\
@@ -1237,8 +1235,4 @@ pub fn build_generic_extras(l: &mut triggers::Lists, gen: &mut GenState) {
     gen.snapshot = None;
     gen.touch_list = Vec::new();
     for t in &l.generics { if t.kind == K::LinkVisible && t.target > 0 { gen.link_visible.insert(t.target); } }
-    let _ = key;
-    let _ = r_flag;
-    let _ = r_float;
-    let _ = r_int;
 }
