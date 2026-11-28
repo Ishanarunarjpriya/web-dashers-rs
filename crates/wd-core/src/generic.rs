@@ -503,6 +503,9 @@ pub struct GenState {
     pub pc_count: u64,
     pub multi_touch_legacy: Vec<(i64, f64, f64)>,
     pub touch_list: Vec<usize>,
+    pub order: Vec<usize>,
+    pub sorted: bool,
+    pub snapshot: Option<Vec<usize>>,
 }
 
 impl Default for GenState {
@@ -515,7 +518,7 @@ impl Default for GenState {
             applied_gameplay_offset_y: 0.0, offset_tweens: (None, None), zoom: 1.0, zoom_tween: None, angle: 0.0, angle_target: 0.0, angle_tween: None,
             ground_hidden: false, hide_p1: false, hide_p2: false, p1_controls_disabled: false, p2_controls_disabled: false, direction: 1.0, gravity_scale: (1.0, 1.0),
             attempts_hidden: false, respawn_time: None, static_camera: None, camera_edges: None, free_mode_camera: false, free_cam_easing: 10.0, free_cam_padding: 0.5,
-            pc_count: 0, multi_touch_legacy: Vec::new(), touch_list: Vec::new(),
+            pc_count: 0, multi_touch_legacy: Vec::new(), touch_list: Vec::new(), order: Vec::new(), sorted: false, snapshot: None,
         }
     }
 }
@@ -551,6 +554,9 @@ impl Game {
         let link_visible = self.trig.gen.link_visible.clone();
         let multi_touch = std::mem::take(&mut self.trig.gen.multi_touch_legacy);
         let touch_list = std::mem::take(&mut self.trig.gen.touch_list);
+        let order = std::mem::take(&mut self.trig.gen.order);
+        let sorted = self.trig.gen.sorted;
+        let snapshot = self.trig.gen.snapshot.take();
         let timer_seq = self.trig.gen.timer_seq;
         let attempts = self.trig.gen.attempts;
         let pc_count = self.trig.gen.pc_count;
@@ -562,6 +568,9 @@ impl Game {
         self.trig.gen.link_visible = link_visible;
         self.trig.gen.multi_touch_legacy = multi_touch;
         self.trig.gen.touch_list = touch_list;
+        self.trig.gen.order = order;
+        self.trig.gen.sorted = sorted;
+        self.trig.gen.snapshot = snapshot;
         self.trig.gen.timer_seq = timer_seq;
         self.trig.gen.attempts = attempts;
         self.trig.gen.pc_count = pc_count;
@@ -594,7 +603,8 @@ impl Game {
     pub fn spawn_group_now_pub(&mut self, g: i64) { self.spawn_group_now(g); }
 
     pub fn activate_spawned_generic(&mut self, gid: i64, remap: Option<Remap>) {
-        let list: Vec<usize> = (0..self.trig.l.generics.len()).filter(|&i| { let t = &self.trig.l.generics[i]; t.b.spawn_triggered && t.b.groups.contains(&gid) }).collect();
+        let order = self.trig.gen.snapshot.clone().unwrap_or_else(|| self.trig.gen.order.clone());
+        let list: Vec<usize> = order.into_iter().filter(|&i| { let t = &self.trig.l.generics[i]; t.b.spawn_triggered && t.b.groups.contains(&gid) }).collect();
         for ti in list {
             if !self.trig.l.generics[ti].b.multi {
                 let uid = self.trig.l.generics[ti].b.uid;
@@ -1071,19 +1081,28 @@ impl Game {
         self.trig.gen.level_time += dt;
         let n = self.trig.l.generics.len();
         if n > 0 {
+            if !self.trig.gen.sorted {
+                self.trig.gen.sorted = true;
+                let gens = &self.trig.l.generics;
+                let mut order = self.trig.gen.order.clone();
+                order.sort_by(|&a, &b| (gens[a].x - gens[b].x).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal));
+                self.trig.gen.touch_list = order.iter().copied().filter(|&i| gens[i].touch).collect();
+                self.trig.gen.order = order;
+            }
+            let gx = |s: &Game, p: usize| s.trig.l.generics[s.trig.gen.order[p]].x;
             if self.trig.gen.direction_dirty {
                 self.trig.gen.direction_dirty = false;
                 let (mut lo, mut hi) = (0usize, n);
-                while lo < hi { let mid = (lo + hi) >> 1; if self.trig.l.generics[mid].x < px { lo = mid + 1; } else { hi = mid; } }
+                while lo < hi { let mid = (lo + hi) >> 1; if gx(self, mid) < px { lo = mid + 1; } else { hi = mid; } }
                 self.trig.gen.reverse_idx = lo as i64 - 1;
                 let (mut fw, mut hi) = (0usize, n);
-                while fw < hi { let mid = (fw + hi) >> 1; if self.trig.l.generics[mid].x <= px { fw = mid + 1; } else { hi = mid; } }
+                while fw < hi { let mid = (fw + hi) >> 1; if gx(self, mid) <= px { fw = mid + 1; } else { hi = mid; } }
                 self.trig.gen.idx = fw;
             }
             let dir = |s: &Game| if s.trig.gen.direction == 0.0 || s.trig.gen.direction.is_nan() { 1.0 } else { s.trig.gen.direction };
             if dir(self) < 0.0 {
                 while self.trig.gen.reverse_idx >= 0 {
-                    let ri = self.trig.gen.reverse_idx as usize;
+                    let ri = self.trig.gen.order[self.trig.gen.reverse_idx as usize];
                     let (tx, sp, tc, multi, uid) = { let t = &self.trig.l.generics[ri]; (t.x, t.b.spawn_triggered, t.touch, t.b.multi, t.b.uid) };
                     if tx <= px { break; }
                     if dir(self) > 0.0 { break; }
@@ -1097,7 +1116,7 @@ impl Game {
             } else {
                 while self.trig.gen.idx < n {
                     if dir(self) < 0.0 { break; }
-                    let gi = self.trig.gen.idx;
+                    let gi = self.trig.gen.order[self.trig.gen.idx];
                     let (tx, sp, tc) = { let t = &self.trig.l.generics[gi]; (t.x, t.b.spawn_triggered, t.touch) };
                     if tx > px { break; }
                     if !sp && !tc { let e = self.eff(gi, None); self.fire_generic(gi, e); }
@@ -1155,7 +1174,9 @@ impl Game {
             s
         }).collect();
         timers.sort();
-        let seqs: Vec<String> = g.sequence.iter().map(|(k, s)| format!("[{},{},{}]", k, s.index, f(s.last_time))).collect();
+        let mut seqs_v: Vec<(i64, String)> = g.sequence.iter().map(|(k, s)| (self.gpos(*k), format!("[{},{},{}]", self.gpos(*k), s.index, f(s.last_time)))).collect();
+        seqs_v.sort_by_key(|e| e.0);
+        let seqs: Vec<String> = seqs_v.into_iter().map(|e| e.1).collect();
         let stamps: Vec<String> = g.event_stamps.iter().map(|(k, v)| format!("[{},{}]", f(f64::from_bits(*k)), f(*v))).collect();
         let ints = |v: Vec<i64>| format!("[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
         let scales: Vec<String> = g.group_scales.iter().map(|(k, s)| format!("\"{}\":[{},{},{},{}]", k, f(s.sx), f(s.sy), s.center, s.only_move)).collect();
@@ -1170,13 +1191,13 @@ impl Game {
             g.idx, g.reverse_idx, g.direction_dirty, ints(g.fired.iter().copied().collect()),
             g.touching.iter().map(|(k, v)| format!("[{},{}]", k, v)).collect::<Vec<_>>().join(","),
             seqs.join(","),
-            g.scale_tweens.iter().map(|a| format!("[{},{},{},{},{},{}]", a.trig, a.target, a.center, f(a.elapsed), f(a.prev_x), f(a.prev_y))).collect::<Vec<_>>().join(","),
-            g.time_events.iter().map(|e| format!("[{},{}]", e.0, e.1.map_or("null".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(","),
+            g.scale_tweens.iter().map(|a| format!("[{},{},{},{},{},{}]", self.gpos(a.trig), a.target, a.center, f(a.elapsed), f(a.prev_x), f(a.prev_y))).collect::<Vec<_>>().join(","),
+            g.time_events.iter().map(|e| format!("[{},{}]", self.gpos(e.0), e.1.map_or("null".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(","),
             f(g.level_time), f(g.points), f(self.trig.time_warp),
             timers.join(","), ints(self.trig.persistent_items.iter().copied().collect()), ints(g.persistent_timers.iter().copied().collect()),
-            g.event_links.iter().map(|e| format!("[{},{}]", e.0, e.1.map_or("null".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(","),
+            g.event_links.iter().map(|e| format!("[{},{}]", self.gpos(e.0), e.1.map_or("null".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(","),
             stamps.join(","), scales.join(","), g.has_group_scales, ints(g.scaled_colliders.iter().map(|c| *c as i64).collect()), ints(g.link_visible.iter().copied().collect()),
-            g.end_triggered.map_or(-1, |i| i as i64), f(g.camera_offset.0), f(g.camera_offset.1), f(g.gameplay_offset.0), f(g.gameplay_offset.1),
+            g.end_triggered.map_or(-1, |i| self.gpos(i)), f(g.camera_offset.0), f(g.camera_offset.1), f(g.gameplay_offset.0), f(g.gameplay_offset.1),
             tween(&g.offset_tweens.0), tween(&g.offset_tweens.1), f(g.zoom), tween(&g.zoom_tween), f(g.angle), f(g.angle_target), tween(&g.angle_tween),
             g.ground_hidden, g.hide_p1, g.hide_p2, g.p1_controls_disabled, g.p2_controls_disabled, g.attempts_hidden, g.free_mode_camera,
             f(g.direction), f(g.gravity_scale.0), f(g.gravity_scale.1), g.respawn_time.map_or("null".to_string(), f),
@@ -1185,8 +1206,10 @@ impl Game {
     }
 
     pub fn generic_lists_json(&self) -> String {
-        format!("[{}]", self.trig.l.generics.iter().map(gen_json).collect::<Vec<_>>().join(","))
+        format!("[{}]", self.trig.gen.order.iter().map(|&i| gen_json(&self.trig.l.generics[i])).collect::<Vec<_>>().join(","))
     }
+
+    fn gpos(&self, ti: usize) -> i64 { self.trig.gen.order.iter().position(|&i| i == ti).map_or(-1, |p| p as i64) }
 }
 
 pub fn gen_list_json(v: &[Gen]) -> String { format!("[{}]", v.iter().map(gen_json).collect::<Vec<_>>().join(",")) }
@@ -1197,7 +1220,10 @@ pub fn build_generic_extras(l: &mut triggers::Lists, gen: &mut GenState) {
     macro_rules! legacy { ($l:ident) => { for t in &l.$l { if t.touch && t.b.multi && !t.b.spawn_triggered && seen.insert(t.b.uid) { gen.multi_touch_legacy.push((t.b.uid, t.x, t.y)); } } }; }
     legacy!(colors); legacy!(moves); legacy!(alphas); legacy!(spawns); legacy!(stops); legacy!(follow_ys); legacy!(follows); legacy!(toggles);
     legacy!(animations); legacy!(shakes); legacy!(player_vis); legacy!(on_deaths); legacy!(touches); legacy!(pickups); legacy!(counts); legacy!(instant_counts);
-    gen.touch_list = (0..l.generics.len()).filter(|&i| l.generics[i].touch).collect();
+    gen.order = (0..l.generics.len()).collect();
+    gen.sorted = false;
+    gen.snapshot = None;
+    gen.touch_list = Vec::new();
     for t in &l.generics { if t.kind == K::LinkVisible && t.target > 0 { gen.link_visible.insert(t.target); } }
     let _ = key;
     let _ = r_flag;

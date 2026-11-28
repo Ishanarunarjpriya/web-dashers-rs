@@ -290,7 +290,7 @@ pub fn build_lists(objects: &[LevelObject]) -> Lists {
     by_x(&mut l.follow_ys, |t| t.x); by_x(&mut l.follows, |t| t.x);
     by_x(&mut l.on_deaths, |t| t.x); by_x(&mut l.touches, |t| t.x); by_x(&mut l.pickups, |t| t.x); by_x(&mut l.counts, |t| t.x);
     by_x(&mut l.instant_counts, |t| t.x); by_x(&mut l.collisions, |t| t.x);
-    by_x(&mut l.colors, |t| t.x); by_x(&mut l.pulses, |t| t.x); by_x(&mut l.alphas, |t| t.x); by_x(&mut l.shakes, |t| t.x); by_x(&mut l.player_vis, |t| t.x); by_x(&mut l.animations, |t| t.x); by_x(&mut l.enter_effects, |t| t.x); by_x(&mut l.generics, |t| t.x);
+    by_x(&mut l.colors, |t| t.x); by_x(&mut l.pulses, |t| t.x); by_x(&mut l.alphas, |t| t.x); by_x(&mut l.shakes, |t| t.x); by_x(&mut l.player_vis, |t| t.x); by_x(&mut l.animations, |t| t.x); by_x(&mut l.enter_effects, |t| t.x);
     l
 }
 
@@ -886,7 +886,7 @@ impl Game {
             let ti = self.trig.color_idx;
             let t = &self.trig.l.colors[ti];
             if !(t.x <= px) { break; }
-            if !t.touch && !t.b.spawn_triggered { fired.push(ti); }
+            if !self.trig.dead(&t.b) && !t.touch && !t.b.spawn_triggered { fired.push(ti); }
             self.trig.color_idx += 1;
         }
         for ti in fired { self.apply_color_trigger(ti, false); }
@@ -1576,6 +1576,7 @@ impl Game {
     /// `_activateSpawnedGroup(groupId, colorManager, remap)` for the legacy trigger kinds.
     pub fn activate_spawned_group_r(&mut self, gid: i64, remap: Option<Remap>) {
         if gid <= 0 { return; }
+        if self.trig.gen.snapshot.is_none() { self.trig.gen.snapshot = Some(self.trig.gen.order.clone()); }
         let mut fired_now: BTreeSet<i64> = BTreeSet::new();
         macro_rules! matches { ($list:ident) => {{
             let mut out: Vec<usize> = Vec::new();

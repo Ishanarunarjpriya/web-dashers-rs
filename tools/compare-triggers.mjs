@@ -188,7 +188,7 @@ for (let li = 0; li < sources.length; li++) {
           const n = 1 + (objectId % 3);
           for (let k = 0; k < n; k++) {
             const x = lo.x * 2 + 10 * k, y = 460 - lo.y * 2 + 7 * k;
-            const spr = { active: true, _eeGroups: gids, _eeInitialWorldX: x, _eeInitialBaseY: y, _origWorldX: x, _origBaseY: y, x, y, rotation: 0, setVisible() {} };
+            const spr = { active: true, _eeGroups: gids, _eeInitialWorldX: x, _eeInitialBaseY: y, _origWorldX: x, _origBaseY: y, x, y, rotation: 0, scaleX: 1, scaleY: 1, setVisible() {}, setScale(sx, sy = sx) { this.scaleX = sx; this.scaleY = sy; } };
             for (const g of gids) (L._groupSprites[g] ||= []).push(spr);
             sprites.push(x, y, gids.length, ...gids);
           }
@@ -241,7 +241,7 @@ for (let li = 0; li < sources.length; li++) {
   const jsLists = Object.fromEntries(Object.entries(LISTS).map(([k, v]) => [k, strip(L[v])]));
   L._timeWarpTriggers.sort((a, b) => a.x - b.x);
   jsLists.timeWarp = strip(L._timeWarpTriggers.map((t) => ({ uid: t.uid, spawnTriggered: t.spawnTriggered, groups: t.groups, x: t.x, y: t.y, touchTriggered: t.touchTriggered, value: Number(t.raw?.[120] ?? 1) })));
-  jsLists.generic = strip([...L._genericTriggers].sort((a, b) => a.x - b.x).map((t) => (UNPORTED.has(t.kind) ? Object.fromEntries(GENERIC_COMMON.filter((k) => k in t).map((k) => [k, t[k]])) : t)));
+  jsLists.generic = strip([...L._genericTriggers].map((t) => (UNPORTED.has(t.kind) ? Object.fromEntries(GENERIC_COMMON.filter((k) => k in t).map((k) => [k, t[k]])) : t)));
   try { assert.deepStrictEqual(JSON.parse(canon(rjson(w.wd_trig_lists()))), JSON.parse(canon(jsLists))); } catch (e) { fail("trigger lists differ: " + String(e.message).split("\n").slice(0, 60).join(" | ")); }
   if (levelBad) continue;
 
@@ -542,6 +542,20 @@ for (let li = 0; li < sources.length; li++) {
     const a = jsState(), b = rustState();
     if (L._activePulses.length) globalThis.__pulseFrames = (globalThis.__pulseFrames || 0) + 1;
     if (L._activeAlphaTweens.length) globalThis.__alphaFrames = (globalThis.__alphaFrames || 0) + 1;
+    const gst = (globalThis.__gen ||= {});
+    gst.timerFrames = (gst.timerFrames || 0) + (Object.keys(L._timers).length ? 1 : 0);
+    gst.scaleFrames = (gst.scaleFrames || 0) + (L._activeScaleTweens.length ? 1 : 0);
+    gst.reversed = (gst.reversed || 0) + (L.direction < 0 ? 1 : 0);
+    gst.scaledCols = Math.max(gst.scaledCols || 0, L._scaledColliders.size);
+    gst.items = Math.max(gst.items || 0, Object.keys(L._itemCounts).length);
+    gst.events = Math.max(gst.events || 0, L._eventLinks.length);
+    gst.camTween = (gst.camTween || 0) + (L._cameraOffsetTweens.x || L._cameraOffsetTweens.y || L._cameraZoomTween || L._cameraAngleTween ? 1 : 0);
+    gst.fired = Math.max(gst.fired || 0, L._genericFired.size);
+    gst.seq = Math.max(gst.seq || 0, L._sequenceStates.size);
+    gst.timeWarp = (gst.timeWarp || 0) + (L.timeWarp !== 1 ? 1 : 0);
+    gst.end = (gst.end || 0) + (L.endTriggered ? 1 : 0);
+    gst.static = (gst.static || 0) + (L.staticCamera ? 1 : 0);
+    gst.spawnFired = Math.max(gst.spawnFired || 0, L._spawnFiredUids.size);
     checks++;
     for (const ch of cmChannels) { const c = cm.getColor(ch); w.wd_trig_cm(ch, cmBuf); const m = new Float64Array(w.memory.buffer, cmBuf, 5); if (!same(c.r, m[0]) || !same(c.g, m[1]) || !same(c.b, m[2]) || !same(cm.getOpacity(ch), m[3]) || !same(cm.getHex(ch), m[4])) { if (process.env.DEBUGCM) console.log(`px=${px} idx js=${L._colorTriggerIdx} ffx=${typeof ffxUsed !== 'undefined' ? ffxUsed : 'none'}`, JSON.stringify(L._colorTriggers.filter((t) => t.x <= px + 1 && (t.tintGround || t.index === ch)).map((t) => ({ x: t.x, idx: t.index, tg: t.tintGround, c: t.color, d: t.duration, copy: t.copy, sp: t.spawnTriggered, touch: t.touchTriggered })))); fail(`frame ${frame} colour channel ${ch}: js ${c.r},${c.g},${c.b} op ${cm.getOpacity(ch)} | rust ${m[0]},${m[1]},${m[2]} op ${m[3]}`); break; } }
     if (levelBad) break;
@@ -570,6 +584,7 @@ for (let li = 0; li < sources.length; li++) {
   console.log(`${sources[li].label}: ${levelBad ? "MISMATCH" : skipped ? "skipped (the original overflows its stack)" : "ok"}  triggers move/rot/spawn/stop/toggle/followY/follow=${stats.join("/")} colliders=${cols.length} groups=${Object.keys(L._groupColliders).length} frames=${frame} (most at once: moved=${seen.moved} rotated=${seen.rotated} disabled=${seen.disabled} in another section=${seen.resorted})`);
 }
 if (REAL) console.log(`(sprite tints compared: ${globalThis.__tintChecks || 0}, non-null: ${globalThis.__tintSet || 0}, pulsed: ${globalThis.__tintPulsed || 0})`);
+if (globalThis.__gen) console.log(`(generic: ${JSON.stringify(globalThis.__gen)})`);
 console.log(`(frames with a group pulse running: ${globalThis.__pulseFrames || 0}, with an alpha tween running: ${globalThis.__alphaFrames || 0})`);
 if (BEAST) console.log(`(beasts spawned: ${globalThis.__beasts || 0})`);
 if (COINS) console.log(`(coin operations compared: ${globalThis.__coinOps || 0})`);
