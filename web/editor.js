@@ -20,6 +20,48 @@
     levels.push(lvl); write(levels); push(wd);
     const [p, n] = wd.put(lvl.createdId); wd.w.wd_em_open_new(p, n);
   };
+  // `_importGMD`: a .gmd (GD's XML export) or .gdlvl (a Web Dashers level string) becomes a created level
+  const inflateLevel = async (str) => {
+    try {
+      let b64 = String(str).trim().replace(/-/g, "+").replace(/_/g, "/"); while (b64.length % 4) b64 += "=";
+      const bin = atob(b64), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+      return await new Response(stream).text();
+    } catch (err) { return String(str); }
+  };
+  E['Pop("EmImport", 0)'] = (ev, wd) => {
+    const input = document.createElement("input"); input.type = "file"; input.accept = ".gmd,.gdlvl";
+    input.onchange = (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const isGdlvl = file.name.toLowerCase().endsWith(".gdlvl");
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const content = isGdlvl ? await inflateLevel(event.target.result) : event.target.result;
+          const xml = new DOMParser().parseFromString(content, "text/xml");
+          const x = { name: "Imported Level", data: "", version: 1, length: 0, id: "NA", desc: "", officialSongId: 0, customSongId: 0 };
+          xml.querySelectorAll("key, k").forEach((node) => {
+            const k = node.textContent, v = node.nextElementSibling; if (!v) return;
+            const val = v.textContent;
+            if (k === "k2") x.name = val; if (k === "k4") x.data = val; if (k === "k1") x.id = val;
+            if (k === "k23") x.length = parseInt(val) || 0; if (k === "k16") x.version = parseInt(val) || 1;
+            if (k === "k8") x.officialSongId = parseInt(val) || 0; if (k === "k45") x.customSongId = parseInt(val) || 0;
+            if (k === "k3") { try { x.desc = atob(val); } catch (err) { x.desc = val; } }
+          });
+          if (!x.data) throw new Error("No level string found.");
+          let songName = "Stereo Madness", songId = -1;
+          if (x.customSongId > 0) { songId = x.customSongId; songName = `NG#${x.customSongId}`; }
+          else { songId = -x.officialSongId - 1; try { songName = (window.__allLevels || window.allLevels)[x.officialSongId][1]; } catch (err) { songName = "Unknown"; } }
+          const levels = read();
+          const lvl = { levelName: x.name, song: songName, songId, levelId: (x.id === "0" || !x.id) ? "NA" : x.id, levelString: x.data, levelLength: x.length, normalBest: 0, practiceBest: 0, description: x.desc || "", version: x.version, status: "Unverified", createdId: nextLocalId() };
+          levels.push(lvl); write(levels); push(wd);
+          const [p, n] = wd.put(lvl.createdId); wd.w.wd_em_open_new(p, n);
+        } catch (err) { console.error("GMD Import Error:", err); alert("Failed to parse .gmd: " + err.message); }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
   const field = (ev, wd) => {
     const which = parseInt(ev.match(/(\d+)\)$/)[1], 10);
     const id = viewId(wd); if (!id) return;
