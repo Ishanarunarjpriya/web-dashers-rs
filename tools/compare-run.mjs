@@ -73,7 +73,7 @@ for (let r = 0; r < RUNS; r++) {
   // ---- original JS
   const L = Object.create(ctx.LevelObject.prototype);
   Object.assign(L, { _collisionSections: [], _nearbyBuffer: [], _flyCeilingY: null, _flyFloorY: 0, _flyGroundActive: false, _flyVisualOnly: false, _groundTargetValue: 0,
-    _flyVisualFloorInset: 0, _flyVisualCeilingInset: 0, tryCollectSecretCoin: () => true, tryCollectUserCoin: () => true, _coinSprites: [], _orbSprites: [] });
+    _flyVisualFloorInset: 0, _flyVisualCeilingInset: 0, tryCollectSecretCoin: () => true, tryCollectUserCoin: () => true, _coinSprites: [], _orbSprites: [], _persistentItems: new Set(), _persistentTimers: new Set(), resetGenericTriggers() {} });
   cols.forEach((c) => L._addCollisionToSection(c));
   const { o, finish } = jsPlayer(v, cols);
   const v2 = { ...v, "e.second_player": 1, is_dead: 1 };
