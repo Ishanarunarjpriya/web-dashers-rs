@@ -10,6 +10,9 @@ const S_BLOCK_OBJECT_ID: i64 = 1829;
 const H_BLOCK_OBJECT_ID: i64 = 1859;
 
 #[derive(Debug, Clone, Copy)]
+pub struct ToggleBlock { pub group: i64, pub activate: bool, pub claim_touch: bool, pub spawn_only: bool }
+
+#[derive(Debug, Clone, Copy)]
 pub struct Force { pub force: f64, pub min: f64, pub max: f64, pub radial: bool, pub range: bool, pub id: i64, pub flip_y: bool }
 
 #[derive(Debug, Clone)]
@@ -46,6 +49,7 @@ pub struct Collider {
     pub free_mode: bool,
     pub camera_settings: Option<(f64, f64)>,
     pub force: Option<Force>,
+    pub toggle: Option<ToggleBlock>,
     pub flip_y: bool,
     pub orb_rotation: Option<f64>,
     pub coin_id: Option<i64>,
@@ -67,7 +71,7 @@ impl Collider {
             hypo_a: (0.0, 0.0), hypo_b: (0.0, 0.0), right_a: (0.0, 0.0), slope_solid_below: true,
             slope_type: None, gd_solid_above: false, gd_wall_on_left: false, hitbox_radius: None, particle_color: None,
             portal_x: None, portal_y: None, teleport_target_x: None, teleport_target_y: None, teleport_y_offset: None,
-            pad_id: None, orb_id: None, multi_activate: false, free_mode: false, camera_settings: None, force: None, flip_y: false, orb_rotation: None, coin_id: None, speed_value: None,
+            pad_id: None, orb_id: None, multi_activate: false, free_mode: false, camera_settings: None, force: None, toggle: None, flip_y: false, orb_rotation: None, coin_id: None, speed_value: None,
             speed_id: None, base_x: 0.0, base_y: 0.0, base_rotation_degrees: 0.0, placeholder: false,
         }
     }
@@ -112,12 +116,15 @@ impl Collider {
         o.field("freeMode", self.free_mode.to_string()); o.field("flipY", self.flip_y.to_string());
         o.field("cameraSettings", self.camera_settings.map_or("null".to_string(), |(e, p)| format!("[{},{}]", num(e), num(p))));
         let fo = |f: fn(&Force) -> String| self.force.as_ref().map_or("null".to_string(), f);
+        let tb = |f: fn(&ToggleBlock) -> String| self.toggle.as_ref().map_or("null".to_string(), f);
+        o.field("toggleGroup", tb(|t| t.group.to_string())); o.field("toggleActivate", tb(|t| t.activate.to_string()));
+        o.field("claimTouch", tb(|t| t.claim_touch.to_string())); o.field("spawnOnly", tb(|t| t.spawn_only.to_string()));
         o.field("force", fo(|f| num(f.force))); o.field("forceMin", fo(|f| num(f.min))); o.field("forceMax", fo(|f| num(f.max)));
         o.field("forceRadial", fo(|f| f.radial.to_string())); o.field("forceRange", fo(|f| f.range.to_string())); o.field("forceId", fo(|f| f.id.to_string())); o.field("forceFlipY", fo(|f| f.flip_y.to_string()));
         o.field("orbRotation", of(self.orb_rotation));
         o.field("coinId", opt(self.coin_id));
         o.field("speedValue", of(self.speed_value)); o.field("speedId", opt(self.speed_id));
-        o.field("_baseX", num(self.base_x)); o.field("_baseY", num(self.base_y)); o.field("_baseRotationDegrees", num(self.base_rotation_degrees));
+        o.field("_baseX", num(self.base_x)); o.field("_baseY", num(self.base_y)); if self.toggle.is_none() { o.field("_baseRotationDegrees", num(self.base_rotation_degrees)); }
         o.finish()
     }
 }
@@ -272,6 +279,18 @@ pub fn spawn_colliders(o: &LevelObject) -> Option<Vec<Collider>> {
     // Standalone exit portals (749) are only spawned through `_normalizeTeleportPortals`, which isn't ported yet.
     if id == 749 { return None; }
     let def: &ObjectDef = object_from_id(id)?;
+    if id == 3643 {
+        let flag = |k: &str| raw(o, k).map(|s| s.as_str()).unwrap_or("0") == "1";
+        let sc = or0(o.scale);
+        let size = 60.0 * (if sc == 0.0 { 1.0 } else { sc });
+        let mut c = Collider::new("jump_ring", o.x * 2.0, o.y * 2.0, size, size, 0.0);
+        c.orb_id = Some(3643);
+        c.multi_activate = flag("99");
+        c.toggle = Some(ToggleBlock { group: raw(o, "51").and_then(|s| crate::js::parse_int(s)).unwrap_or(0), activate: flag("56"), claim_touch: flag("445"), spawn_only: flag("504") });
+        let mut c = c.register();
+        c.base_x = c.x; c.base_y = c.y;
+        return Some(vec![c]);
+    }
     if crate::objects::is_trigger_branch(id) { return None; }
     let (wx, wy) = (o.x * 2.0, o.y * 2.0);
     let no_touch = raw(o, "121").map(|s| s.as_str()) == Some("1");

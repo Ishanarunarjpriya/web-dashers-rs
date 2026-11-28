@@ -457,6 +457,7 @@ for (let li = 0; li < sources.length; li++) {
     return null;
   };
 
+  const toggleCols = cols.filter((c) => c.orbId === 3643);
   const touchTrigs = Object.values(jsLists).flat().filter((t) => t.touchTriggered);
   const lastX = Math.max(0, ...Object.values(jsLists).flat().map((t) => t.x)) + 300;
   let prevCx = undefined, now = 1000, px = -419, py = 30, frame = 0, cx = 0, h1 = false, h2 = false;
@@ -494,6 +495,7 @@ for (let li = 0; li < sources.length; li++) {
     now += dt * 1000 * (rnd() < 0.1 ? 3 : 1); L._scene.time.now = now; w.wd_trig_time(now);
     L._scene._physicsTick = Math.round(now / (1000 / 240)); w.wd_trig_tick(L._scene._physicsTick);
     if (rnd() < 0.02) { L._scene._attempts = Math.floor(rnd() * 20); w.wd_trig_attempts(L._scene._attempts); }
+    if (toggleCols.length && rnd() < 0.05) { const tc = toggleCols[Math.floor(rnd() * toggleCols.length)]; L.activateToggleBlock(tc); w.wd_toggle_block(tc.uid); }
     for (let ge = rnd() < 0.15 ? 1 + Math.floor(rnd() * 3) : 0; ge > 0; ge--) { const ev = Math.floor(rnd() * 80), e1 = rnd() < 0.7 ? 0 : Math.floor(rnd() * 2), e2 = rnd() < 0.7 ? 0 : Math.floor(rnd() * 2); L.gameEvent(ev, e1, e2); w.wd_game_event(ev, e1, e2); }
     if (REAL) { const gs = Object.assign(Object.create(AnimCls.prototype), { _level: L, _state: { gravityFlipped: !!aGrav }, _audio: { getMeteringValue: () => animMeter }, _cameraX: aCam }); animBlock.call(gs, dt * 1000); w.wd_fx_animate(dt * 1000, aCam, aGrav ? 1 : 0, animMeter); }
     L._scene._playerWorldX = px; L._scene._state.y = py; L._scene._cameraY = cy; L._cameraXRef._v = cx;

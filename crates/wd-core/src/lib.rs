@@ -314,6 +314,8 @@ pub extern "C" fn wd_trig_sections() -> usize {
 #[no_mangle]
 pub extern "C" fn wd_game_event(event: f64, extra: f64, extra2: f64) { with_game(|g| g.game_event(event as i64, extra as i64, extra2 as i64)); }
 #[no_mangle]
+pub extern "C" fn wd_toggle_block(ci: f64) { with_game(|g| g.activate_toggle_block(ci as usize)); }
+#[no_mangle]
 pub extern "C" fn wd_trig_attempts(v: f64) { with_game(|g| g.trig.gen.attempts = v); }
 #[no_mangle]
 pub extern "C" fn wd_trig_death() { with_game(|g| g.trigger_on_death()); }

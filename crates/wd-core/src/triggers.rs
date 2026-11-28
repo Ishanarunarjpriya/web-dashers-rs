@@ -1183,6 +1183,9 @@ impl Game {
         self.sprite_toggle_group(tg);
     }
 
+    pub(crate) fn toggle_group_triggered_pub(&mut self, tg: i64, activate: bool) { self.toggle_group_triggered(tg, activate); }
+    pub(crate) fn toggle_group_pub(&mut self, tg: i64, activate: bool) { self.toggle_group(tg, activate); }
+
     /// `_toggleGroupTriggered`
     fn toggle_group_triggered(&mut self, tg: i64, activate: bool) {
         self.toggle_group(tg, activate);

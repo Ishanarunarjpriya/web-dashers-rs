@@ -379,11 +379,13 @@ impl Game {
         let objects = crate::level::filter_coins(crate::level::normalize_teleport_portals(level.objects.clone()), official);
         let mut cols: Vec<Col> = Vec::new();
         let mut groups: Vec<Vec<i64>> = Vec::new();
+        let mut toggle_blocks: std::collections::BTreeMap<usize, crate::collider::ToggleBlock> = Default::default();
         for o in &objects {
             if let Some(list) = crate::collider::spawn_colliders(o) {
                 for c in list.iter().filter(|c| !c.placeholder) {
+                    if let Some(tb) = c.toggle { toggle_blocks.insert(cols.len(), tb); }
                     cols.push(Col::from_collider(c, cols.len() as f64));
-                    groups.push(crate::triggers::object_groups(&o.groups));
+                    groups.push(if c.toggle.is_some() { Vec::new() } else { crate::triggers::object_groups(&o.groups) });
                 }
             }
         }
@@ -402,6 +404,7 @@ impl Game {
             }
         }
         let mut g = Game::new(cols);
+        g.trig.gen.toggle_blocks = toggle_blocks;
         g.coins.link = coin_link;
         for (i, gr) in groups.into_iter().enumerate() {
             for &gid in &gr { g.trig.group_cols.entry(gid).or_default().push(i); }

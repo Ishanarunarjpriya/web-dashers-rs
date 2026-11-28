@@ -504,6 +504,7 @@ pub struct GenState {
     pub multi_touch_legacy: Vec<(i64, f64, f64)>,
     pub touch_list: Vec<usize>,
     pub order: Vec<usize>,
+    pub toggle_blocks: BTreeMap<usize, crate::collider::ToggleBlock>,
     pub sorted: bool,
     pub snapshot: Option<Vec<usize>>,
 }
@@ -518,7 +519,7 @@ impl Default for GenState {
             applied_gameplay_offset_y: 0.0, offset_tweens: (None, None), zoom: 1.0, zoom_tween: None, angle: 0.0, angle_target: 0.0, angle_tween: None,
             ground_hidden: false, hide_p1: false, hide_p2: false, p1_controls_disabled: false, p2_controls_disabled: false, direction: 1.0, gravity_scale: (1.0, 1.0),
             attempts_hidden: false, respawn_time: None, static_camera: None, camera_edges: None, free_mode_camera: false, free_cam_easing: 10.0, free_cam_padding: 0.5,
-            pc_count: 0, multi_touch_legacy: Vec::new(), touch_list: Vec::new(), order: Vec::new(), sorted: false, snapshot: None,
+            pc_count: 0, multi_touch_legacy: Vec::new(), touch_list: Vec::new(), order: Vec::new(), toggle_blocks: BTreeMap::new(), sorted: false, snapshot: None,
         }
     }
 }
@@ -555,6 +556,7 @@ impl Game {
         let multi_touch = std::mem::take(&mut self.trig.gen.multi_touch_legacy);
         let touch_list = std::mem::take(&mut self.trig.gen.touch_list);
         let order = std::mem::take(&mut self.trig.gen.order);
+        let toggle_blocks = std::mem::take(&mut self.trig.gen.toggle_blocks);
         let sorted = self.trig.gen.sorted;
         let snapshot = self.trig.gen.snapshot.take();
         let timer_seq = self.trig.gen.timer_seq;
@@ -569,6 +571,7 @@ impl Game {
         self.trig.gen.multi_touch_legacy = multi_touch;
         self.trig.gen.touch_list = touch_list;
         self.trig.gen.order = order;
+        self.trig.gen.toggle_blocks = toggle_blocks;
         self.trig.gen.sorted = sorted;
         self.trig.gen.snapshot = snapshot;
         self.trig.gen.timer_seq = timer_seq;
@@ -598,6 +601,15 @@ impl Game {
             if let Some(v) = r.get(&t.center) { e.center = *v; e.copy = true; }
         }
         e
+    }
+
+    /// `activateToggleBlock(obj)` for collider `ci`
+    pub fn activate_toggle_block(&mut self, ci: usize) {
+        let Some(tb) = self.trig.gen.toggle_blocks.get(&ci).copied() else { return };
+        if !(tb.group > 0) { return; }
+        if tb.spawn_only { self.spawn_group_now(tb.group); }
+        else if tb.activate { self.toggle_group_triggered_pub(tb.group, true); }
+        else { self.toggle_group_pub(tb.group, false); }
     }
 
     pub fn spawn_group_now_pub(&mut self, g: i64) { self.spawn_group_now(g); }

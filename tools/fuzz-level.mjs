@@ -1,5 +1,5 @@
 // Random trigger-heavy levels shared by the differential tests (every ported trigger kind, dense groups).
-export const GENERIC_IDS = [1912, 1912, 2068, 3607, 3607, 3619, 3619, 3619, 3620, 3620, 3641, 3614, 3614, 3615, 3617, 2067, 2067, 1935, 3600, 3618, 1916, 2901, 1913, 2015, 2899, 3604, 3604, 3609, 2066, 1917, 1917, 1932, 3662, 2062, 2925, 1914];
+export const GENERIC_IDS = [3643, 3643, 1912, 1912, 2068, 3607, 3607, 3619, 3619, 3619, 3620, 3620, 3641, 3614, 3614, 3615, 3617, 2067, 2067, 1935, 3600, 3618, 1916, 2901, 1913, 2015, 2899, 3604, 3604, 3609, 2066, 1917, 1917, 1932, 3662, 2062, 2925, 1914];
 export function makeFuzz(rnd, opts = {}) {
 return function fuzzLevel() {
   const parts = ["kA4,0"];
@@ -63,6 +63,7 @@ return function fuzzLevel() {
         add(479, pick([num(-3, 3), 1, 2, 0, 0.5, 5])); add(483, pick([num(-3, 3), 1, 2, 0, 3])); add(480, Math.floor(rnd() * 5)); add(481, Math.floor(rnd() * 5)); add(482, Math.floor(rnd() * 6));
         add(484, num(0, 1)); add(485, Math.floor(rnd() * 4)); add(486, Math.floor(rnd() * 4)); add(578, Math.floor(rnd() * 3)); add(579, Math.floor(rnd() * 3));
       }
+      if (gid === 3643) { add(99, rnd() < 0.5 ? 1 : 0); add(56, rnd() < 0.5 ? 1 : 0); add(445, rnd() < 0.3 ? 1 : 0); add(504, rnd() < 0.4 ? 1 : 0); }
       if (gid === 3641) { add(80, item()); add(491, rnd() < 0.5 ? 1 : 0); add(492, rnd() < 0.2 ? 1 : 0); add(493, rnd() < 0.3 ? 1 : 0); add(494, rnd() < 0.4 ? 1 : 0); }
       if (gid === 3614) { add(80, item()); add(467, num(-2, 3)); add(473, num(0, 5)); add(474, rnd() < 0.5 ? 1 : 0); add(468, rnd() < 0.3 ? 1 : 0); add(469, rnd() < 0.3 ? 1 : 0); add(470, pick([1, -1, 2, 0.5, num(-2, 2)])); add(471, rnd() < 0.2 ? 1 : 0); }
       if (gid === 3615) { add(80, item()); add(473, num(0, 6)); add(475, rnd() < 0.4 ? 1 : 0); }
