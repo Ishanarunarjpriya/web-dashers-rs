@@ -44,6 +44,7 @@ this.spawnCol = function (levelObj, objectDef, worldX, worldY, objectId, linkedO
 this.tpOffset = ({ ${src.slice(tp, tpEnd).trim()} })._getTeleportPortalYOffset;
 `, ctx);
   vm.runInContext(src.slice(src.indexOf("window.LevelObject = class LevelObject")), ctx);
+  for (const f of ["level-triggers", "level-shaders", "level-particles", "level-areas", "level-advanced", "level-channels", "level-gradients"]) vm.runInContext(read(`core/${f}.js`), ctx);
   // player.js (re-declares nothing from level.js)
   vm.runInContext(read("core/player.js") + "\nthis.PlayerObject = PlayerObject; this.PlayerState = PlayerState;", ctx);
   // the physics step of game-scene.js, taken verbatim
