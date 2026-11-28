@@ -257,7 +257,8 @@ fn out_str(s: String) -> usize { let mut o = OUT.lock().unwrap(); *o = s.into_by
 /// Builds the whole game (colliders and triggers) from a level string; returns the number of colliders.
 #[no_mangle]
 pub unsafe extern "C" fn wd_game_load_level(ptr: *const u8, len: usize) -> usize {
-    let input = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned();
+    let mut input = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned();
+    if input.contains('\0') { input = input.replace('\0', "").trim().to_string(); }
     let lvl = level::parse_level(&input);
     let official = *OFFICIAL.lock().unwrap();
     let mut g = game::Game::from_level_official(&lvl, official);
