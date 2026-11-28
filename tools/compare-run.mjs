@@ -186,6 +186,7 @@ for (let r = 0; r < RUNS; r++) {
         enter(gm, 30);
         S._applyLevelStartOptions();
       }
+      if (CAMERA) S._updateCameraY(0, true);
       startInfo += ` opts=${JSON.stringify(so)}`;
     } else {
       ctx.vm.runInContext(`playerSpeed = ${SPEEDS[sk]};`, ctx.vmContext);
