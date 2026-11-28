@@ -335,7 +335,6 @@ impl PartialEq for RemapRef {
         match (self, o) { (RemapRef::Undef, RemapRef::Undef) | (RemapRef::Null, RemapRef::Null) => true, (RemapRef::Map(a), RemapRef::Map(b)) => std::sync::Arc::ptr_eq(a, b), _ => false }
     }
 }
-/// `_parseSpawnRemap`
 pub fn parse_remap(value: Option<&String>) -> Option<Remap> {
     let v = value?;
     if v.is_empty() { return None; }
@@ -1186,7 +1185,6 @@ impl Game {
     pub(crate) fn toggle_group_triggered_pub(&mut self, tg: i64, activate: bool) { self.toggle_group_triggered(tg, activate); }
     pub(crate) fn toggle_group_pub(&mut self, tg: i64, activate: bool) { self.toggle_group(tg, activate); }
 
-    /// `_toggleGroupTriggered`
     fn toggle_group_triggered(&mut self, tg: i64, activate: bool) {
         self.toggle_group(tg, activate);
         if activate { self.activate_spawned_group(tg); }
@@ -1560,7 +1558,6 @@ impl Game {
         self.trig.active_spawn.push(SpawnDelay { target: tg, delay: randomized, elapsed: 0.0, remap });
     }
 
-    /// `_spawnGroupNow`
     pub fn spawn_group_now(&mut self, g: i64) {
         if g <= 0 { return; }
         for p in &self.trig.active_spawn { if p.target == g && p.delay == 0.0 && p.elapsed == 0.0 { return; } }
@@ -1593,7 +1590,6 @@ impl Game {
 
     pub fn activate_spawned_group(&mut self, gid: i64) { self.activate_spawned_group_r(gid, None); }
 
-    /// `_activateSpawnedGroup(groupId, colorManager, remap)` for the legacy trigger kinds.
     pub fn activate_spawned_group_r(&mut self, gid: i64, remap: Option<Remap>) {
         if gid <= 0 { return; }
         if self.trig.gen.snapshot.is_none() { self.trig.gen.snapshot = Some(self.trig.gen.order.clone()); }

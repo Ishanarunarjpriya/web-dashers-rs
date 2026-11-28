@@ -1,7 +1,3 @@
-//! The generic 2.2 triggers (level-triggers.js): parsing, x-pass / touch / spawn / multi-trigger activation and the non-visual kinds
-//! (random, sequence, item edit / compare / persist, timers, scale, time warp, end, reset, events, instant collision, gravity,
-//! reverse, options, player control, link visible, camera state). Shader, area, advanced follow, gradient and keyframe kinds are
-//! parsed and fire as no-ops (later stage).
 use crate::game::Game;
 use crate::js::{parse_float, parse_int};
 use crate::json::{num, str_lit};
@@ -186,7 +182,6 @@ impl Gen {
     }
 }
 
-/// `_parseGenericTrigger`
 pub fn parse(o: &LevelObject, b: Base) -> Option<Gen> {
     let id = o.id.unwrap_or(0);
     let kind = kind_of_id(id)?;
@@ -588,7 +583,6 @@ impl Game {
 
     pub fn reset_time_warp(&mut self) {}
 
-    /// the camera part of `resetGroundState`
     pub fn reset_ground_camera(&mut self) { self.trig.gen.free_mode_camera = false; self.trig.gen.free_cam_easing = 10.0; self.trig.gen.free_cam_padding = 0.5; }
 
     fn gen_dead(&self, ti: usize) -> bool { self.trig.dead(&self.trig.l.generics[ti].b) }
@@ -603,7 +597,6 @@ impl Game {
         e
     }
 
-    /// `activateToggleBlock(obj)` for collider `ci`
     pub fn activate_toggle_block(&mut self, ci: usize) {
         let Some(tb) = self.trig.gen.toggle_blocks.get(&ci).copied() else { return };
         if !(tb.group > 0) { return; }
@@ -880,7 +873,6 @@ impl Game {
         }
     }
 
-    /// `gameEvent(eventId, extraId, extraId2)`
     pub fn game_event(&mut self, event: i64, extra: i64, extra2: i64) {
         if self.trig.gen.event_links.is_empty() { return; }
         let stamp = self.e.physics_tick;
@@ -981,7 +973,6 @@ impl Game {
         }
     }
 
-    /// `getViewPad`
     pub fn view_pad(&self) -> f64 {
         let zoom = if self.trig.gen.zoom == 0.0 || self.trig.gen.zoom.is_nan() { 1.0 } else { self.trig.gen.zoom };
         let angle = if self.trig.gen.angle.is_nan() { 0.0 } else { self.trig.gen.angle };
@@ -1086,7 +1077,6 @@ impl Game {
         }
     }
 
-    /// `updateGenericTriggers(playerX, playerY, player2Y, rawDt)`
     pub fn update_generic(&mut self, px: f64, py: Option<f64>, py2: Option<f64>, raw_dt: f64) {
         let tw = if self.trig.time_warp == 0.0 || self.trig.time_warp.is_nan() { 1.0 } else { self.trig.time_warp };
         let dt = raw_dt * tw;
@@ -1148,7 +1138,6 @@ impl Game {
         self.step_camera_tweens(dt);
     }
 
-    /// `_applyGroupScaleToCollider`, on the position and size of collider `ci`.
     pub fn apply_group_scale_to_collider(&mut self, ci: usize, ids: &[i64], fx: &mut f64, fy: &mut f64) {
         let mut scale_x = 1.0;
         let mut scale_y = 1.0;

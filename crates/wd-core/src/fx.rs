@@ -409,7 +409,6 @@ impl Game {
         for sec in shown { self.apply_stale_section(sec); }
     }
 
-    /// `_setSectionVisible(section, true)`: sprites whose transform was skipped while far away catch up
     fn apply_stale_section(&mut self, sec: i64) {
         if sec < 0 { return; }
         let Some(list) = self.fx.sections.get(&(sec as u64)) else { return };
@@ -417,7 +416,6 @@ impl Game {
         for si in stale { self.apply_sprite_transform(si); }
     }
 
-    /// `_skipFarSpriteTransform`: a sprite that stays far outside the view only gets its logical position updated
     fn skip_far_sprite_transform(&mut self, si: usize) -> bool {
         let (lo, hi) = (self.fx.vis_min - 1, self.fx.vis_max + 1);
         let (x0, y0, cur) = {

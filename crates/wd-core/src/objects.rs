@@ -22,7 +22,6 @@ pub fn object_from_id(id: i64) -> Option<&'static ObjectDef> {
     OBJECTS.binary_search_by_key(&(id as u32), |e| e.0).ok().map(|i| &OBJECTS[i].1)
 }
 
-/// Objects `_spawnObject` handles in its trigger branch (the J block and force blocks have the "trigger" type but are colliders).
 pub fn is_trigger_branch(id: i64) -> bool {
     matches!(object_from_id(id), Some(d) if d.ty == Some("trigger")) && !matches!(id, 1813 | 2069 | 3645)
 }
