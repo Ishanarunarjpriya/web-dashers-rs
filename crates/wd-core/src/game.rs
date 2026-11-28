@@ -121,13 +121,13 @@ impl Game {
         self.space_was_down = false;
         let mut sim = Sim::new(&mut self.p, &mut self.g, &mut self.e);
         match game_mode {
-            1 => sim.enter_ship_mode(None, false),
-            2 => sim.enter_ball_mode(Some(30.0)),
-            3 => sim.enter_ufo_mode(None, false),
-            4 => sim.enter_wave_mode(None),
+            1 => sim.enter_ship_mode(None, false, false),
+            2 => sim.enter_ball_mode(Some(30.0), false),
+            3 => sim.enter_ufo_mode(None, false, false),
+            4 => sim.enter_wave_mode(None, false),
             5 => sim.enter_robot_mode(false),
-            6 => sim.enter_spider_mode(None, false),
-            7 => sim.enter_swing_mode(None, false),
+            6 => sim.enter_spider_mode(None, false, false),
+            7 => sim.enter_swing_mode(None, false, false),
             _ => {}
         }
         self.log.extend(sim.log);
@@ -318,13 +318,13 @@ impl Game {
     fn enter_start_mode(&mut self, game_mode: i64, y: Option<f64>) {
         let mut sim = Sim::new(&mut self.p, &mut self.g, &mut self.e);
         match game_mode {
-            1 => sim.enter_ship_mode(None, false),
-            2 => sim.enter_ball_mode(Some(y.unwrap_or(30.0))),
-            3 => sim.enter_ufo_mode(None, false),
-            4 => sim.enter_wave_mode(None),
+            1 => sim.enter_ship_mode(None, false, false),
+            2 => sim.enter_ball_mode(Some(y.unwrap_or(30.0)), false),
+            3 => sim.enter_ufo_mode(None, false, false),
+            4 => sim.enter_wave_mode(None, false),
             5 => sim.enter_robot_mode(false),
-            6 => sim.enter_spider_mode(None, false),
-            7 => sim.enter_swing_mode(None, false),
+            6 => sim.enter_spider_mode(None, false, false),
+            7 => sim.enter_swing_mode(None, false, false),
             _ => {}
         }
         self.log.extend(sim.log);
@@ -611,7 +611,6 @@ impl Game {
     /// `_releaseButton`
     pub fn release_button(&mut self) {
         for p in [&mut self.p, &mut self.p2] {
-            p.spider_orb_input_locked = false;
             p.robot_touched_pad = true;
             p.up_key_down = false;
             p.up_key_pressed = false;
@@ -910,10 +909,8 @@ impl Game {
         }
         if !self.end_camera_override { self.update_camera_y(q, false); }
         self.update_visibility(self.camera_x);
-        if self.p.is_swing { self.sim_for(false, |s| s.update_swing_rotation(q)); }
-        else if self.p.is_flying { self.sim_for(false, |s| s.update_ship_rotation(q)); }
-        if self.e.is_dual && self.p2.is_swing && !self.p2.is_dead { self.sim_for(true, |s| s.update_swing_rotation(q)); }
-        else if self.e.is_dual && self.p2.is_flying && !self.p2.is_dead { self.sim_for(true, |s| s.update_ship_rotation(q)); }
+        if self.p.is_flying || self.p.is_swing { self.sim_for(false, |s| s.update_ship_rotation(q)); }
+        if self.e.is_dual && (self.p2.is_flying || self.p2.is_swing) && !self.p2.is_dead { self.sim_for(true, |s| s.update_ship_rotation(q)); }
         if self.mirror.enabled { self.step_mirror(delta_ms / 1000.0); }
         false
     }
@@ -933,9 +930,9 @@ pub struct Checkpoint {
     pub ground: Option<crate::ground::Ground>,
     pub dual: bool, pub dual_mode: &'static str, pub dual_mini: bool, pub dual_y: f64, pub dual_y_velocity: f64, pub dual_gravity_flipped: bool,
     pub dual_on_ground: bool, pub dual_on_ceiling: bool, pub dual_can_jump: bool, pub dual_is_jumping: bool,
-    pub swing_flip_pending: bool, pub swing_gd_accel: bool, pub swing_on_ceiling: bool, pub portal_free_mode: bool,
+    pub swing_gd_accel: bool, pub swing_on_ceiling: bool, pub portal_free_mode: bool,
     pub time_warp: (f64, usize, Vec<i64>), pub dual_bounds_center_y: Option<f64>,
-    pub dual_swing_flip_pending: bool, pub dual_swing_gd_accel: bool, pub dual_swing_was_boosted: bool,
+    pub dual_swing_gd_accel: bool, pub dual_swing_was_boosted: bool,
 }
 
 impl Game {
@@ -956,9 +953,9 @@ impl Game {
             fly_camera_target: self.e.fly_camera_target, speed: self.g.player_speed, physics_frame: self.physics_frame, ground: self.fx.ground.clone(),
             dual: self.e.is_dual, dual_mode, dual_mini: p2.is_mini, dual_y: p2.y, dual_y_velocity: p2.y_velocity, dual_gravity_flipped: p2.gravity_flipped,
             dual_on_ground: p2.on_ground, dual_on_ceiling: p2.on_ceiling, dual_can_jump: p2.can_jump, dual_is_jumping: p2.is_jumping,
-            swing_flip_pending: p.swing_flip_pending, swing_gd_accel: p.gd_accel, swing_on_ceiling: p.on_ceiling, portal_free_mode: self.e.portal_free_mode,
+            swing_gd_accel: p.gd_accel, swing_on_ceiling: p.on_ceiling, portal_free_mode: self.e.portal_free_mode,
             time_warp: self.save_time_warp(), dual_bounds_center_y: self.e.dual_bounds_center_y,
-            dual_swing_flip_pending: p2.swing_flip_pending, dual_swing_gd_accel: p2.gd_accel, dual_swing_was_boosted: p2.was_boosted,
+            dual_swing_gd_accel: p2.gd_accel, dual_swing_was_boosted: p2.was_boosted,
         });
         true
     }
@@ -988,18 +985,17 @@ impl Game {
         self.p.is_flying = false; self.p.is_ball = false; self.p.is_wave = false; self.p.is_ufo = false; self.p.is_spider = false; self.p.is_robot = false; self.p.is_swing = false;
         {
             let mut sim = Sim::new(&mut self.p, &mut self.g, &mut self.e);
-            if cp.is_swing { sim.enter_swing_mode(None, true); }
-            else if cp.is_flying { sim.enter_ship_mode(None, true); }
-            else if cp.is_ball { sim.enter_ball_mode(None); }
-            else if cp.is_ufo { sim.enter_ufo_mode(None, true); }
-            else if cp.is_wave { sim.enter_wave_mode(None); }
+            if cp.is_swing { sim.enter_swing_mode(None, true, false); }
+            else if cp.is_flying { sim.enter_ship_mode(None, true, false); }
+            else if cp.is_ball { sim.enter_ball_mode(None, false); }
+            else if cp.is_ufo { sim.enter_ufo_mode(None, true, false); }
+            else if cp.is_wave { sim.enter_wave_mode(None, false); }
             else if cp.is_robot { sim.enter_robot_mode(false); }
-            else if cp.is_spider { sim.enter_spider_mode(None, false); }
+            else if cp.is_spider { sim.enter_spider_mode(None, false, false); }
             self.log.extend(sim.log);
         }
         self.p.is_flying = cp.is_flying; self.p.is_ball = cp.is_ball; self.p.is_wave = cp.is_wave; self.p.is_ufo = cp.is_ufo; self.p.is_spider = cp.is_spider; self.p.is_robot = cp.is_robot;
         self.p.is_swing = cp.is_swing;
-        self.p.swing_flip_pending = cp.swing_flip_pending;
         if cp.is_swing {
             self.p.gd_accel = cp.swing_gd_accel; self.p.on_ceiling = cp.swing_on_ceiling; self.p.on_ground = cp.on_ground; self.p.can_jump = cp.can_jump;
             self.p.is_jumping = cp.is_jumping; self.p.was_boosted = cp.was_boosted;
@@ -1038,7 +1034,7 @@ impl Game {
             let input = self.p.clone();
             self.sim_for(false, |s| s.copy_input_to_secondary(&input));
             if self.p2.is_swing {
-                self.p2.swing_flip_pending = cp.dual_swing_flip_pending; self.p2.gd_accel = cp.dual_swing_gd_accel; self.p2.was_boosted = cp.dual_swing_was_boosted;
+                self.p2.gd_accel = cp.dual_swing_gd_accel; self.p2.was_boosted = cp.dual_swing_was_boosted;
             }
             self.e.dual_bounds_center_y = Some(cp.dual_bounds_center_y.unwrap_or((cp.fly_floor_y.unwrap_or(0.0) + cp.fly_ceiling_y.unwrap_or(0.0)) / 2.0));
             self.sim_for(false, |s| s.ensure_dual_fly_bounds());

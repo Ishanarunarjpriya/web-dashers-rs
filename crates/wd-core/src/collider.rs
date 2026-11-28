@@ -8,6 +8,9 @@ use crate::physics::speed_portal as sp;
 pub const A: f64 = 60.0;
 const S_BLOCK_OBJECT_ID: i64 = 1829;
 const H_BLOCK_OBJECT_ID: i64 = 1859;
+const J_BLOCK_OBJECT_ID: i64 = 1813;
+const F_BLOCK_OBJECT_ID: i64 = 2866;
+const FORCE_BLOCK_IDS: [i64; 2] = [2069, 3645];
 
 #[derive(Debug, Clone)]
 pub struct Collider {
@@ -52,6 +55,14 @@ pub struct Collider {
     pub base_rotation_degrees: f64,
     /// A bare `{ type, activated, x: 0, y: 0 }` entry for objects without a collider.
     pub placeholder: bool,
+    pub claim_touch: bool,
+    pub force: f64,
+    pub force_min: f64,
+    pub force_max: f64,
+    pub force_radial: bool,
+    pub force_range: bool,
+    pub force_id: i64,
+    pub force_flip_y: bool,
 }
 
 impl Collider {
@@ -64,6 +75,7 @@ impl Collider {
             portal_x: None, portal_y: None, teleport_target_x: None, teleport_target_y: None, teleport_y_offset: None,
             pad_id: None, orb_id: None, multi_activate: false, free_mode: false, flip_y: false, orb_rotation: None, coin_id: None, speed_value: None,
             speed_id: None, base_x: 0.0, base_y: 0.0, base_rotation_degrees: 0.0, placeholder: false,
+            claim_touch: false, force: 0.0, force_min: 0.0, force_max: 0.0, force_radial: false, force_range: false, force_id: 0, force_flip_y: false,
         }
     }
 
@@ -263,7 +275,7 @@ pub fn spawn_colliders(o: &LevelObject) -> Option<Vec<Collider>> {
     // Standalone exit portals (749) are only spawned through `_normalizeTeleportPortals`, which isn't ported yet.
     if id == 749 { return None; }
     let def: &ObjectDef = object_from_id(id)?;
-    if def.ty == Some("trigger") { return None; }
+    if def.ty == Some("trigger") && id != J_BLOCK_OBJECT_ID && !FORCE_BLOCK_IDS.contains(&id) { return None; }
     let (wx, wy) = (o.x * 2.0, o.y * 2.0);
     let no_touch = raw(o, "121").map(|s| s.as_str()) == Some("1");
     let (hx, hy) = { let (x, y) = gd_object_scale(o); (x.abs(), y.abs()) };
@@ -285,8 +297,22 @@ pub fn spawn_colliders(o: &LevelObject) -> Option<Vec<Collider>> {
         let mut c = Collider::new("dblock", wx, wy, gw * A * hx, gh * A * hy, rot);
         c.objid = o.id;
         out.push(c.register());
-    } else if !no_touch && (id == S_BLOCK_OBJECT_ID || id == H_BLOCK_OBJECT_ID) && grid_ok {
-        let mut c = Collider::new(if id == H_BLOCK_OBJECT_ID { "hblock" } else { "sblock" }, wx, wy, gw * A * hx, gh * A * hy, rot);
+    } else if !no_touch && FORCE_BLOCK_IDS.contains(&id) {
+        let fnum = |k: &str| match raw(o, k) { Some(s) => crate::js::parse_float(s).filter(|v| v.is_finite()).unwrap_or(0.0), None => 0.0 };
+        let flag = |k: &str| raw(o, k).map(|s| s.as_str()) == Some("1");
+        let mut c = Collider::new("forceblock", wx, wy, gw * A * hx, gh * A * hy, rot);
+        c.objid = o.id;
+        if let Some(r) = def.hitbox_radius { if r != 0.0 { c.hitbox_radius = Some(r * 2.0 * hmean); } }
+        c.force = fnum("149");
+        c.force_min = fnum("526");
+        c.force_max = fnum("527");
+        c.force_radial = flag("528");
+        c.force_range = flag("529");
+        c.force_id = raw(o, "530").and_then(|s| crate::js::parse_float(s)).map(|v| v.trunc() as i64).filter(|v| *v != 0).unwrap_or(0);
+        c.force_flip_y = flag("5");
+        out.push(c.register());
+    } else if !no_touch && (id == S_BLOCK_OBJECT_ID || id == H_BLOCK_OBJECT_ID || id == F_BLOCK_OBJECT_ID || id == J_BLOCK_OBJECT_ID) && grid_ok {
+        let mut c = Collider::new(if id == H_BLOCK_OBJECT_ID { "hblock" } else if id == F_BLOCK_OBJECT_ID { "fblock" } else if id == J_BLOCK_OBJECT_ID { "jblock" } else { "sblock" }, wx, wy, gw * A * hx, gh * A * hy, rot);
         c.objid = o.id;
         out.push(c.register());
     } else if !no_touch && def.ty == Some("hazard") {
