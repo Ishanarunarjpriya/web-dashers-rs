@@ -35,6 +35,8 @@ pub struct Game {
     pub camera_x: f64,
     pub camera_y: f64,
     pub follow_camera_y: Option<f64>,
+    pub rotate_gameplay_enabled: bool,
+    pub sideways_proxies: std::collections::BTreeMap<usize, Col>,
     pub level_won: bool,
     pub end_camera_override: bool,
     pub end_cam: Option<EndCam>,
@@ -370,7 +372,7 @@ impl Game {
             toggled: Default::default(), sec: crate::triggers::section_index(c.x), init_wh: None,
         }).collect();
         let disabled = vec![false; cols.len()];
-        Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, follow_camera_y: None, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), show_hitboxes: false, hitbox_trail_on: false, hitboxes_on_death: false, hitbox_trail: [Vec::new(), Vec::new()], p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
+        Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, follow_camera_y: None, rotate_gameplay_enabled: true, sideways_proxies: Default::default(), level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), show_hitboxes: false, hitbox_trail_on: false, hitboxes_on_death: false, hitbox_trail: [Vec::new(), Vec::new()], p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
     }
 
     /// Everything the level provides to the simulation: colliders (with their groups) and triggers.
@@ -495,8 +497,7 @@ impl Game {
         let pwx = self.e.player_world_x;
         let pl = self.player(second);
         let size = if pl.is_mini { 18.0 } else { 30.0 };
-        for idx in self.nearby(pwx) {
-            let o = &self.cols[idx];
+        for o in &self.near_cols(pwx) {
             if o.ty != 6.0 { continue; }
             let activated = if second { o.act_dual } else { o.act_main };
             if !o.multi_activate && activated { continue; }
@@ -519,11 +520,74 @@ impl Game {
 
     fn update_jump(&mut self, second: bool, dt: f64) {
         self.e.orb_touch = self.scan_orb_touch(second);
-        let near: Vec<Col> = self.nearby(self.e.player_world_x).into_iter().map(|i| self.cols[i].clone()).collect();
+        let near = self.near_cols(self.e.player_world_x);
         self.sim_for(second, |sim| sim.update_jump(dt, &near));
     }
 
+    pub fn sync_floor_ceiling(&mut self) {
+        if self.trig.gen.gameplay_sideways {
+            self.e.floor_y = -1e9;
+            self.e.ceiling_y = None;
+        } else {
+            self.e.floor_y = if self.e.fly_ground_active { if self.e.fly_visual_only { 0.0 } else { self.e.fly_floor_y.unwrap_or(f64::NAN) } } else { 0.0 };
+            self.e.ceiling_y = self.e.fly_ceiling_y;
+        }
+    }
+
+    fn near_cols(&self, world_x: f64) -> Vec<Col> {
+        if self.trig.gen.gameplay_sideways { self.nearby(self.trig.gen.sideways_world_x).into_iter().map(|i| self.sideways_proxy(i)).collect() }
+        else { self.nearby(world_x).into_iter().map(|i| self.cols[i].clone()).collect() }
+    }
+
+    fn swap_sideways_frame(&mut self) {
+        std::mem::swap(&mut self.e.player_world_x, &mut self.p.y);
+        self.e.in_sideways_step = !self.e.in_sideways_step;
+    }
+
+    fn sideways_proxy(&self, i: usize) -> Col {
+        let col = &self.cols[i];
+        let mut p = col.clone();
+        if let Some(own) = self.sideways_proxies.get(&i) {
+            p.dash_hold_main = own.dash_hold_main; p.dash_hold_dual = own.dash_hold_dual; p.ee_toggle_press = own.ee_toggle_press;
+            p.secret_completed = own.secret_completed; p.user_completed = own.user_completed;
+        }
+        p.x = col.y;
+        p.y = col.x;
+        let rot = col.rotation_degrees;
+        if col.ty != crate::pcol::type_code("slope") && (rot % 180.0).abs() == 90.0 {
+            p.w = col.w; p.h = col.h; p.rotation_degrees = 0.0;
+        } else {
+            p.w = col.h; p.h = col.w; p.rotation_degrees = -rot;
+        }
+        p.hypo_ax = col.hypo_ay; p.hypo_ay = col.hypo_ax;
+        p.hypo_bx = col.hypo_by; p.hypo_by = col.hypo_bx;
+        p.right_ax = col.right_ay; p.right_ay = col.right_ax;
+        p
+    }
+
+    fn check_collisions_sideways(&mut self, second: bool, offset: f64) {
+        let idxs = self.nearby(self.trig.gen.sideways_world_x);
+        let mut near: Vec<Col> = idxs.iter().map(|&i| self.sideways_proxy(i)).collect();
+        let final_idx = self.sim_for(second, |sim| {
+            sim.cands = Vec::new();
+            sim.near_idx = idxs.clone();
+            sim.replace_idx = None;
+            sim.replace_cols = Default::default();
+            sim.check_collisions(offset, &mut near);
+            std::mem::take(&mut sim.near_idx)
+        });
+        self.sync_floor_ceiling();
+        for (k, &i) in final_idx.iter().enumerate() {
+            if let Some(c) = near.get(k) {
+                let src = &mut self.cols[i];
+                src.act_main = c.act_main; src.act_dual = c.act_dual; src.activated = c.activated;
+                self.sideways_proxies.insert(i, c.clone());
+            }
+        }
+    }
+
     fn check_collisions(&mut self, second: bool, offset: f64) {
+        if self.trig.gen.gameplay_sideways { self.check_collisions_sideways(second, offset); return; }
         let piece_width = offset + self.g.center_x;
         let idxs = self.nearby(piece_width);
         let mut near: Vec<Col> = idxs.iter().map(|&i| self.cols[i].clone()).collect();
@@ -671,6 +735,12 @@ impl Game {
         let initial_y2 = self.p2.y;
         let mut i = 0.0;
         while i < sub_steps {
+            let sideways_step = self.trig.gen.gameplay_sideways && !self.e.is_dual;
+            if self.trig.gen.gameplay_sideways || self.e.floor_y == -1e9 { self.sync_floor_ceiling(); }
+            if sideways_step {
+                self.trig.gen.sideways_world_x = self.e.player_world_x;
+                self.swap_sideways_frame();
+            }
             self.p.last_y = self.p.y;
             self.physics_frame += 1.0;
             self.e.physics_tick = (if self.e.physics_tick == 0.0 || self.e.physics_tick.is_nan() { 0.0 } else { self.e.physics_tick }) + 1.0;
@@ -694,6 +764,7 @@ impl Game {
             }
             if self.e.is_dual && self.p.is_dead && !self.p2.is_dead { self.sim_for(false, |s| s.kill_secondary()); }
             self.e.player_world_x += horizontal;
+            if sideways_step { self.swap_sideways_frame(); }
             if self.e.is_dual && !self.p2.is_dead {
                 {
                     let p2 = &mut self.p2;
@@ -908,6 +979,8 @@ impl Game {
     /// Sets up the scene state at the start of a level (`_resetGameplayState`).
     pub fn reset_gameplay_state(&mut self) {
         self.clear_hitbox_trails();
+        self.trig.gen.sideways_world_x = 0.0;
+        self.e.in_sideways_step = false;
         self.camera_x = -self.g.center_x;
         self.camera_y = 0.0;
         self.e.player_world_x = 0.0;
@@ -1031,6 +1104,7 @@ pub struct Checkpoint {
     pub swing_gd_accel: bool, pub swing_on_ceiling: bool, pub portal_free_mode: bool,
     pub time_warp: (f64, usize, Vec<i64>), pub dual_bounds_center_y: Option<f64>,
     pub dual_swing_gd_accel: bool, pub dual_swing_was_boosted: bool,
+    pub gameplay_sideways: bool, pub direction: f64,
 }
 
 impl Game {
@@ -1053,7 +1127,7 @@ impl Game {
             dual_on_ground: p2.on_ground, dual_on_ceiling: p2.on_ceiling, dual_can_jump: p2.can_jump, dual_is_jumping: p2.is_jumping,
             swing_gd_accel: p.gd_accel, swing_on_ceiling: p.on_ceiling, portal_free_mode: self.e.portal_free_mode,
             time_warp: self.save_time_warp(), dual_bounds_center_y: self.e.dual_bounds_center_y,
-            dual_swing_gd_accel: p2.gd_accel, dual_swing_was_boosted: p2.was_boosted,
+            dual_swing_gd_accel: p2.gd_accel, dual_swing_was_boosted: p2.was_boosted, gameplay_sideways: self.trig.gen.gameplay_sideways, direction: if self.trig.gen.direction == -1.0 { -1.0 } else { 1.0 }
         });
         true
     }
@@ -1113,6 +1187,12 @@ impl Game {
         if let (Some(g), Some(snap)) = (self.fx.ground.as_mut(), cp.ground.as_ref()) { g.copy_state_from(snap); }
         self.e.floor_y = if self.e.fly_ground_active { if self.e.fly_visual_only { 0.0 } else { self.e.fly_floor_y.unwrap_or(f64::NAN) } } else { 0.0 };
         self.e.ceiling_y = self.e.fly_ceiling_y;
+        self.trig.gen.gameplay_sideways = cp.gameplay_sideways;
+        self.trig.gen.direction = cp.direction;
+        self.trig.gen.direction_dirty = true;
+        self.trig.gen.sideways_world_x = 0.0;
+        self.e.in_sideways_step = false;
+        self.sync_floor_ceiling();
         self.g.player_speed = cp.speed;
         if cp.dual {
             self.e.is_dual = false;

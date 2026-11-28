@@ -29,7 +29,7 @@ impl K {
         }
     }
     pub fn ported(self) -> bool {
-        !matches!(self, K::ChangeBackground | K::ChangeGround | K::Shader | K::Teleport | K::Song | K::Sfx | K::EditSong | K::EditSfx | K::RotateGameplay
+        !matches!(self, K::ChangeBackground | K::ChangeGround | K::Shader | K::Teleport | K::Song | K::Sfx | K::EditSong | K::EditSfx
             | K::Area | K::BgSpeed | K::MgSpeed | K::AdvFollow | K::Gradient | K::KeyframeAnim)
     }
 }
@@ -135,6 +135,17 @@ pub struct Gen {
     pub exit: bool,
     pub exit_instant: bool,
     pub no_effects: bool,
+    pub real_touch: bool,
+    pub rg_ground: i64,
+    pub rg_move: i64,
+    pub edit_velocity: bool,
+    pub override_velocity: bool,
+    pub velocity_mod_x: f64,
+    pub velocity_mod_y: f64,
+    pub channel_only: bool,
+    pub change_channel: bool,
+    pub target_channel: i64,
+    pub dont_slide: bool,
     pub no_sfx: bool,
     pub instant: bool,
     pub gravity: f64,
@@ -176,7 +187,7 @@ impl Gen {
             offset_x: 0.0, offset_y: 0.0, axis: 0, apply_x: false, apply_y: false, hide_ground: 0, hide_p1: 0, hide_p2: 0, disable_p1: 0, disable_p2: 0,
             hide_attempts: 0, respawn_mode: 0, respawn_time: 0.0, degrees: 0.0, add: false, snap360: false, zoom: 1.0, events: Vec::new(), extra_id: 0,
             extra_id2: 0, block_a: 0, block_b: 0, p1: false, p2: false, player_pair: false, edge: 0, edge_target: 0, free_mode: false, edit_settings: false,
-            easing: 1.0, padding: 0.0, exit: false, exit_instant: false, no_effects: false, no_sfx: false, instant: false, gravity: 1.0, stop_jump: false,
+            easing: 1.0, padding: 0.0, exit: false, exit_instant: false, no_effects: false, real_touch: false, rg_ground: 2, rg_move: 4, edit_velocity: false, override_velocity: false, velocity_mod_x: 0.0, velocity_mod_y: 0.0, channel_only: false, change_channel: false, target_channel: 0, dont_slide: false, no_sfx: false, instant: false, gravity: 1.0, stop_jump: false,
             stop_move: false, stop_rotate: false, stop_slide: false, passive: false,
         }
     }
@@ -333,7 +344,20 @@ pub fn parse(o: &LevelObject, b: Base) -> Option<Gen> {
             t.no_sfx = g_bool(o, 461);
             t.instant = g_bool(o, 487);
         }
-        K::RotateGameplay => { t.touch = true; }
+        K::RotateGameplay => {
+            t.real_touch = t.touch;
+            t.touch = true;
+            t.rg_ground = g_int(o, 166, 2);
+            t.rg_move = g_int(o, 167, 4);
+            t.edit_velocity = g_bool(o, 169);
+            t.override_velocity = g_bool(o, 584);
+            t.velocity_mod_x = g_float(o, 582, 0.0);
+            t.velocity_mod_y = g_float(o, 583, 0.0);
+            t.channel_only = g_bool(o, 172);
+            t.change_channel = g_bool(o, 171);
+            t.target_channel = g_int(o, 173, 0);
+            t.dont_slide = g_bool(o, 585);
+        }
         K::Gravity => {
             t.gravity = js_max(0.1, js_min(2.0, g_float(o, 148, 1.0)));
             t.p1 = !g_bool(o, 200);
@@ -419,6 +443,12 @@ pub fn gen_json(t: &Gen) -> String {
         }
         K::CameraZoom => { f("zoom", num(t.zoom)); f("duration", num(t.duration)); f("easingType", t.easing_type.to_string()); f("easingRate", num(t.easing_rate)); }
         K::End => { f("noEffects", t.no_effects.to_string()); f("noSFX", t.no_sfx.to_string()); f("instant", t.instant.to_string()); }
+        K::RotateGameplay => {
+            f("realTouch", t.real_touch.to_string()); f("ground", t.rg_ground.to_string()); f("move", t.rg_move.to_string());
+            f("editVelocity", t.edit_velocity.to_string()); f("overrideVelocity", t.override_velocity.to_string());
+            f("velocityModX", num(t.velocity_mod_x)); f("velocityModY", num(t.velocity_mod_y)); f("channelOnly", t.channel_only.to_string());
+            f("changeChannel", t.change_channel.to_string()); f("targetChannel", t.target_channel.to_string()); f("dontSlide", t.dont_slide.to_string());
+        }
         K::Gravity => { f("gravity", num(t.gravity)); f("p1", t.p1.to_string()); f("p2", t.p2.to_string()); }
         K::PlayerControl => {
             f("stopJump", t.stop_jump.to_string()); f("stopMove", t.stop_move.to_string()); f("stopRotate", t.stop_rotate.to_string());
@@ -487,6 +517,8 @@ pub struct GenState {
     pub p1_controls_disabled: bool,
     pub p2_controls_disabled: bool,
     pub direction: f64,
+    pub gameplay_sideways: bool,
+    pub sideways_world_x: f64,
     pub gravity_scale: (f64, f64),
     pub attempts_hidden: bool,
     pub respawn_time: Option<f64>,
@@ -512,7 +544,7 @@ impl Default for GenState {
             event_links: Vec::new(), event_stamps: BTreeMap::new(), group_scales: BTreeMap::new(), has_group_scales: false, scaled_colliders: BTreeSet::new(),
             link_visible: BTreeSet::new(), end_triggered: None, camera_offset: (0.0, 0.0), gameplay_offset: (0.0, 0.0), applied_camera_offset_y: 0.0,
             applied_gameplay_offset_y: 0.0, offset_tweens: (None, None), zoom: 1.0, zoom_tween: None, angle: 0.0, angle_target: 0.0, angle_tween: None,
-            ground_hidden: false, hide_p1: false, hide_p2: false, p1_controls_disabled: false, p2_controls_disabled: false, direction: 1.0, gravity_scale: (1.0, 1.0),
+            ground_hidden: false, hide_p1: false, hide_p2: false, p1_controls_disabled: false, p2_controls_disabled: false, direction: 1.0, gameplay_sideways: false, sideways_world_x: 0.0, gravity_scale: (1.0, 1.0),
             attempts_hidden: false, respawn_time: None, static_camera: None, camera_edges: None, free_mode_camera: false, free_cam_easing: 10.0, free_cam_padding: 0.5,
             pc_count: 0, multi_touch_legacy: Vec::new(), touch_list: Vec::new(), order: Vec::new(), toggle_blocks: BTreeMap::new(), sorted: false, snapshot: None,
         }
@@ -582,6 +614,29 @@ impl Game {
     }
 
     pub fn reset_time_warp(&mut self) {}
+
+    pub fn rotate_gameplay(&mut self, t: &Gen) {
+        if !self.rotate_gameplay_enabled || self.p.is_dead || self.e.is_dual { return; }
+        let sideways = t.rg_ground == 3 || t.rg_ground == 4;
+        let flipped = t.rg_ground == 1 || t.rg_ground == 4;
+        let reversed = t.rg_move == 2 || t.rg_move == 3;
+        let sideways_changed = self.trig.gen.gameplay_sideways != sideways;
+        if !sideways_changed && (self.trig.gen.direction < 0.0) == reversed && self.p.gravity_flipped == flipped { return; }
+        let mut velocity = self.g.player_speed;
+        if t.edit_velocity { velocity = if t.override_velocity { t.velocity_mod_y * 2.0 } else { velocity * t.velocity_mod_y }; }
+        self.trig.gen.gameplay_sideways = sideways;
+        if (self.trig.gen.direction < 0.0) != reversed {
+            self.trig.gen.direction = if reversed { -1.0 } else { 1.0 };
+            self.trig.gen.direction_dirty = true;
+        }
+        if self.p.gravity_flipped != flipped { self.sim_for_pub(false, |s| s.flip_gravity(flipped, 1.0)); }
+        if !sideways_changed { return; }
+        self.sync_floor_ceiling();
+        self.p.y_velocity = velocity;
+        self.p.on_ground = false;
+        self.p.on_ceiling = false;
+        self.p.can_jump = false;
+    }
 
     pub fn reset_ground_camera(&mut self) { self.trig.gen.free_mode_camera = false; self.trig.gen.free_cam_easing = 10.0; self.trig.gen.free_cam_padding = 0.5; }
 
@@ -767,6 +822,9 @@ impl Game {
                     };
                     if is_x { cam.x = next; } else { cam.y = next; }
                 }
+            }
+            K::RotateGameplay => {
+                if !t.channel_only { self.rotate_gameplay(&t); }
             }
             K::Reverse => {
                 let d = if self.trig.gen.direction == 0.0 || self.trig.gen.direction.is_nan() { 1.0 } else { self.trig.gen.direction };

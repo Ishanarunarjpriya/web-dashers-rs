@@ -43,6 +43,8 @@ let respawns = 0, checkpointsSaved = 0, wonRuns = 0, overrideFrames = 0, dualFra
 const PRACTICE = !!process.env.PRACTICE; // practice mode: random checkpoints, respawn from them after deaths (needs CAMERA=1)
 const CAMERA = !!process.env.CAMERA; // also compare the camera, end-of-level detection and the whole-frame update
 const PORTAL = !!process.env.PORTAL;
+const SIDEWAYS = !!process.env.SIDEWAYS; // sideways gameplay (rotate gameplay ground 3/4) switched on and off between frames
+const swapSrc = fs.readFileSync(root + "ref/assets/scripts/core/game-scene.js", "utf8");
 const OPTS = !!process.env.OPTS; // restarts go through the level options / start positions like _restartLevel
 let portalLevels = null;
 for (let r = 0; r < RUNS; r++) {
@@ -86,6 +88,11 @@ for (let r = 0; r < RUNS; r++) {
   w.wd_game_set_state(ptr);
   const S = Object.assign({}, o._scene);
   for (const k of Object.getOwnPropertyNames(sceneMethods)) if (k !== "constructor") S[k] = sceneMethods[k];
+  if (SIDEWAYS) {
+    const a = swapSrc.indexOf("  _swapSidewaysFrame() {"), b = swapSrc.indexOf("  _rotateGameplay(", a);
+    S._swapSidewaysFrame = (0, eval)(`(class { ${swapSrc.slice(a, b)} })`).prototype._swapSidewaysFrame;
+    L.gameplaySideways = false; w.wd_set_sideways(0);
+  }
   const held = { v: false };
   ctx.window.kbIsDown = () => held.v;
   Object.assign(S, {
@@ -193,6 +200,7 @@ for (let r = 0; r < RUNS; r++) {
       L.resetGroundState();
       enter(gm, 30);
     }
+    if (SIDEWAYS) { L.gameplaySideways = false; L._sidewaysWorldX = 0; S._inSidewaysStep = false; }
     const slog = useRestartLevel ? w.wd_game_restart_level(startPosIdx) : isRestart ? w.wd_game_restart(sk, gm, startX) : w.wd_game_start(sk, gm, startX);
     const out0 = finish(); const jl = out0.__log.slice(); o.__log.length = 0;
     const rl = slog ? new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.wd_result_ptr(), slog)).split("|") : [];
@@ -236,6 +244,11 @@ for (let r = 0; r < RUNS; r++) {
     if (rnd() < 0.12) hold = !hold;
     const delta = process.env.DELTA ? Number(process.env.DELTA) : pick([16.6667, 16.6667, 16.6667, 16, 17, 33.3, 8, 20]);
     // JS
+    if (SIDEWAYS && !S._isDual && rnd() < (L.gameplaySideways ? 0.01 : 0.02)) {
+      L.gameplaySideways = !L.gameplaySideways; w.wd_set_sideways(L.gameplaySideways ? 1 : 0);
+      globalThis.__sidewaysToggles = (globalThis.__sidewaysToggles || 0) + 1;
+    }
+    if (SIDEWAYS && L.gameplaySideways) globalThis.__sidewaysFrames = (globalThis.__sidewaysFrames || 0) + 1;
     if (process.env.DUAL && START && rnd() < (S._isDual ? 0.004 : 0.01)) { // switch dual mode on / off between frames
       const on = !S._isDual;
       if (on) S._enableDualMode(); else S._disableDualMode();
@@ -354,5 +367,6 @@ for (let r = 0; r < RUNS; r++) {
 console.log("modes seen (frames):", JSON.stringify(modeSeen), "\neffects:", JSON.stringify(effects));
 console.log(`${checkpointsSaved} checkpoints, ${respawns} respawns from checkpoints; ${wonRuns} levels completed, ${overrideFrames} frames of the end camera; ${restarts} restarts after deaths, ${dualFrames} frames in dual mode`);
 if (MACRO) console.log(`macro frames recorded ${macroStats.frames} (${macroStats.dual} dual), frames played back ${macroStats.played}`);
+if (SIDEWAYS) console.log(`sideways: ${globalThis.__sidewaysToggles || 0} toggles, ${globalThis.__sidewaysFrames || 0} frames sideways`);
 console.log(`${runsDone} runs, ${totalFrames} frames, ${deaths} deaths: ${bad ? bad + " MISMATCHED" : "all identical"}`);
 process.exit(bad ? 1 : 0);

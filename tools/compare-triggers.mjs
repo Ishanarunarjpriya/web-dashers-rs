@@ -48,6 +48,7 @@ if (REAL) {
 }
 const gsrc = REAL ? fs.readFileSync(root + "ref/assets/scripts/core/game-scene.js", "utf8") : "";
 if (vm.runInContext("typeof screenHeight", ctx) === "undefined") vm.runInContext("var screenHeight = 640;", ctx);
+const NOOP_GFX = new Proxy(function () {}, { get: (t, k) => (k === Symbol.toPrimitive || k === "then" ? undefined : NOOP_GFX), apply: () => NOOP_GFX });
 const camSrc = fs.readFileSync(root + "ref/assets/scripts/core/game-scene.js", "utf8");
 const camS0 = camSrc.indexOf("  _applyCameraEdges() {"), camU = camSrc.indexOf("  _updateCameraY(", camS0);
 const camS1 = camSrc.slice(camU + 3).search(/\n  [_a-zA-Z][A-Za-z0-9_]*\([^)]*\) \{ *\n/) + camU + 3 + 1;
@@ -102,7 +103,7 @@ const OTHER = [];
 function newLevel() {
   animLog.length = 0;
   if (REAL) {
-    REC.scene._pcCount = 0; REC.scene._applyPlayerControlTrigger = function () { this._pcCount++; }; REC.scene._state = { y: 0 }; REC.scene._cameraY = 0; REC.scene._playerWorldX = 0; REC.scene.time = { now: 0, delayedCall() {} };
+    REC.scene.add = REC.scene.add || {}; if (!REC.scene.add.graphics) REC.scene.add.graphics = () => NOOP_GFX; REC.scene._pcCount = 0; REC.scene._applyPlayerControlTrigger = function () { this._pcCount++; }; REC.scene._state = { y: 0 }; REC.scene._cameraY = 0; REC.scene._playerWorldX = 0; REC.scene.time = { now: 0, delayedCall() {} };
     const L = new ctx.LevelObject(REC.scene, { _v: 0 });
     L.resetAll = () => {
       L.resetColorTriggers(); L.resetAlphaTriggers(); L.resetRotateTriggers(); L.resetPulseTriggers(); L.resetEnterEffectTriggers(); L.resetSpawnTriggers(); L.resetMoveTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers(); L.resetToggleTriggers(); L.resetAnimationTriggers(); L.resetShakeTriggers(); L.resetChannelBlending(); L.resetPlayerVisibilityTriggers(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetCollisionTriggers(); L.resetInstantCountTriggers(); L.resetGenericTriggers();
@@ -115,7 +116,7 @@ function newLevel() {
     objects: [], objectSprites: [], _groupColliders: {}, _groupSprites: {}, _collisionSections: [], _nearbyBuffer: [], _nextObjectId: 0, _startPositions: [],
     _secretCoinCompleted: new Set(), _userCoinCompleted: new Set(), _secretCoinSlotCount: 0, _userCoinSlotCount: 0,
     _spawnTextObject() {}, _spawnTriggerEditorVisual() {}, _getSectionIndexForWorldX: () => 0, _refreshSpriteSection() {},
-    _scene: { _playerWorldX: 0, _state: { y: 0 }, _cameraY: 0, time: { now: 0 }, _pcCount: 0, _applyPlayerControlTrigger() { this._pcCount++; } }, _cameraXRef: { _v: 0 }, _channelBlending: { 1007: true }, _colorChannelSprites: {}, _activePulses: [],
+    _scene: { _playerWorldX: 0, _state: { y: 0 }, _cameraY: 0, time: { now: 0 }, _pcCount: 0, _applyPlayerControlTrigger() { this._pcCount++; }, add: { graphics: () => NOOP_GFX } }, _cameraXRef: { _v: 0 }, _channelBlending: { 1007: true }, _colorChannelSprites: {}, _activePulses: [],
     _timeWarpTriggers: [], _activeAlphaTweens: [], _getGlowAlphaMultiplier: () => 0.425, _groupOpacity: {}, _sections: [], _beastSprites: [], _touchPlayerVisActivated: new Set(), shakeOffsetX: 0, shakeOffsetY: 0, _shakeState: null,
   });
   for (const k of [...Object.values(LISTS), ...OTHER]) L[k] = [];
@@ -141,9 +142,9 @@ function newLevel() {
 
 const fuzzLevel = makeFuzz(rnd, { beast: !!process.env.BEAST, text: !!process.env.TEXT, generic: !process.env.NOGENERIC, spawny: !!process.env.SPAWNY, genericIds: REAL ? REAL_GENERIC_IDS : undefined });
 const FUZZ = Number(process.env.FUZZ || 0);
-const sources = FUZZ ? Array.from({ length: FUZZ }, (_, i) => ({ label: `fuzz#${i}`, str: fuzzLevel() })) : files.map((f) => ({ label: f, str: fs.readFileSync(root + "ref/assets/levels/" + f, "utf8") }));
+const sources = FUZZ ? Array.from({ length: FUZZ }, (_, i) => ({ label: `fuzz#${i}`, str: fuzzLevel() })) : files.map((f) => { const raw = fs.readFileSync(root + "ref/assets/levels/" + f, "utf8"); return { label: f, str: raw.includes("\0") ? raw.replace(/\0/g, "").trim() : raw }; });
 
-const UNPORTED = new Set(["changeBackground", "changeGround", "shader", "teleport", "song", "sfx", "editSong", "editSfx", "rotateGameplay", "area", "bgSpeed", "mgSpeed", "advFollow", "gradient", "keyframeAnim"]);
+const UNPORTED = new Set(["changeBackground", "changeGround", "shader", "teleport", "song", "sfx", "editSong", "editSfx", "area", "bgSpeed", "mgSpeed", "advFollow", "gradient", "keyframeAnim"]);
 const GENERIC_COMMON = ["uid", "spawnTriggered", "multiTrigger", "triggerChannel", "ord", "groups", "kind", "x", "y", "touchTriggered", "targetGroup", "centerGroup"];
 const strip = (t) => JSON.parse(JSON.stringify(t, (k, v) => (v instanceof Map ? Object.fromEntries(v) : v)));
 let bad = 0, framesTotal = 0, levelsDone = 0, checks = 0;
@@ -157,6 +158,7 @@ for (let li = 0; li < sources.length; li++) {
   const lvl = ctx.parseLevel(str);
   ctx.window.enableLDM = true; // object spawning in this harness uses the low-detail collider path
   const L = newLevel();
+  if (!REAL) { L._fireGradientTrigger = () => {}; L.updateGradients = () => {}; L._destroyGradient = () => {}; }
   const sprites = []; // [x, y, groups]
   let realImgs = null;
   if (REAL) {
@@ -233,6 +235,7 @@ for (let li = 0; li < sources.length; li++) {
   if (REAL) w.wd_visual_seed(12345);
   if (COINS) { const [kp, kl] = putStr("the_level"), [sp2, sl] = putStr(coinSeed.secret.join(",")), [up, ul] = putStr(coinSeed.user.join(",")); w.wd_coins_config(coinSeed.official ? 1 : 0, 0, 0, kp, kl, sp2, sl, up, ul, coinSeed.totalS, coinSeed.totalU); }
   const n = w.wd_game_load_level(sp, bytes.length);
+  w.wd_set_rotate_gameplay(typeof L._scene?._rotateGameplay === "function" ? 1 : 0);
   if (REAL) w.wd_game_after_load();
   const aptr = w.wd_alloc(Math.max(8, sprites.length * 8));
   new Float64Array(w.memory.buffer, aptr, Math.max(1, sprites.length)).set(sprites);

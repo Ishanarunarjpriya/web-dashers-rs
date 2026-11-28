@@ -312,6 +312,10 @@ pub extern "C" fn wd_cam_step(cx: f64, py: f64, flags: u32, q: f64, out: *mut f6
     });
 }
 #[no_mangle]
+pub extern "C" fn wd_set_rotate_gameplay(on: u32) { with_game(|g| g.rotate_gameplay_enabled = on != 0); }
+#[no_mangle]
+pub extern "C" fn wd_set_sideways(on: u32) { with_game(|g| { g.trig.gen.gameplay_sideways = on != 0; g.sync_floor_ceiling(); }); }
+#[no_mangle]
 pub extern "C" fn wd_cam_reset() { with_game(|g| { g.camera_y = 0.0; g.follow_camera_y = None; }); }
 #[no_mangle]
 pub extern "C" fn wd_trig_reset(which: u32) {
