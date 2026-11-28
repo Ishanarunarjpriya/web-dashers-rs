@@ -57,7 +57,8 @@ function jsColliders(level) {
   return level.objects.map((lo) => {
     const def = ctx.getObjectFromId(lo.id);
     if (parseInt(lo?.id ?? 0, 10) === 749 && !lo?._generatedTeleportExit) return null;
-    if (def && def.type === ctx.triggerType) return null;
+    const bid = parseInt(lo?.id ?? 0, 10);
+    if (def && def.type === ctx.triggerType && bid !== 1813 && bid !== 2069 && bid !== 3645) return null;
     if (!def) return null; // `if (objectDef)` guards the whole collision block
     const self = { objects: [], objectSprites: {}, _groupColliders: {}, _addCollisionToSection() {}, _getTeleportPortalYOffset: ctx.tpOffset,
       _secretCoinCompleted: new Set(), _userCoinCompleted: new Set(), _eeObjectId: 0 };
