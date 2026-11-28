@@ -300,6 +300,19 @@ pub extern "C" fn wd_trig_frame(px: f64, py: f64, cx: f64, cy: f64, dt: f64, has
     });
 }
 #[no_mangle]
+pub extern "C" fn wd_cam_step(cx: f64, py: f64, flags: u32, q: f64, out: *mut f64) {
+    with_game(|g| {
+        g.camera_x = cx + triggers::or0(g.trig.gen.camera_offset.0) + triggers::or0(g.trig.gen.gameplay_offset.0);
+        g.p.y = py;
+        g.p.gravity_flipped = flags & 1 != 0; g.p.is_flying = flags & 2 != 0; g.p.is_ufo = flags & 4 != 0; g.p.is_wave = flags & 8 != 0;
+        g.p.is_ball = flags & 16 != 0; g.p.is_swing = flags & 32 != 0; g.p.is_spider = flags & 64 != 0;
+        g.camera_y_block(q);
+        unsafe { *out = g.camera_x; *out.add(1) = g.camera_y; }
+    });
+}
+#[no_mangle]
+pub extern "C" fn wd_cam_reset() { with_game(|g| { g.camera_y = 0.0; g.follow_camera_y = None; }); }
+#[no_mangle]
 pub extern "C" fn wd_trig_reset(which: u32) {
     with_game(|g| match which { 0 => g.reset_move(), 1 => g.reset_rotate(), 2 => g.reset_toggle(), 3 => g.reset_spawn(), 4 => g.reset_stop(), 5 => g.reset_follow_y(), 6 => g.reset_follow(), 13 => g.reset_color(), 14 => g.reset_pulse(), 15 => g.reset_channel_blending(), 16 => g.cm.reset(), 17 => g.reset_alpha(), 18 => { g.reset_shake(); g.reset_player_vis(); g.reset_animation(); g.reset_enter_effect() } 19 => g.reset_generic(false), 7 => g.reset_on_death(), 8 => g.reset_touch(), 9 => g.reset_pickup(), 10 => g.reset_count(), 11 => g.reset_instant_count(), _ => g.reset_collision() });
 }

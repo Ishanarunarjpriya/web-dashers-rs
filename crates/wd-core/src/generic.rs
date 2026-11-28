@@ -442,7 +442,7 @@ pub struct GroupScale { pub sx: f64, pub sy: f64, pub center: i64, pub only_move
 #[derive(Clone, Debug)]
 pub struct Tween { pub from: f64, pub to: f64, pub elapsed: f64, pub trig: usize }
 #[derive(Clone, Debug)]
-pub struct StaticAxis { pub group: i64, pub elapsed: f64, pub trig: usize, pub exiting: bool, pub instant: bool, pub from: Option<f64> }
+pub struct StaticAxis { pub group: i64, pub elapsed: f64, pub trig: usize, pub exiting: bool, pub instant: bool, pub from: Option<f64>, pub last: Option<f64>, pub target: f64 }
 #[derive(Clone, Debug, Default)]
 pub struct StaticCam { pub x: Option<StaticAxis>, pub y: Option<StaticAxis> }
 #[derive(Clone, Debug)]
@@ -761,9 +761,9 @@ impl Game {
                 for &is_x in axes {
                     let prev = if is_x { cam.x.clone() } else { cam.y.clone() };
                     let next = if t.exit {
-                        match &prev { Some(p) if !p.exiting => Some(StaticAxis { group: p.group, elapsed: 0.0, trig: ti, exiting: true, instant: t.exit_instant, from: p.from }), _ => prev.clone() }
+                        match &prev { Some(p) if !p.exiting => Some(StaticAxis { group: p.group, elapsed: 0.0, trig: ti, exiting: true, instant: t.exit_instant, from: p.from, last: p.last, target: p.target }), _ => prev.clone() }
                     } else {
-                        Some(StaticAxis { group: e.target, elapsed: 0.0, trig: ti, exiting: false, instant: false, from: None })
+                        Some(StaticAxis { group: e.target, elapsed: 0.0, trig: ti, exiting: false, instant: false, from: prev.as_ref().and_then(|p| p.last), last: None, target: 0.0 })
                     };
                     if is_x { cam.x = next; } else { cam.y = next; }
                 }

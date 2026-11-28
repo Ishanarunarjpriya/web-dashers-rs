@@ -34,6 +34,7 @@ pub struct Game {
     pub end_portal_game_y: f64,
     pub camera_x: f64,
     pub camera_y: f64,
+    pub follow_camera_y: Option<f64>,
     pub level_won: bool,
     pub end_camera_override: bool,
     pub end_cam: Option<EndCam>,
@@ -369,7 +370,7 @@ impl Game {
             toggled: Default::default(), sec: crate::triggers::section_index(c.x), init_wh: None,
         }).collect();
         let disabled = vec![false; cols.len()];
-        Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), show_hitboxes: false, hitbox_trail_on: false, hitboxes_on_death: false, hitbox_trail: [Vec::new(), Vec::new()], p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
+        Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, follow_camera_y: None, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), show_hitboxes: false, hitbox_trail_on: false, hitboxes_on_death: false, hitbox_trail: [Vec::new(), Vec::new()], p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
     }
 
     /// Everything the level provides to the simulation: colliders (with their groups) and triggers.
@@ -789,10 +790,26 @@ impl<'a> Sim<'a> {
 impl Game {
     /// `_updateCameraY(delta, snap)`
     pub fn update_camera_y(&mut self, delta: f64, snap: bool) {
+        let zoom = if self.trig.gen.zoom == 0.0 || self.trig.gen.zoom.is_nan() { 1.0 } else { self.trig.gen.zoom };
+        let min_y = if zoom != 1.0 { 640.0 / 2.0 * (1.0 / zoom - 1.0) } else { 0.0 };
         let mut piece = self.camera_y;
         let mut target = piece;
+        let p = &self.p;
         if let Some(t) = self.e.fly_camera_target {
             target = t;
+        } else if self.trig.gen.free_mode_camera && (p.is_flying || p.is_ufo || p.is_wave || p.is_ball || p.is_swing || p.is_spider) {
+            let padding = self.trig.gen.free_cam_padding;
+            let margin = 2.0 * (160.0 - ((160.0 - 32.0) * padding + 30.0));
+            let center = piece - 180.0 + 320.0;
+            let y = p.y;
+            if y > center + margin { target = y - 320.0 - margin + 180.0; }
+            else if y < center - margin { target = y - 320.0 + margin + 180.0; }
+            let easing = self.trig.gen.free_cam_easing;
+            if !snap && delta != 0.0 {
+                piece = if easing > 1.0 { piece + (target - piece) / (easing / delta) } else { target };
+                self.camera_y = crate::triggers::js_max(min_y, piece);
+                return;
+            }
         } else {
             let y = self.p.y;
             let (up, down) = (140.0, 80.0);
@@ -801,12 +818,90 @@ impl Game {
                 if y > center + down { target = y - 320.0 - down + 180.0; } else if y < center - up { target = y - 320.0 + up + 180.0; }
             } else if y > center + up { target = y - 320.0 - up + 180.0; } else if y < center - down { target = y - 320.0 + down + 180.0; }
         }
-        if target < 0.0 { target = 0.0; }
+        if target < min_y { target = min_y; }
         if snap { self.camera_y = target; }
         else if delta != 0.0 {
             piece += (target - piece) / (10.0 / delta);
-            if piece < 0.0 { piece = 0.0; }
+            if piece < min_y { piece = min_y; }
             self.camera_y = piece;
+        }
+    }
+
+    pub fn camera_y_block(&mut self, q: f64) {
+        if let Some(fy) = self.follow_camera_y { if self.trig.gen.static_camera.is_some() { self.camera_y = fy; } }
+        self.camera_y -= self.trig.gen.applied_camera_offset_y;
+        self.camera_y -= self.trig.gen.applied_gameplay_offset_y;
+        self.update_camera_y(q, false);
+        self.trig.gen.applied_camera_offset_y = crate::triggers::or0(self.trig.gen.camera_offset.1);
+        self.camera_y += self.trig.gen.applied_camera_offset_y;
+        self.trig.gen.applied_gameplay_offset_y = crate::triggers::or0(self.trig.gen.gameplay_offset.1);
+        self.camera_y += self.trig.gen.applied_gameplay_offset_y;
+        self.apply_static_camera(q);
+        self.apply_camera_edges();
+    }
+
+    fn camera_anchor(&self, gid: i64) -> Option<(f64, f64)> {
+        if !(gid > 0) { return None; }
+        if let Some(&(x, y)) = self.trig.l.camera_guides.get(&gid) { return Some((x, y)); }
+        let (cx, cy) = self.group_center_pub(gid);
+        if cx == 0.0 && cy == 0.0 { return None; }
+        Some((cx, 460.0 - cy))
+    }
+
+    pub fn apply_camera_edges(&mut self) {
+        let edges = match &self.trig.gen.camera_edges { Some(e) => e.clone(), None => return };
+        let zoom = if self.trig.gen.zoom == 0.0 || self.trig.gen.zoom.is_nan() { 1.0 } else { self.trig.gen.zoom };
+        let half_w = self.screen_width / 2.0 / zoom;
+        let half_h = 640.0 / 2.0 / zoom;
+        let pos = |k: i64| edges.get(&k).and_then(|&g| self.camera_anchor(g));
+        let (left, right, top, bottom) = (pos(1), pos(2), pos(3), pos(4));
+        if let Some(r) = right { self.camera_x = crate::triggers::js_min(self.camera_x, r.0 - self.screen_width / 2.0 - half_w); }
+        if let Some(l) = left { self.camera_x = crate::triggers::js_max(self.camera_x, l.0 - self.screen_width / 2.0 + half_w); }
+        if let Some(t) = top { self.camera_y = crate::triggers::js_min(self.camera_y, t.1 + 180.0 - 320.0 - half_h); }
+        if let Some(b) = bottom { self.camera_y = crate::triggers::js_max(self.camera_y, b.1 + 180.0 - 320.0 + half_h); }
+    }
+
+    pub fn apply_static_camera(&mut self, delta: f64) {
+        let active = matches!(&self.trig.gen.static_camera, Some(c) if c.x.is_some() || c.y.is_some());
+        if !active { self.follow_camera_y = None; return; }
+        self.follow_camera_y = Some(self.camera_y);
+        let seconds = delta / 60.0;
+        for is_x in [true, false] {
+            let st = { let c = self.trig.gen.static_camera.as_ref().unwrap(); if is_x { c.x.clone() } else { c.y.clone() } };
+            let mut st = match st { Some(s) => s, None => continue };
+            let follow = if is_x { self.camera_x } else { self.camera_y };
+            if !st.last.map_or(false, |v| v.is_finite()) { st.last = Some(follow); }
+            if !st.exiting {
+                let anchor = self.camera_anchor(st.group);
+                let (gx, gy) = match anchor {
+                    Some(a) => a,
+                    None => {
+                        let c = self.trig.gen.static_camera.as_mut().unwrap();
+                        if is_x { c.x = None; } else { c.y = None; }
+                        continue;
+                    }
+                };
+                st.target = if is_x { gx - self.screen_width / 2.0 } else { gy - 320.0 + 180.0 };
+                if !st.from.map_or(false, |v| v.is_finite()) { st.from = Some(follow); }
+            }
+            st.elapsed += seconds;
+            let (dur, et, er) = { let t = &self.trig.l.generics[st.trig]; (t.duration, t.easing_type, t.easing_rate) };
+            let s = if dur > 0.0 && !st.instant { crate::triggers::easing(et as f64, er, crate::triggers::js_min(st.elapsed / dur, 1.0)) } else { 1.0 };
+            let last = st.last.unwrap();
+            let value;
+            let mut clear = false;
+            if st.exiting {
+                value = last + (follow - last) * s;
+                if s >= 1.0 { clear = true; }
+            } else {
+                let from = st.from.unwrap();
+                value = from + (st.target - from) * s;
+            }
+            st.last = Some(value);
+            let c = self.trig.gen.static_camera.as_mut().unwrap();
+            let slot = if is_x { &mut c.x } else { &mut c.y };
+            *slot = if clear { None } else { Some(st) };
+            if is_x { self.camera_x = value; } else { self.camera_y = value; }
         }
     }
 
@@ -910,15 +1005,7 @@ impl Game {
                 self.camera_y = c.from_y + (c.to_y - c.from_y) * p;
             }
         }
-        if !self.end_camera_override {
-            self.camera_y -= self.trig.gen.applied_camera_offset_y;
-            self.camera_y -= self.trig.gen.applied_gameplay_offset_y;
-            self.update_camera_y(q, false);
-            self.trig.gen.applied_camera_offset_y = crate::triggers::or0(self.trig.gen.camera_offset.1);
-            self.camera_y += self.trig.gen.applied_camera_offset_y;
-            self.trig.gen.applied_gameplay_offset_y = crate::triggers::or0(self.trig.gen.gameplay_offset.1);
-            self.camera_y += self.trig.gen.applied_gameplay_offset_y;
-        }
+        if !self.end_camera_override { self.camera_y_block(q); }
         self.update_visibility(self.camera_x);
         if self.p.is_flying || self.p.is_swing { self.sim_for(false, |s| s.update_ship_rotation(q)); }
         if self.e.is_dual && (self.p2.is_flying || self.p2.is_swing) && !self.p2.is_dead { self.sim_for(true, |s| s.update_ship_rotation(q)); }

@@ -177,7 +177,7 @@ pub struct Lists {
     pub moves: Vec<Move>, pub rotates: Vec<Rotate>, pub spawns: Vec<Spawn>, pub stops: Vec<Stop>, pub toggles: Vec<Toggle>,
     pub follow_ys: Vec<FollowY>, pub follows: Vec<Follow>,
     pub on_deaths: Vec<OnDeath>, pub touches: Vec<TouchTrig>, pub pickups: Vec<Pickup>, pub counts: Vec<Count>, pub instant_counts: Vec<InstantCount>,
-    pub collisions: Vec<CollisionTrig>, pub blocks: Vec<Block>, pub generics: Vec<crate::generic::Gen>,
+    pub collisions: Vec<CollisionTrig>, pub blocks: Vec<Block>, pub generics: Vec<crate::generic::Gen>, pub camera_guides: BTreeMap<i64, (f64, f64)>,
     pub colors: Vec<ColorTrig>, pub pulses: Vec<PulseTrig>, pub alphas: Vec<AlphaTrig>, pub shakes: Vec<ShakeTrig>, pub player_vis: Vec<PlayerVisTrig>, pub animations: Vec<AnimationTrig>, pub enter_effects: Vec<EnterEffectTrig>,
 }
 
@@ -194,6 +194,12 @@ pub fn build_lists(objects: &[LevelObject]) -> Lists {
         let _ = def;
         let b = Base { uid, spawn_triggered: r_flag(o, "62", "0"), multi: r_flag(o, "87", "0"), channel: r_int(o, "170", 0.0) as i64, ord: r_int(o, "115", 0.0) as i64, groups: level_object_group_ids(o) };
         let (x, y) = (o.x * 2.0, o.y * 2.0);
+        if id == 2016 {
+            for g in raw(o, "57").map(|s| s.as_str()).unwrap_or("").split('.').filter_map(|v| parse_int(v)).filter(|v| *v > 0) {
+                l.camera_guides.entry(g).or_insert((x, y));
+            }
+            continue;
+        }
         let touch = r_flag(o, "11", "0");
         if let Some(g) = crate::generic::parse(o, b.clone()) { l.generics.push(g); }
         let ee = enter_effect_of(id);

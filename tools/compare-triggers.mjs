@@ -47,6 +47,14 @@ if (REAL) {
   }
 }
 const gsrc = REAL ? fs.readFileSync(root + "ref/assets/scripts/core/game-scene.js", "utf8") : "";
+if (vm.runInContext("typeof screenHeight", ctx) === "undefined") vm.runInContext("var screenHeight = 640;", ctx);
+const camSrc = fs.readFileSync(root + "ref/assets/scripts/core/game-scene.js", "utf8");
+const camS0 = camSrc.indexOf("  _applyCameraEdges() {"), camU = camSrc.indexOf("  _updateCameraY(", camS0);
+const camS1 = camSrc.slice(camU + 3).search(/\n  [_a-zA-Z][A-Za-z0-9_]*\([^)]*\) \{ *\n/) + camU + 3 + 1;
+const CamCls = vm.runInContext(`(class C {\n${camSrc.slice(camS0, camS1)}\n})`, ctx);
+const camB0 = camSrc.indexOf("      if (this._followCameraY !== undefined && this._level.staticCamera) this._cameraY = this._followCameraY;");
+const camB1 = camSrc.indexOf("      this._applyCameraEdges();\n", camB0) + "      this._applyCameraEdges();\n".length;
+const camBlock = vm.runInContext(`(function (quantizedDelta) {\n${camSrc.slice(camB0, camB1)}\n})`, ctx);
 let animBlock = null, AnimCls = null;
 if (REAL) {
   const s0 = gsrc.indexOf("  _stepObjectAnimations(deltaTime) {"), s1 = gsrc.indexOf("  _stepBeastAnimations(deltaTime) {");
@@ -463,6 +471,8 @@ for (let li = 0; li < sources.length; li++) {
   const touchTrigs = Object.values(jsLists).flat().filter((t) => t.touchTriggered);
   const lastX = Math.max(0, ...Object.values(jsLists).flat().map((t) => t.x)) + 300;
   let prevCx = undefined, now = 1000, px = -419, py = 30, frame = 0, cx = 0, h1 = false, h2 = false;
+  const CS = Object.assign(Object.create(CamCls.prototype), { _cameraX: 0, _cameraY: 0, _followCameraY: undefined, _state: {}, _level: L });
+  const camBuf = w.wd_alloc(16); w.wd_cam_reset(); let camModes = 0;
   if (rnd() < 0.5) px = Math.floor(rnd() * lastX * 0.2);
   if (rnd() < 0.4) { // start from a start position: the level fast-forwards its triggers to there
     const ffx = Math.floor(rnd() * lastX); var ffxUsed = ffx;
@@ -485,6 +495,7 @@ for (let li = 0; li < sources.length; li++) {
       L.resetColorTriggers(); L.resetPulseTriggers(); L.resetChannelBlending(); cm.reset(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetInstantCountTriggers(); L.resetCollisionTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers(); L.resetGenericTriggers();
       if (REAL) for (const s of L._audioScaleSprites) ctx.gdApplyEffectScale(s, 0.1);
       for (let k = 0; k < 20; k++) w.wd_trig_reset(k);
+      CS._cameraY = 0; CS._followCameraY = undefined; w.wd_cam_reset();
       px = -419; continue;
     }
     const animMeter = rnd() < 0.5 ? 0 : rnd() * 1.3;
@@ -547,6 +558,24 @@ for (let li = 0; li < sources.length; li++) {
     if (BEAST) w.wd_beast_update(dt * 1000);
     if (died) { L.triggerOnDeath(cm); w.wd_trig_death(); }
     framesTotal++;
+    if (rnd() < 0.05) camModes = Math.floor(rnd() * 128);
+    {
+      const st = { y: py, gravityFlipped: !!(camModes & 1), isFlying: !!(camModes & 2), isUfo: !!(camModes & 4), isWave: !!(camModes & 8), isBall: !!(camModes & 16), isSwing: !!(camModes & 32), isSpider: !!(camModes & 64) };
+      if (frame === 0 && process.env.CAMDBG) console.error("flyCameraTarget", L.flyCameraTarget);
+      if (L.flyCameraTarget === undefined) L.flyCameraTarget = null;
+      CS._state = st; CS._cameraX = cx + (L.cameraOffsetX || 0) + (L.gameplayOffsetX || 0);
+      const q = dt * 60;
+      camBlock.call(CS, q);
+      w.wd_cam_step(cx, py, camModes, q, camBuf);
+      const rc = new Float64Array(w.memory.buffer, camBuf, 2);
+      const same = (a, b) => a === b || (Number.isNaN(a) && Number.isNaN(b));
+      if (!same(CS._cameraX, rc[0]) || !same(CS._cameraY, rc[1])) fail(`frame ${frame}: camera differs js=(${CS._cameraX}, ${CS._cameraY}) rust=(${rc[0]}, ${rc[1]}) static=${JSON.stringify(L.staticCamera)} edges=${JSON.stringify(L.cameraEdges)} free=${L.freeModeCamera} zoom=${L.cameraZoom}`);
+      const gstc = (globalThis.__cam ||= {});
+      if (L.staticCamera && (L.staticCamera.x || L.staticCamera.y)) gstc.staticFrames = (gstc.staticFrames || 0) + 1;
+      if (L.cameraEdges) gstc.edgeFrames = (gstc.edgeFrames || 0) + 1;
+      if (L.freeModeCamera) gstc.freeFrames = (gstc.freeFrames || 0) + 1;
+      if ((L.cameraZoom || 1) !== 1) gstc.zoomFrames = (gstc.zoomFrames || 0) + 1;
+    }
     const a = jsState(), b = rustState();
     if (L._activePulses.length) globalThis.__pulseFrames = (globalThis.__pulseFrames || 0) + 1;
     if (L._activeAlphaTweens.length) globalThis.__alphaFrames = (globalThis.__alphaFrames || 0) + 1;
@@ -594,6 +623,7 @@ for (let li = 0; li < sources.length; li++) {
 }
 if (REAL) console.log(`(sprite tints compared: ${globalThis.__tintChecks || 0}, non-null: ${globalThis.__tintSet || 0}, pulsed: ${globalThis.__tintPulsed || 0})`);
 if (globalThis.__gen) console.log(`(generic: ${JSON.stringify(globalThis.__gen)})`);
+if (globalThis.__cam) console.log(`(camera: ${JSON.stringify(globalThis.__cam)})`);
 console.log(`(frames with a group pulse running: ${globalThis.__pulseFrames || 0}, with an alpha tween running: ${globalThis.__alphaFrames || 0})`);
 if (BEAST) console.log(`(beasts spawned: ${globalThis.__beasts || 0})`);
 if (COINS) console.log(`(coin operations compared: ${globalThis.__coinOps || 0})`);
