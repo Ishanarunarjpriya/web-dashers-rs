@@ -259,7 +259,8 @@ for (let r = 0; r < RUNS; r++) {
     const qd = S._physicsBlock(delta);
     if (CAMERA) {
       S._cameraBlock(qd);
-      if (S._state.isSwing) o.updateSwingRotation(qd); else if (S._state.isFlying) o.updateShipRotation(qd);
+      if (S._state.isFlying || S._state.isSwing) o.updateShipRotation(qd);
+      if (S._isDual && (S._state2.isFlying || S._state2.isSwing) && !S._state2.isDead) o2.updateShipRotation(qd);
     }
     vmSet: { const out = finish(); out.__logNow = out.__log.slice(); o.__log.length = 0;
       out.floor = L.getFloorY(); out.ceil = L.getCeilingY() ?? NaN; out.db = S._deltaBuffer; out.pf = S._physicsFrame; globalThis.__js = out; }
