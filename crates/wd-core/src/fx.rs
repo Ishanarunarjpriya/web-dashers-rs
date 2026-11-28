@@ -359,6 +359,8 @@ impl Game {
         }
     }
 
+    pub(crate) fn sprite_reset_group_scales(&mut self) {}
+
     /// the sprite half of `resetRotateTriggers`
     pub(crate) fn sprite_reset_rotate(&mut self) {
         if self.fx.sprites.is_empty() { return; }

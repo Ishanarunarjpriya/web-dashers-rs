@@ -10,9 +10,9 @@ pub const TYPES: &[&str] = &[
     "solid", "hazard", "dblock", "sblock", "slope", "jump_pad", "jump_ring", "coin", "speed",
     "portal_gravity_down", "portal_gravity_up", "portal_gravity_toggle", "portal_fly", "portal_cube", "portal_ball",
     "portal_wave", "portal_ufo", "portal_robot", "portal_spider", "portal_teleport", "portal_mirror_on", "portal_mirror_off",
-    "portal_mini_on", "portal_mini_off", "portal_dual_on", "portal_dual_off", "portal_swing", "deco", "hblock",
+    "portal_mini_on", "portal_mini_off", "portal_dual_on", "portal_dual_off", "portal_swing", "deco", "hblock", "fblock", "jblock", "forceblock",
 ];
-pub fn type_code(name: &str) -> f64 { TYPES.iter().position(|t| *t == name).unwrap_or(TYPES.len() - 1) as f64 }
+pub fn type_code(name: &str) -> f64 { TYPES.iter().position(|t| *t == name).unwrap_or(28) as f64 }
 const T_SOLID: f64 = 0.0;
 const T_HAZARD: f64 = 1.0;
 const T_DBLOCK: f64 = 2.0;

@@ -50,6 +50,8 @@ const proj = (c) => {
     teleportTargetY: n(c.teleportTargetY), teleportYOffset: n(c.teleportYOffset), padId: n(c.padId), orbId: n(c.orbId),
     multiActivate: !!c.multiActivate, freeMode: !!c.freeMode, flipY: !!c.flipY, orbRotation: n(c.orbRotation), coinId: n(c.coinId), speedValue: n(c.speedValue), speedId: n(c.speedId),
     _baseX: c._baseX, _baseY: c._baseY, _baseRotationDegrees: c._baseRotationDegrees,
+    cameraSettings: c.cameraSettings ? [c.cameraSettings.easing, c.cameraSettings.padding] : null,
+    force: n(c.force), forceMin: n(c.forceMin), forceMax: n(c.forceMax), forceRadial: n(c.forceRadial), forceRange: n(c.forceRange), forceId: n(c.forceId), forceFlipY: n(c.forceFlipY),
   };
 };
 
@@ -57,7 +59,7 @@ function jsColliders(level) {
   return level.objects.map((lo) => {
     const def = ctx.getObjectFromId(lo.id);
     if (parseInt(lo?.id ?? 0, 10) === 749 && !lo?._generatedTeleportExit) return null;
-    if (def && def.type === ctx.triggerType) return null;
+    if (def && def.type === ctx.triggerType && ![1813, 2069, 3645].includes(parseInt(lo.id, 10))) return null;
     if (!def) return null; // `if (objectDef)` guards the whole collision block
     const self = { objects: [], objectSprites: {}, _groupColliders: {}, _addCollisionToSection() {}, _getTeleportPortalYOffset: ctx.tpOffset,
       _secretCoinCompleted: new Set(), _userCoinCompleted: new Set(), _eeObjectId: 0 };

@@ -7,7 +7,7 @@ import vm from "node:vm";
 import assert from "node:assert";
 import { load } from "./physics-harness.mjs";
 import { makeRecorder } from "./sprite-ref.mjs";
-import { makeFuzz } from "./fuzz-level.mjs";
+import { makeFuzz, GENERIC_IDS } from "./fuzz-level.mjs";
 
 const root = new URL("..", import.meta.url).pathname;
 // REAL=1: the original LevelObject loads the level itself (real sprites, via a recording stand-in for Phaser) and the sprites are compared too
@@ -33,10 +33,10 @@ if (!REAL) {
 }
 // the trigger branch of `_spawnObject`, verbatim
 const src = fs.readFileSync(root + "ref/assets/scripts/core/level.js", "utf8");
-const t0 = src.indexOf("  if (objectDef && objectDef.type === triggerType) {\n    if (this._nextObjectId === undefined) {");
+const t0 = src.indexOf("  if (objectDef && objectDef.type === triggerType && parseInt(levelObj.id, 10) !== J_BLOCK_OBJECT_ID");
 const t1 = src.indexOf("\n  if (this._nextObjectId === undefined) {\n    this._nextObjectId = 0;\n  }\n  const linkedObjectId", t0 + 10);
 assert(t0 > 0 && t1 > t0, "trigger slice markers not found");
-vm.runInContext(`this.spawnTrig = function (levelObj) {\n const objectDef = getObjectFromId(levelObj.id);\n ${src.slice(t0, t1)}\n};`, ctx);
+vm.runInContext(`this.spawnTrig = function (levelObj) {\n const scene = this._scene; const objectDef = getObjectFromId(levelObj.id);\n ${src.slice(t0, t1)}\n};`, ctx);
 
 if (REAL) {
   const enc = new TextEncoder();
@@ -54,6 +54,7 @@ if (REAL) {
   const a2 = gsrc.indexOf("\n", a1);
   animBlock = vm.runInContext(`(function (deltaTime) {\n${gsrc.slice(a0, a2)}\n})`, ctx);
 }
+const REAL_GENERIC_IDS = GENERIC_IDS.filter((id) => id !== 2067 && id !== 3662);
 const COINS = !!process.env.COINS;
 const lsStore = new Map();
 if (COINS) ctx.localStorage = { getItem: (k) => (lsStore.has(k) ? lsStore.get(k) : null), setItem: (k, v) => lsStore.set(k, String(v)) };
@@ -91,10 +92,10 @@ const OTHER = [];
 function newLevel() {
   animLog.length = 0;
   if (REAL) {
-    REC.scene._state = { y: 0 }; REC.scene._cameraY = 0; REC.scene._playerWorldX = 0; REC.scene.time = { now: 0, delayedCall() {} };
+    REC.scene._pcCount = 0; REC.scene._applyPlayerControlTrigger = function () { this._pcCount++; }; REC.scene._state = { y: 0 }; REC.scene._cameraY = 0; REC.scene._playerWorldX = 0; REC.scene.time = { now: 0, delayedCall() {} };
     const L = new ctx.LevelObject(REC.scene, { _v: 0 });
     L.resetAll = () => {
-      L.resetColorTriggers(); L.resetAlphaTriggers(); L.resetRotateTriggers(); L.resetPulseTriggers(); L.resetEnterEffectTriggers(); L.resetSpawnTriggers(); L.resetMoveTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers(); L.resetToggleTriggers(); L.resetAnimationTriggers(); L.resetShakeTriggers(); L.resetChannelBlending(); L.resetPlayerVisibilityTriggers(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetCollisionTriggers(); L.resetInstantCountTriggers();
+      L.resetColorTriggers(); L.resetAlphaTriggers(); L.resetRotateTriggers(); L.resetPulseTriggers(); L.resetEnterEffectTriggers(); L.resetSpawnTriggers(); L.resetMoveTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers(); L.resetToggleTriggers(); L.resetAnimationTriggers(); L.resetShakeTriggers(); L.resetChannelBlending(); L.resetPlayerVisibilityTriggers(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetCollisionTriggers(); L.resetInstantCountTriggers(); L.resetGenericTriggers();
     };
     return L;
   }
@@ -103,18 +104,22 @@ function newLevel() {
     objects: [], objectSprites: [], _groupColliders: {}, _groupSprites: {}, _collisionSections: [], _nearbyBuffer: [], _nextObjectId: 0, _startPositions: [],
     _secretCoinCompleted: new Set(), _userCoinCompleted: new Set(), _secretCoinSlotCount: 0, _userCoinSlotCount: 0,
     _spawnTextObject() {}, _spawnTriggerEditorVisual() {}, _getSectionIndexForWorldX: () => 0, _refreshSpriteSection() {},
-    _scene: { _playerWorldX: 0, _state: { y: 0 }, _cameraY: 0, time: { now: 0 } }, _cameraXRef: { _v: 0 }, _channelBlending: { 1007: true }, _colorChannelSprites: {}, _activePulses: [],
+    _scene: { _playerWorldX: 0, _state: { y: 0 }, _cameraY: 0, time: { now: 0 }, _pcCount: 0, _applyPlayerControlTrigger() { this._pcCount++; } }, _cameraXRef: { _v: 0 }, _channelBlending: { 1007: true }, _colorChannelSprites: {}, _activePulses: [],
     _timeWarpTriggers: [], _activeAlphaTweens: [], _getGlowAlphaMultiplier: () => 0.425, _groupOpacity: {}, _sections: [], _beastSprites: [], _touchPlayerVisActivated: new Set(), shakeOffsetX: 0, shakeOffsetY: 0, _shakeState: null,
   });
   for (const k of [...Object.values(LISTS), ...OTHER]) L[k] = [];
+  L.freeModeCamera = false; L.freeCamEasing = 10; L.freeCamPadding = 0.5; L._triggerGroupsByUid = new Map(); L._spawnFiredUids = new Set(); L._genericTriggers = []; L._activeEnterEffect = 0;
+  ctx.LevelObject.prototype._initGenericTriggers.call(L);
+  L._getTriggerFrameName = () => null;
   L.resetAll = () => {
+    L.resetGenericTriggers();
     L.resetTimeWarpTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers(); L._colorTriggerIdx = 0; L._pulseTriggerIdx = 0; L._activePulses = []; L._touchColorTriggerActivated = new Set(); L._channelBlending = { 1007: true };
     L._moveTriggerIdx = L._rotateTriggerIdx = L._spawnTriggerIdx = L._stopTriggerIdx = L._toggleTriggerIdx = L._followPlayerYTriggerIdx = L._followTriggerIdx = 0;
     L._onDeathTriggerIdx = L._touchTriggerIdx = L._pickupTriggerIdx = L._countTriggerIdx = L._instantCountTriggerIdx = L._collisionTriggerIdx = 0;
     L._armedOnDeathTriggers = []; L._activeTouchTriggers = []; L._activeCountTriggers = []; L._activeCollisionTriggers = []; L._itemCounts = {};
     L._touchOnDeathTriggerActivated = new Set(); L._touchTouchTriggerActivated = new Set(); L._touchPickupTriggerActivated = new Set(); L._touchCountTriggerActivated = new Set(); L._touchInstantCountTriggerActivated = new Set();
     L._activeFollowPlayerYTweens = []; L._activeFollowTweens = []; L._touchFollowPlayerYTriggerActivated = new Set(); L._touchFollowTriggerActivated = new Set();
-    L._activeMoveTweens = []; L._activeRotateTweens = []; L._activeSpawnDelays = [];
+    L._activeMoveTweens = []; L._activeRotateTweens = []; L._activeSpawnDelays = []; L._spawnFiredUids = new Set();
     L._groupOffsets = {}; L._groupRotations = {}; L._groupToggledOff = {};
     L._touchMoveTriggerActivated = new Set(); L._touchSpawnTriggerActivated = new Set(); L._touchStopTriggerActivated = new Set(); L._touchToggleTriggerActivated = new Set();
   };
@@ -122,91 +127,13 @@ function newLevel() {
   return L;
 }
 
-// random levels: dense groups, every ported trigger kind (the shipped levels barely use follow / spawn-triggered ones)
-function fuzzLevel() {
-  const parts = ["kA4,0"];
-  const pick = (a) => a[Math.floor(rnd() * a.length)];
-  const grp = () => 1 + Math.floor(rnd() * 8);
-  const num = (lo, hi) => (lo + rnd() * (hi - lo)).toFixed(3);
-  const n = 40 + Math.floor(rnd() * 160);
-  for (let i = 0; i < n; i++) {
-    const x = Math.floor(rnd() * 3000) * 0.5, y = Math.floor(rnd() * 40) * 0.5;
-    const base = ["1", "ID", "2", x, "3", y];
-    const kind = rnd();
-    if (process.env.BEAST && rnd() < 0.1) { // a beast with random look
-      const o = ["1", pick([918, 1327, 1328, 1584, 2012]), "2", x, "3", y];
-      const gs = Array.from({ length: Math.floor(rnd() * 3) }, grp);
-      if (gs.length) o.push("57", gs.join("."));
-      if (rnd() < 0.4) o.push("32", num(0.4, 2.5));
-      if (rnd() < 0.3) o.push("6", num(-180, 180));
-      if (rnd() < 0.3) o.push("4", 1);
-      if (rnd() < 0.3) o.push("5", 1);
-      if (rnd() < 0.3) o.push("21", pick([1, 2, 3, 4, 1004, 1009, 12]));
-      if (rnd() < 0.3) o.push("22", pick([1, 2, 3, 4, 1004, 1009, 12]));
-      if (rnd() < 0.2) o.push("96", 1);
-      parts.push(o.join(","));
-      continue;
-    }
-    if (process.env.TEXT && rnd() < 0.12) { // a text object (914) with random look and groups
-      const b64 = (t) => Buffer.from(t, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-      const word = pick(["Hello", "GO!", "Jump here", "x", "Dash 123", "a b c", "WOW"]);
-      const o = ["1", 914, "2", x, "3", y, "31", b64(word)];
-      const gs = Array.from({ length: Math.floor(rnd() * 3) }, grp);
-      if (gs.length) o.push("57", gs.join("."));
-      if (rnd() < 0.5) o.push("21", pick([1, 2, 3, 4, 1004, 1009, 12]));
-      if (rnd() < 0.4) o.push("32", num(0.4, 2.5));
-      if (rnd() < 0.3) o.push("6", num(-180, 180));
-      if (rnd() < 0.2) o.push("4", 1);
-      if (rnd() < 0.2) o.push("5", 1);
-      if (rnd() < 0.3) o.push("24", pick([-5, -3, -1, 1, 3, 5, 7, 9]));
-      if (rnd() < 0.3) o.push("25", Math.floor(rnd() * 10) - 5);
-      if (rnd() < 0.1) { o.push("131", num(-40, 40)); o.push("132", num(-40, 40)); }
-      parts.push(o.join(","));
-      continue;
-    }
-    if (kind < 0.45) {
-      const id = pick([1, 1, 1, 8, 8, 103, 35, 36, 10, 13, 48, 200, 201, 11, 12, 38]);
-      const o = ["1", id, "2", x, "3", y];
-      const gs = Array.from({ length: Math.floor(rnd() * 3) }, grp);
-      if (gs.length) o.push("57", gs.join("."));
-      if (rnd() < 0.2) o.push("6", Math.floor(rnd() * 4) * 90);
-      parts.push(o.join(","));
-      continue;
-    }
-    const id = pick([901, 901, 901, 1346, 1346, 1268, 1268, 1616, 1049, 1049, 1814, 1347, 1347, 1812, 1595, 1817, 1611, 1811, 1815, 1816, 1816, 1816, 29, 30, 899, 105, 221, 1006, 1006, 1007, 1007, 1007, 1520, 1520, 1935, 1935, 1935, 1612, 1613, 1585, 1585, 23, 24, 25, 26, 27, 28, 55, 56, 57, 58, 59]);
-    const o = ["1", id, "2", id === 1816 ? 300 + 15 * Math.floor(rnd() * 20) : x, "3", id === 1816 ? 15 * Math.floor(rnd() * 6) : y];
-    const add = (k, v) => o.push(String(k), String(v));
-    add(51, grp());
-    if (rnd() < 0.4) add(11, 1);
-    if (rnd() < 0.3) add(62, 1);
-    if (rnd() < 0.3) add(57, Array.from({ length: 1 + Math.floor(rnd() * 2) }, grp).join("."));
-    if (rnd() < 0.6) add(10, num(0, 3));
-    if (id === 901) { add(28, num(-90, 90)); add(29, num(-90, 90)); add(30, Math.floor(rnd() * 20)); add(85, num(0.5, 4)); if (rnd() < 0.15) add(pick([58, 59, 302, 303]), 1); }
-    if (id === 1346) { add(68, num(-360, 360)); add(69, Math.floor(rnd() * 3)); add(70, rnd() < 0.3 ? 1 : 0); add(71, grp()); add(30, Math.floor(rnd() * 20)); add(85, num(0.5, 4)); }
-    if (id === 1268) { add(63, num(0, 2)); if (rnd() < 0.3) add(556, num(0, 1)); }
-    if (id === 1049) add(56, rnd() < 0.5 ? 1 : 0);
-    if (id === 1814) { add(90, num(0, 3)); add(91, num(0, 1)); add(92, num(-30, 30)); add(105, num(0, 5)); }
-    if (id === 1347) { add(71, grp()); add(72, num(-2, 2)); add(73, num(-2, 2)); }
-    if (id === 29 || id === 30 || id === 899 || id === 105 || id === 221) { add(7, Math.floor(rnd() * 256)); add(8, Math.floor(rnd() * 256)); add(9, Math.floor(rnd() * 256)); add(14, rnd() < 0.3 ? 1 : 0); if (id > 100) { add(23, pick([1, 2, 3, 4, 1002, 1003, 1004, 1009, 8, 20])); add(17, rnd() < 0.3 ? 1 : 0); add(35, num(0, 1)); if (rnd() < 0.3) add(50, pick([1, 2, 3, 4, 8, 20])); if (rnd() < 0.3) add(49, `${Math.floor(rnd() * 360)}a${num(0, 2)}a${num(0, 2)}a0a0`); } }
-    if (id === 1007) add(35, num(-0.3, 1.3));
-    if (id === 1520) { add(75, num(-5, 120)); add(84, num(0, 0.6)); }
-    if (id === 1585) add(76, Math.floor(rnd() * 12));
-    if (id === 1935 && rnd() < 0.9) add(120, pick([num(0, 3), 0.5, 1, 1.5, 2, 0.05, "abc"]));
-    if (id === 1006) { add(52, rnd() < 0.7 ? 0 : 1); add(7, Math.floor(rnd() * 256)); add(8, Math.floor(rnd() * 256)); add(9, Math.floor(rnd() * 256)); add(45, num(0, 1)); add(46, num(0, 1)); add(47, num(0, 1)); if (rnd() < 0.3) { add(48, 1); add(49, `${Math.floor(rnd() * 360)}a${num(0, 2)}a${num(0, 2)}a0a0`); } if (rnd() < 0.3) add(50, pick([1, 2, 3, 4, 8, 20])); }
-    if (id === 1812) add(56, rnd() < 0.5 ? 1 : 0);
-    if (id === 1595) { add(56, Math.floor(rnd() * 3)); add(81, rnd() < 0.3 ? 1 : 0); add(82, rnd() < 0.4 ? 1 : 0); }
-    if (id === 1817) { add(80, 1 + Math.floor(rnd() * 4)); add(77, Math.floor(rnd() * 4)); }
-    if (id === 1611 || id === 1811) { add(80, 1 + Math.floor(rnd() * 4)); add(77, Math.floor(rnd() * 5)); add(56, rnd() < 0.7 ? 1 : 0); if (id === 1611) add(104, rnd() < 0.3 ? 1 : 0); else add(88, Math.floor(rnd() * 3)); }
-    if (id === 1815) { add(80, 1 + Math.floor(rnd() * 3)); add(95, 1 + Math.floor(rnd() * 3)); add(56, rnd() < 0.5 ? 1 : 0); add(93, rnd() < 0.3 ? 1 : 0); }
-    if (id === 1816) { add(80, 1 + Math.floor(rnd() * 3)); add(94, rnd() < 0.6 ? 1 : 0); }
-    parts.push(o.join(","));
-  }
-  return parts.join(";");
-}
+const fuzzLevel = makeFuzz(rnd, { beast: !!process.env.BEAST, text: !!process.env.TEXT, generic: !process.env.NOGENERIC, genericIds: REAL ? REAL_GENERIC_IDS : undefined });
 const FUZZ = Number(process.env.FUZZ || 0);
 const sources = FUZZ ? Array.from({ length: FUZZ }, (_, i) => ({ label: `fuzz#${i}`, str: fuzzLevel() })) : files.map((f) => ({ label: f, str: fs.readFileSync(root + "ref/assets/levels/" + f, "utf8") }));
 
-const strip = (t) => JSON.parse(JSON.stringify(t));
+const UNPORTED = new Set(["changeBackground", "changeGround", "shader", "teleport", "song", "sfx", "editSong", "editSfx", "rotateGameplay", "area", "bgSpeed", "mgSpeed", "advFollow", "gradient", "keyframeAnim"]);
+const GENERIC_COMMON = ["uid", "spawnTriggered", "multiTrigger", "triggerChannel", "ord", "groups", "kind", "x", "y", "touchTriggered", "targetGroup", "centerGroup"];
+const strip = (t) => JSON.parse(JSON.stringify(t, (k, v) => (v instanceof Map ? Object.fromEntries(v) : v)));
 let bad = 0, framesTotal = 0, levelsDone = 0, checks = 0;
 const report = (msg) => { if (bad++ < 12) console.log(msg); };
 
@@ -248,7 +175,7 @@ for (let li = 0; li < sources.length; li++) {
     const objs = ctx.LevelObject.prototype._normalizeTeleportPortals.call(L, lvl.objects);
     for (const lo of objs) {
       const def = ctx.getObjectFromId(lo.id);
-      if (def && def.type === ctx.triggerType) { ctx.spawnTrig.call(L, lo); continue; }
+      if (def && def.type === ctx.triggerType && ![1813, 2069, 3645].includes(Number(lo.id))) { ctx.spawnTrig.call(L, lo); continue; }
       const linked = L._nextObjectId++;
       lo._eeObjectId = linked;
       const objectId = parseInt(lo.id ?? 0, 10);
@@ -314,6 +241,7 @@ for (let li = 0; li < sources.length; li++) {
   const jsLists = Object.fromEntries(Object.entries(LISTS).map(([k, v]) => [k, strip(L[v])]));
   L._timeWarpTriggers.sort((a, b) => a.x - b.x);
   jsLists.timeWarp = strip(L._timeWarpTriggers.map((t) => ({ uid: t.uid, spawnTriggered: t.spawnTriggered, groups: t.groups, x: t.x, y: t.y, touchTriggered: t.touchTriggered, value: Number(t.raw?.[120] ?? 1) })));
+  jsLists.generic = strip([...L._genericTriggers].sort((a, b) => a.x - b.x).map((t) => (UNPORTED.has(t.kind) ? Object.fromEntries(GENERIC_COMMON.filter((k) => k in t).map((k) => [k, t[k]])) : t)));
   try { assert.deepStrictEqual(JSON.parse(canon(rjson(w.wd_trig_lists()))), JSON.parse(canon(jsLists))); } catch (e) { fail("trigger lists differ: " + String(e.message).split("\n").slice(0, 60).join(" | ")); }
   if (levelBad) continue;
 
@@ -439,15 +367,51 @@ for (let li = 0; li < sources.length; li++) {
     return bad;
   };
 
+  const tw = (t) => (t ? [t.from, t.to, t.elapsed] : null);
+  const src = (t) => (t ? t._remapSource || t : t);
+  const genericState = () => {
+    const G = [...L._genericTriggers];
+    const idxOf = (t) => G.indexOf(src(t));
+    const sax = (a) => (a ? [a.group, a.elapsed, !!a.exiting, a.from ?? null, !!a.instant] : null);
+    const asc = (a, b) => a - b;
+    return {
+      idx: [L._genericTriggerIdx, L._reverseIdx, !!L._directionDirty],
+      fired: [...L._genericFired].sort(asc),
+      touching: [...L._genericTouching].sort((a, b) => a[0] - b[0]),
+      sequence: [...L._sequenceStates].map(([t, s]) => [G.indexOf(t), s.index, s.lastTime]).filter((e) => e[0] >= 0).sort((a, b) => a[0] - b[0]),
+      scaleTweens: L._activeScaleTweens.map((a) => [idxOf(a.trig), a.trig.targetGroup, a.trig.centerGroup, a.elapsed, a.prevX, a.prevY]),
+      timeEvents: L._activeTimeEvents.map((e) => [idxOf(e.trig), e.trig._remapSource ? e.trig.targetGroup : null]),
+      levelTime: L._levelTime, points: L._points, timeWarp: L.timeWarp,
+      timers: L._timers,
+      persistentItems: [...L._persistentItems].sort(asc), persistentTimers: [...L._persistentTimers].sort(asc),
+      eventLinks: L._eventLinks.map((e) => [idxOf(e), e._remapSource ? e.targetGroup : null]),
+      eventStamps: [...L._eventStamps].sort((a, b) => a[0] - b[0]),
+      groupScales: Object.fromEntries(Object.entries(L._groupScales).map(([k, v]) => [k, [v.sx, v.sy, v.centerGroupId, v.onlyMove]])),
+      hasGroupScales: !!L._hasGroupScales,
+      scaledColliders: [...L._scaledColliders].map((c) => c.uid).sort(asc),
+      linkVisible: [...L._linkVisibleGroups].sort(asc),
+      endTriggered: L.endTriggered ? idxOf(L.endTriggered) : -1,
+      cameraOffset: [L.cameraOffsetX, L.cameraOffsetY, L.gameplayOffsetX, L.gameplayOffsetY],
+      offsetTweens: [tw(L._cameraOffsetTweens.x), tw(L._cameraOffsetTweens.y)],
+      zoom: [L.cameraZoom, tw(L._cameraZoomTween)],
+      angle: [L.cameraAngle, L._cameraAngleTarget, tw(L._cameraAngleTween)],
+      flags: [!!L.groundHidden, !!L.optionHideP1, !!L.optionHideP2, !!L.p1ControlsDisabled, !!L.p2ControlsDisabled, !!L.attemptsHidden, !!L.freeModeCamera],
+      direction: L.direction, gravity: [L.p1GravityScale, L.p2GravityScale], respawnTime: L.respawnTime,
+      staticCamera: L.staticCamera ? [sax(L.staticCamera.x), sax(L.staticCamera.y)] : null,
+      cameraEdges: L.cameraEdges,
+      freeCam: [L.freeCamEasing, L.freeCamPadding, L._scene._pcCount || 0],
+      spawnFired: [...L._spawnFiredUids].sort(asc),
+    };
+  };
   const jsState = () => canon({
     offsets: Object.fromEntries(Object.entries(L._groupOffsets).map(([k, v]) => [k, [v.x, v.y]])),
     rotations: Object.fromEntries(Object.entries(L._groupRotations).map(([k, v]) => [k, [v.totalRad, v.centerGroupId, v.lockRotation]])),
     active: [L._activeMoveTweens.length, L._activeRotateTweens.length, L._activeSpawnDelays.length, L._activeFollowPlayerYTweens.length, L._activeFollowTweens.length],
     followY: L._activeFollowPlayerYTweens.map((a) => [a.elapsed, a.groupInitialGDY, a.history.length]),
     follow: L._activeFollowTweens.map((a) => [a.elapsed, a.lastFollowX, a.lastFollowY]),
-    spawnDelays: L._activeSpawnDelays.map((s) => [s.targetGroup, s.delay, s.elapsed]),
+    spawnDelays: L._activeSpawnDelays.map((s) => [s.targetGroup, s.delay, s.elapsed, s.remap === undefined ? 0 : s.remap === null ? 1 : 2, s.remap instanceof Map ? [...s.remap].sort((a, b) => a[0] - b[0]) : []]),
     idx: [L._moveTriggerIdx, L._rotateTriggerIdx, L._spawnTriggerIdx, L._stopTriggerIdx, L._toggleTriggerIdx, L._followPlayerYTriggerIdx, L._followTriggerIdx, L._onDeathTriggerIdx, L._touchTriggerIdx, L._pickupTriggerIdx, L._countTriggerIdx, L._instantCountTriggerIdx, L._collisionTriggerIdx],
-    timeWarp: [L._timeWarp, L._timeWarpTriggerIdx, L._timeWarpTouchActivated.size],
+    generic: genericState(),
     toggledOff: Object.keys(L._groupToggledOff).map(Number).sort((a, b) => a - b),
     armedOnDeath: L._armedOnDeathTriggers.map((t) => L._onDeathTriggers.indexOf(t)),
     activeTouch: L._activeTouchTriggers.map((t) => L._touchTriggers.indexOf(t)),
@@ -512,7 +476,7 @@ for (let li = 0; li < sources.length; li++) {
     prevCx = cx;
     if (rnd() < 0.002) { // an attempt restarts: everything is reset
       L.resetMoveTriggers(); L.resetRotateTriggers(); L.resetToggleTriggers(); L.resetSpawnTriggers(); L.resetStopTriggers(); L.resetFollowPlayerYTriggers(); L.resetFollowTriggers();
-      L.resetColorTriggers(); L.resetPulseTriggers(); L.resetChannelBlending(); cm.reset(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetInstantCountTriggers(); L.resetCollisionTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers();
+      L.resetColorTriggers(); L.resetPulseTriggers(); L.resetChannelBlending(); cm.reset(); L.resetTimeWarpTriggers(); L.resetOnDeathTriggers(); L.resetTouchTriggers(); L.resetPickupTriggers(); L.resetCountTriggers(); L.resetInstantCountTriggers(); L.resetCollisionTriggers(); L.resetAlphaTriggers(); L.resetShakeTriggers(); L.resetPlayerVisibilityTriggers(); L.resetAnimationTriggers(); L.resetEnterEffectTriggers(); L.resetGenericTriggers();
       for (let k = 0; k < 20; k++) w.wd_trig_reset(k);
       px = -419; continue;
     }
@@ -526,6 +490,8 @@ for (let li = 0; li < sources.length; li++) {
     try {
     now += dt * 1000 * (rnd() < 0.1 ? 3 : 1); L._scene.time.now = now; w.wd_trig_time(now);
     L._scene._physicsTick = Math.round(now / (1000 / 240)); w.wd_trig_tick(L._scene._physicsTick);
+    if (rnd() < 0.02) { L._scene._attempts = Math.floor(rnd() * 20); w.wd_trig_attempts(L._scene._attempts); }
+    for (let ge = rnd() < 0.15 ? 1 + Math.floor(rnd() * 3) : 0; ge > 0; ge--) { const ev = Math.floor(rnd() * 80), e1 = rnd() < 0.7 ? 0 : Math.floor(rnd() * 2), e2 = rnd() < 0.7 ? 0 : Math.floor(rnd() * 2); L.gameEvent(ev, e1, e2); w.wd_game_event(ev, e1, e2); }
     if (REAL) { const gs = { _level: L, _state: { gravityFlipped: !!aGrav }, _audio: { getMeteringValue: () => animMeter }, _cameraX: aCam }; animBlock.call(gs, dt * 1000); w.wd_fx_animate(dt * 1000, aCam, aGrav ? 1 : 0, animMeter); }
     L._scene._playerWorldX = px; L._scene._state.y = py; L._scene._cameraY = cy; L._cameraXRef._v = cx;
     for (const t of L.checkColorTriggers(px)) applyCT(t);
@@ -534,7 +500,7 @@ for (let li = 0; li < sources.length; li++) {
     L.checkTouchSpawnTriggers(px, py); if (dual) L.checkTouchSpawnTriggers(px, y2);
     L.checkTouchMoveTriggers(px, py); if (dual) L.checkTouchMoveTriggers(px, y2);
     L.beginGroupTransformBatch();
-    L.stepMoveTriggers(dt); L.stepSpawnTriggers(dt, cm);
+    L.stepMoveTriggers(dt); L.updateGenericTriggers(px, py, dual ? y2 : null, dt, cm); L.stepSpawnTriggers(dt, cm);
     L.checkAlphaTriggers(px); L.checkTouchAlphaTriggers(px, py); if (dual) L.checkTouchAlphaTriggers(px, y2); L.stepAlphaTriggers(dt);
     L.checkRotateTriggers(px); L.stepRotateTriggers(dt);
     L.checkStopTriggers(px); L.checkTouchStopTriggers(px, py); if (dual) L.checkTouchStopTriggers(px, y2);

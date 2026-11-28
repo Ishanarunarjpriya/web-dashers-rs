@@ -112,6 +112,7 @@ impl Game {
         self.e.fly_floor_y = None;
         self.e.fly_ceiling_y = None;
         self.e.fly_camera_target = None; // `resetGroundState`: the camera stops following the fly area
+        self.reset_ground_camera();
         self.e.portal_free_mode = false;
         self.e.floor_y = 0.0;
         self.e.ceiling_y = None;
@@ -175,7 +176,6 @@ impl Game {
             if t.touch || t.b.spawn_triggered { continue; }
             if t.x <= target_x { self.execute_toggle_pub(ti); } else { break; }
         }
-        self.check_time_warp(target_x, None, None);
         self.check_animation(target_x);
         self.check_pickup(target_x);
         self.check_count(target_x);
@@ -201,7 +201,7 @@ impl Game {
         self.reset_color();
         self.reset_rotate(); self.reset_alpha(); self.reset_shake(); self.reset_player_vis(); self.reset_animation(); self.reset_enter_effect(); self.reset_pulse(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
         self.reset_channel_blending();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_generic(false);
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.cm.reset();
@@ -262,7 +262,7 @@ impl Game {
         self.reset_color();
         self.reset_rotate(); self.reset_alpha(); self.reset_shake(); self.reset_player_vis(); self.reset_animation(); self.reset_enter_effect(); self.reset_pulse(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
         self.reset_channel_blending();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_generic(false);
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.cm.reset();
@@ -309,7 +309,7 @@ impl Game {
 
     /// The level-layer part of an attempt start (`resetGroundState`).
     fn begin_ground(&mut self) {
-        self.e.fly_ground_active = false; self.e.fly_visual_only = false; self.e.fly_floor_y = None; self.e.fly_ceiling_y = None; self.e.fly_camera_target = None;
+        self.e.fly_ground_active = false; self.e.fly_visual_only = false; self.e.fly_floor_y = None; self.e.fly_ceiling_y = None; self.e.fly_camera_target = None; self.reset_ground_camera();
         self.e.floor_y = 0.0; self.e.ceiling_y = None;
         self.e.portal_free_mode = false;
         self.delta_buffer = 0.0; self.space_was_down = false;
@@ -334,7 +334,7 @@ impl Game {
     pub fn restart(&mut self, speed_key: i64, game_mode: i64, start_x: f64) {
         self.reset_objects();
         self.reset_rotate(); self.reset_spawn(); self.reset_move(); self.reset_stop(); self.reset_follow_y(); self.reset_follow();
-        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_time_warp();
+        self.reset_toggle(); self.reset_on_death(); self.reset_touch(); self.reset_pickup(); self.reset_count(); self.reset_collision(); self.reset_instant_count(); self.reset_generic(false);
         self.check_toggle(0.0); self.check_pickup(0.0); self.check_count(0.0); self.check_collision_triggers(0.0); self.check_instant_count(0.0);
         self.check_on_death(0.0); self.check_touch_triggers(0.0);
         self.physics_frame = 0.0;
@@ -365,7 +365,7 @@ impl Game {
         trig.time_warp = 1.0;
         trig.meta = cols.iter().map(|c| crate::triggers::ColMeta {
             groups: Vec::new(), init_x: c.x, init_y: c.y, init_rot: if c.rotation_degrees == 0.0 || c.rotation_degrees.is_nan() { 0.0 } else { c.rotation_degrees },
-            toggled: Default::default(), sec: crate::triggers::section_index(c.x),
+            toggled: Default::default(), sec: crate::triggers::section_index(c.x), init_wh: None,
         }).collect();
         let disabled = vec![false; cols.len()];
         Game { cm: crate::colors::ColorManager::new(327424.0, 64511.0), channel_blending: Default::default(), channel_blending_initial: Default::default(), ldm: false, settings: Default::default(), practice_mode: false, checkpoints: Vec::new(), screen_width: 1138.0, end_x_pos: 0.0, end_portal_game_y: 240.0, camera_x: -419.0, camera_y: 0.0, level_won: false, end_camera_override: false, end_cam: None, death_timer: 0.0, death_sound_played: false, new_best_shown: false, had_new_best: false, last_percent: 0.0, best_percent: 0.0, total_deaths: 0.0, respawn_delay: 1.0, start_pos_index: None, mirror: Default::default(), coins: Default::default(), beasts: Default::default(), sp: Default::default(), mb: Default::default(), speed_hack: 1.0, start: StartOptions::default(), start_positions: Vec::new(), show_hitboxes: false, hitbox_trail_on: false, hitboxes_on_death: false, hitbox_trail: [Vec::new(), Vec::new()], p: Player::default(), p2: Player::default(), g: Globals::default(), e, cols, sections, sections_len, disabled, trig, fx: Default::default(), delta_buffer: 0.0, space_was_down: false, physics_frame: 0.0, log: Vec::new(), vlog: Vec::new() }
@@ -408,6 +408,7 @@ impl Game {
             g.trig.meta[i].groups = gr;
         }
         g.trig.l = crate::triggers::build_lists(&objects);
+        { let mut gs = std::mem::take(&mut g.trig.gen); crate::generic::build_generic_extras(&mut g.trig.l, &mut gs); g.trig.gen = gs; }
         g.sp_load(&objects);
         g.settings = crate::settings::LevelSettings::parse(&level.settings);
         for (ch, c) in &g.settings.initial_colors { g.cm.set_initial_color(*ch, *c); }
@@ -418,7 +419,7 @@ impl Game {
         g.channel_blending_initial = g.channel_blending.clone();
         let mut last_x = 0.0f64;
         for o in &objects {
-            if matches!(crate::objects::object_from_id(o.id.unwrap_or(0)), Some(d) if d.ty == Some("trigger")) { continue; }
+            if crate::objects::is_trigger_branch(o.id.unwrap_or(0)) { continue; }
             let wx = o.x * 2.0;
             if wx > last_x { last_x = wx; }
         }
@@ -438,6 +439,7 @@ impl Game {
         }
         g.start_positions.sort_by(|a, b| (a.x - b.x).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal));
         g.trig.touch_holding = vec![false; g.trig.l.touches.len()];
+            g.trig.count_prev = vec![0.0; g.trig.l.counts.len()];
         g
     }
 

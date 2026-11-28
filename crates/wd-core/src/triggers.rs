@@ -12,15 +12,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const PI: f64 = std::f64::consts::PI;
 /// `30 + playerSize`, where `playerSize` is never defined in the game, so the fallback 20 applies.
-const TOUCH_HALF_HITBOX: f64 = 50.0;
+pub(crate) const TOUCH_HALF_HITBOX: f64 = 50.0;
 /// Key used for a group id that is NaN (`obj["NaN"]` in JS).
 const NAN_KEY: i64 = i64::MIN;
 
-fn or0(x: f64) -> f64 { if x == 0.0 || x.is_nan() { 0.0 } else { x } }
-fn key(x: f64) -> i64 { if x.is_nan() { NAN_KEY } else { x as i64 } }
-fn js_min(a: f64, b: f64) -> f64 { if a.is_nan() || b.is_nan() { f64::NAN } else if a < b { a } else { b } }
+pub(crate) fn or0(x: f64) -> f64 { if x == 0.0 || x.is_nan() { 0.0 } else { x } }
+pub(crate) fn key(x: f64) -> i64 { if x.is_nan() { NAN_KEY } else { x as i64 } }
+pub(crate) fn js_min(a: f64, b: f64) -> f64 { if a.is_nan() || b.is_nan() { f64::NAN } else if a < b { a } else { b } }
 fn js_sign(x: f64) -> f64 { if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { x } }
-fn js_max(a: f64, b: f64) -> f64 { if a.is_nan() || b.is_nan() { f64::NAN } else if a > b { a } else { b } }
+pub(crate) fn js_max(a: f64, b: f64) -> f64 { if a.is_nan() || b.is_nan() { f64::NAN } else if a > b { a } else { b } }
 
 // ---- Easing (triggers.js) ----
 pub fn easing(ty: f64, rate: f64, x: f64) -> f64 {
@@ -66,7 +66,7 @@ pub fn easing(ty: f64, rate: f64, x: f64) -> f64 {
 
 // ---- trigger definitions ----
 #[derive(Clone, Debug)]
-pub struct Base { pub uid: i64, pub spawn_triggered: bool, pub groups: Vec<i64> }
+pub struct Base { pub uid: i64, pub spawn_triggered: bool, pub multi: bool, pub channel: i64, pub ord: i64, pub groups: Vec<i64> }
 #[derive(Clone, Debug)]
 pub struct Move { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub duration: f64, pub easing_type: f64, pub easing_rate: f64, pub target: i64,
     pub offset_x: f64, pub offset_y: f64, pub lock_x: bool, pub lock_y: bool, pub lock_cam_x: bool, pub lock_cam_y: bool }
@@ -74,7 +74,7 @@ pub struct Move { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub dura
 pub struct Rotate { pub b: Base, pub x: f64, pub target: i64, pub degrees: f64, pub duration: f64, pub easing_type: f64, pub easing_rate: f64,
     pub lock_rotation: bool, pub times360: f64, pub center: i64 }
 #[derive(Clone, Debug)]
-pub struct Spawn { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub target: i64, pub delay: f64, pub random_delay: f64 }
+pub struct Spawn { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub target: i64, pub delay: f64, pub random_delay: f64, pub remap: Option<Remap> }
 #[derive(Clone, Debug)]
 pub struct Stop { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub target: i64 }
 #[derive(Clone, Debug)]
@@ -88,7 +88,7 @@ pub struct Follow { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub ta
 #[derive(Clone, Debug)]
 pub struct OnDeath { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub target: i64, pub activate: bool }
 #[derive(Clone, Debug)]
-pub struct TouchTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub target: i64, pub toggle_type: f64, pub dual_touch: bool, pub hold_mode: bool, pub dual_action: f64, pub special_mode: f64 }
+pub struct TouchTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub target: i64, pub toggle_type: f64, pub dual_touch: bool, pub hold_mode: bool, pub player_filter: f64 }
 #[derive(Clone, Debug)]
 pub struct Pickup { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub item_id: f64, pub count: f64 }
 #[derive(Clone, Debug)]
@@ -107,8 +107,6 @@ pub struct ColorTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub
 pub struct AlphaTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub duration: f64, pub target_group: i64, pub target_opacity: f64 }
 #[derive(Clone, Debug)]
 pub struct ShakeTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub duration: f64, pub strength: f64, pub interval: f64 }
-#[derive(Clone, Debug)]
-pub struct TimeWarpTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub value: f64 }
 #[derive(Clone, Debug)]
 pub struct PlayerVisTrig { pub b: Base, pub x: f64, pub y: f64, pub touch: bool, pub hide: bool }
 #[derive(Clone, Debug)]
@@ -131,16 +129,16 @@ pub struct AlphaTween { pub trig: usize, pub elapsed: f64, pub start: f64 }
 pub struct PulseTrig { pub b: Base, pub x: f64, pub target_group: f64, pub target_channel: f64, pub target_type: f64, pub color: crate::colors::Rgb,
     pub fade_in: f64, pub hold: f64, pub fade_out: f64, pub hsv: Option<crate::colors::Hsv>, pub copy_source: f64 }
 
-fn raw<'a>(o: &'a LevelObject, k: &str) -> Option<&'a String> { o.raw.get(k) }
+pub(crate) fn raw<'a>(o: &'a LevelObject, k: &str) -> Option<&'a String> { o.raw.get(k) }
 /// `parseInt(_raw[k] ?? d, 10)`
-fn r_int(o: &LevelObject, k: &str, d: f64) -> f64 { match raw(o, k) { Some(s) => parse_int(s).map_or(f64::NAN, |v| v as f64), None => d } }
+pub(crate) fn r_int(o: &LevelObject, k: &str, d: f64) -> f64 { match raw(o, k) { Some(s) => parse_int(s).map_or(f64::NAN, |v| v as f64), None => d } }
 /// `parseFloat(_raw[k] ?? d)`
-fn r_float(o: &LevelObject, k: &str, d: f64) -> f64 { match raw(o, k) { Some(s) => parse_float(s).unwrap_or(f64::NAN), None => d } }
+pub(crate) fn r_float(o: &LevelObject, k: &str, d: f64) -> f64 { match raw(o, k) { Some(s) => parse_float(s).unwrap_or(f64::NAN), None => d } }
 /// `String(_raw[k] ?? d) === "1"`
-fn r_flag(o: &LevelObject, k: &str, d: &str) -> bool { raw(o, k).map(|s| s.as_str()).unwrap_or(d) == "1" }
+pub(crate) fn r_flag(o: &LevelObject, k: &str, d: &str) -> bool { raw(o, k).map(|s| s.as_str()).unwrap_or(d) == "1" }
 
 /// `_getLevelObjectGroupIds`: raw 33, raw 57 and `groups`, each split on "." with `parseInt`, positives only, unique.
-fn level_object_group_ids(o: &LevelObject) -> Vec<i64> {
+pub(crate) fn level_object_group_ids(o: &LevelObject) -> Vec<i64> {
     let mut out: Vec<i64> = Vec::new();
     let mut add = |s: &str| for part in s.split('.') {
         if let Some(v) = parse_int(part) { if v > 0 && !out.contains(&v) { out.push(v); } }
@@ -179,9 +177,8 @@ pub struct Lists {
     pub moves: Vec<Move>, pub rotates: Vec<Rotate>, pub spawns: Vec<Spawn>, pub stops: Vec<Stop>, pub toggles: Vec<Toggle>,
     pub follow_ys: Vec<FollowY>, pub follows: Vec<Follow>,
     pub on_deaths: Vec<OnDeath>, pub touches: Vec<TouchTrig>, pub pickups: Vec<Pickup>, pub counts: Vec<Count>, pub instant_counts: Vec<InstantCount>,
-    pub collisions: Vec<CollisionTrig>, pub blocks: Vec<Block>,
+    pub collisions: Vec<CollisionTrig>, pub blocks: Vec<Block>, pub generics: Vec<crate::generic::Gen>,
     pub colors: Vec<ColorTrig>, pub pulses: Vec<PulseTrig>, pub alphas: Vec<AlphaTrig>, pub shakes: Vec<ShakeTrig>, pub player_vis: Vec<PlayerVisTrig>, pub animations: Vec<AnimationTrig>, pub enter_effects: Vec<EnterEffectTrig>,
-    pub time_warps: Vec<TimeWarpTrig>,
 }
 
 /// Builds the trigger lists of a level (objects as passed to `_spawnLevelObjects`), sorted by x like the original.
@@ -193,14 +190,12 @@ pub fn build_lists(objects: &[LevelObject]) -> Lists {
         let def = crate::objects::object_from_id(id);
         let uid = next_uid;
         next_uid += 1;
-        match def { Some(d) if d.ty == Some("trigger") => {} _ => continue }
-        let b = Base { uid, spawn_triggered: r_flag(o, "62", "0"), groups: level_object_group_ids(o) };
+        if !crate::objects::is_trigger_branch(id) { continue; }
+        let _ = def;
+        let b = Base { uid, spawn_triggered: r_flag(o, "62", "0"), multi: r_flag(o, "87", "0"), channel: r_int(o, "170", 0.0) as i64, ord: r_int(o, "115", 0.0) as i64, groups: level_object_group_ids(o) };
         let (x, y) = (o.x * 2.0, o.y * 2.0);
         let touch = r_flag(o, "11", "0");
-        if o.id == Some(1935) {
-            let v = o.raw.get("120").map_or(1.0, |s| crate::js::to_number(s));
-            l.time_warps.push(TimeWarpTrig { b: b.clone(), x, y, touch, value: v });
-        }
+        if let Some(g) = crate::generic::parse(o, b.clone()) { l.generics.push(g); }
         let ee = enter_effect_of(id);
         if ee != 0 { l.enter_effects.push(EnterEffectTrig { b: b.clone(), x, effect: ee }); }
         match o.id {
@@ -223,7 +218,7 @@ pub fn build_lists(objects: &[LevelObject]) -> Lists {
             }),
             Some(1268) => l.spawns.push(Spawn {
                 b, x, y, touch, target: key(r_int(o, "51", 0.0)), delay: or0(js_max(0.0, r_float(o, "63", 0.0))),
-                random_delay: or0(js_max(0.0, r_float(o, "556", 0.0))),
+                random_delay: or0(js_max(0.0, r_float(o, "556", 0.0))), remap: parse_remap(raw(o, "442")),
             }),
             Some(1616) => l.stops.push(Stop { b, x, y, touch, target: key(r_int(o, "51", 0.0)) }),
             Some(1814) => l.follow_ys.push(FollowY {
@@ -264,8 +259,8 @@ pub fn build_lists(objects: &[LevelObject]) -> Lists {
             }
             Some(1812) => l.on_deaths.push(OnDeath { b, x, y, touch, target: key(r_int(o, "51", 0.0)), activate: r_flag(o, "56", "1") }),
             Some(1595) => l.touches.push(TouchTrig {
-                b, x, y, touch, target: key(r_int(o, "51", 0.0)), toggle_type: r_int(o, "56", 0.0), dual_touch: r_flag(o, "81", "0"), hold_mode: r_flag(o, "82", "0"),
-                dual_action: r_int(o, "198", 0.0), special_mode: r_int(o, "89", 0.0),
+                b, x, y, touch, target: key(r_int(o, "51", 0.0)), toggle_type: or0(r_int(o, "82", 0.0)), dual_touch: r_flag(o, "89", "0"), hold_mode: r_flag(o, "81", "0"),
+                player_filter: or0(r_int(o, "198", 0.0)),
             }),
             Some(1817) if raw(o, "80").is_some() => l.pickups.push(Pickup { b, x, y, touch, item_id: r_int(o, "80", 0.0), count: r_int(o, "77", 1.0) }),
             Some(1611) => l.counts.push(Count {
@@ -295,7 +290,7 @@ pub fn build_lists(objects: &[LevelObject]) -> Lists {
     by_x(&mut l.follow_ys, |t| t.x); by_x(&mut l.follows, |t| t.x);
     by_x(&mut l.on_deaths, |t| t.x); by_x(&mut l.touches, |t| t.x); by_x(&mut l.pickups, |t| t.x); by_x(&mut l.counts, |t| t.x);
     by_x(&mut l.instant_counts, |t| t.x); by_x(&mut l.collisions, |t| t.x);
-    by_x(&mut l.colors, |t| t.x); by_x(&mut l.pulses, |t| t.x); by_x(&mut l.alphas, |t| t.x); by_x(&mut l.shakes, |t| t.x); by_x(&mut l.player_vis, |t| t.x); by_x(&mut l.animations, |t| t.x); by_x(&mut l.enter_effects, |t| t.x); by_x(&mut l.time_warps, |t| t.x);
+    by_x(&mut l.colors, |t| t.x); by_x(&mut l.pulses, |t| t.x); by_x(&mut l.alphas, |t| t.x); by_x(&mut l.shakes, |t| t.x); by_x(&mut l.player_vis, |t| t.x); by_x(&mut l.animations, |t| t.x); by_x(&mut l.enter_effects, |t| t.x); by_x(&mut l.generics, |t| t.x);
     l
 }
 
@@ -309,6 +304,7 @@ pub struct ColMeta {
     pub toggled: BTreeSet<i64>,
     /// `_eeCollisionSectionIndex` (NaN when never set / not an integer)
     pub sec: f64,
+    pub init_wh: Option<(f64, f64)>,
 }
 
 /// A sprite as far as group transforms are concerned: its start position (screen Y) and groups.
@@ -324,7 +320,28 @@ pub struct FollowYTween { trig: usize, elapsed: f64, history: Vec<(f64, f64)>, i
 #[derive(Clone, Debug)]
 pub struct FollowTween { trig: usize, elapsed: f64, last_x: f64, last_y: f64 }
 #[derive(Clone, Debug)]
-pub struct SpawnDelay { pub target: i64, pub delay: f64, pub elapsed: f64 }
+pub struct SpawnDelay { pub target: i64, pub delay: f64, pub elapsed: f64, pub remap: RemapRef }
+pub type Remap = std::sync::Arc<BTreeMap<i64, i64>>;
+#[derive(Clone, Debug)]
+pub enum RemapRef { Undef, Null, Map(Remap) }
+impl PartialEq for RemapRef {
+    fn eq(&self, o: &RemapRef) -> bool {
+        match (self, o) { (RemapRef::Undef, RemapRef::Undef) | (RemapRef::Null, RemapRef::Null) => true, (RemapRef::Map(a), RemapRef::Map(b)) => std::sync::Arc::ptr_eq(a, b), _ => false }
+    }
+}
+/// `_parseSpawnRemap`
+pub fn parse_remap(value: Option<&String>) -> Option<Remap> {
+    let v = value?;
+    if v.is_empty() { return None; }
+    let parts: Vec<Option<i64>> = v.split('.').map(parse_int).collect();
+    let mut map = BTreeMap::new();
+    let mut i = 0;
+    while i + 1 < parts.len() {
+        if let (Some(a), Some(b)) = (parts[i], parts[i + 1]) { map.insert(a, b); }
+        i += 2;
+    }
+    if map.is_empty() { None } else { Some(std::sync::Arc::new(map)) }
+}
 #[derive(Clone, Debug)]
 pub struct RotData { pub total_rad: f64, pub center: i64, pub lock_rotation: bool }
 
@@ -339,21 +356,22 @@ pub struct Pos { pub player_x: f64, pub player_y: f64, pub camera_x: f64, pub ca
 #[derive(Default, Clone, Debug)]
 pub struct Triggers {
     /// `level._timeWarp` and the progress of the time warp triggers
-    pub time_warp: f64, pub time_warp_idx: usize, pub time_warp_touched: BTreeSet<i64>, pub warped_delta: Option<f64>,
+    pub time_warp: f64, pub persistent_items: BTreeSet<i64>, pub warped_delta: Option<f64>,
     pub center_cache: Option<BTreeMap<i64, (f64, f64)>>,
     pub phase_limit: u32,
     pub l: Lists,
+    pub gen: crate::generic::GenState,
     pub move_idx: usize, pub rotate_idx: usize, pub spawn_idx: usize, pub stop_idx: usize, pub toggle_idx: usize, pub follow_y_idx: usize, pub follow_idx: usize,
     pub color_idx: usize, pub pulse_idx: usize, pub active_pulses: Vec<ActivePulse>, pub group_ops: Vec<(i64, Option<(usize, f64)>)>, pub shake_idx: usize, pub touch_shake: BTreeSet<i64>, pub shake_state: Option<ShakeState>, pub shake_off: (f64, f64), pub now_ms: f64,
     pub vis_idx: usize, pub touch_vis: BTreeSet<i64>, pub player_hidden: bool,
     pub anim_idx: usize, pub touch_anim: BTreeSet<i64>, pub anim_events: Vec<(i64, f64)>,
     pub enter_idx: usize, pub active_enter: i64, pub active_exit: i64,
     pub alpha_idx: usize, pub active_alpha: Vec<AlphaTween>, pub touch_alpha: BTreeSet<i64>, pub group_opacity: BTreeMap<i64, f64>, pub touch_color: BTreeSet<i64>, pub on_death_idx: usize, pub touch_idx: usize, pub pickup_idx: usize, pub count_idx: usize, pub instant_idx: usize, pub collision_idx: usize,
-    pub armed_on_death: Vec<usize>, pub active_touch: Vec<usize>, pub touch_holding: Vec<bool>, pub active_count: Vec<usize>, pub active_collision: Vec<(usize, bool)>,
+    pub armed_on_death: Vec<usize>, pub active_touch: Vec<usize>, pub touch_holding: Vec<bool>, pub active_count: Vec<usize>, pub count_prev: Vec<f64>, pub active_collision: Vec<(usize, bool)>,
     pub touch_on_death: BTreeSet<i64>, pub touch_touch: BTreeSet<i64>, pub touch_pickup: BTreeSet<i64>, pub touch_count: BTreeSet<i64>, pub touch_instant: BTreeSet<i64>,
     pub item_counts: BTreeMap<i64, f64>,
     pub active_follow_y: Vec<FollowYTween>, pub active_follow: Vec<FollowTween>, pub touch_follow_y: BTreeSet<i64>, pub touch_follow: BTreeSet<i64>,
-    pub active_move: Vec<MoveTween>, pub active_rotate: Vec<RotTween>, pub active_spawn: Vec<SpawnDelay>,
+    pub active_move: Vec<MoveTween>, pub active_rotate: Vec<RotTween>, pub active_spawn: Vec<SpawnDelay>, pub spawn_fired: BTreeSet<i64>,
     pub touch_move: BTreeSet<i64>, pub touch_spawn: BTreeSet<i64>, pub touch_stop: BTreeSet<i64>, pub touch_toggle: BTreeSet<i64>,
     pub offsets: BTreeMap<i64, (f64, f64)>,
     pub rotations: BTreeMap<i64, RotData>,
@@ -367,7 +385,7 @@ pub struct Triggers {
     pub pending: Vec<i64>,
 }
 
-fn push_unique(v: &mut Vec<i64>, g: i64) { if !v.contains(&g) { v.push(g); } }
+pub(crate) fn push_unique(v: &mut Vec<i64>, g: i64) { if !v.contains(&g) { v.push(g); } }
 
 impl Triggers {
     pub fn set_anchors(&mut self, anchors: Vec<Anchor>) {
@@ -379,6 +397,12 @@ impl Triggers {
     }
 
     fn trigger_toggled_off(&self, groups: &[i64]) -> bool { groups.iter().any(|g| self.toggled_off.contains(g)) }
+    pub(crate) fn dead(&self, b: &Base) -> bool { self.trigger_toggled_off(&b.groups) }
+    pub(crate) fn release_touch(&mut self, uid: i64) {
+        for set in [&mut self.touch_color, &mut self.touch_move, &mut self.touch_spawn, &mut self.touch_stop, &mut self.touch_toggle, &mut self.touch_alpha, &mut self.touch_follow_y,
+            &mut self.touch_follow, &mut self.touch_anim, &mut self.touch_shake, &mut self.touch_vis, &mut self.touch_on_death, &mut self.touch_touch, &mut self.touch_pickup,
+            &mut self.touch_count, &mut self.touch_instant] { set.remove(&uid); }
+    }
 }
 
 pub fn section_index(x: f64) -> f64 { js_max(0.0, (x / 400.0).floor()) }
@@ -471,6 +495,7 @@ impl Game {
                 fy = ccy + dx * sin + dy * cos;
             }
         }
+        if self.trig.gen.has_group_scales { self.apply_group_scale_to_collider(ci, &ids, &mut fx, &mut fy); }
         let c = &mut self.cols[ci];
         c.x = fx;
         c.y = fy;
@@ -500,6 +525,7 @@ impl Game {
 
     // ---- move ----
     fn start_move(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.moves[ti].b) { return; }
         let p = self.trig.pos;
         self.trig.active_move.push(MoveTween { trig: ti, elapsed: 0.0, prev_progress: 0.0, prev_px: p.player_x, prev_py: p.player_y, prev_cx: p.camera_x, prev_cy: p.camera_y });
         let tg = self.trig.l.moves[ti].target;
@@ -520,7 +546,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.moves.len() {
             let t = &self.trig.l.moves[ti];
-            if !t.touch || t.b.spawn_triggered { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) { continue; }
             if self.trig.touch_move.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
@@ -580,6 +606,7 @@ impl Game {
 
     // ---- rotate ----
     fn start_rotate(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.rotates[ti].b) { return; }
         let t = &self.trig.l.rotates[ti];
         let total_deg = t.degrees + (t.times360 * 360.0);
         self.trig.active_rotate.push(RotTween { trig: ti, elapsed: 0.0, prev_progress: 0.0, total_rad: total_deg * PI / 180.0 });
@@ -640,6 +667,7 @@ impl Game {
 
     // ---- stop ----
     fn execute_stop(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.stops[ti].b) { return; }
         let tg = self.trig.l.stops[ti].target;
         if tg <= 0 { return; }
         let moves = &self.trig.l.moves;
@@ -666,7 +694,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.stops.len() {
             let t = &self.trig.l.stops[ti];
-            if !t.touch || t.b.spawn_triggered { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) { continue; }
             if self.trig.touch_stop.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
@@ -680,6 +708,7 @@ impl Game {
 
     // ---- follow player Y ----
     fn start_follow_y(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.follow_ys[ti].b) { return; }
         let tg = self.trig.l.follow_ys[ti].target;
         if tg <= 0 { return; }
         self.trig.offsets.entry(tg).or_insert((0.0, 0.0));
@@ -719,7 +748,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.follow_ys.len() {
             let t = &self.trig.l.follow_ys[ti];
-            if !t.touch || t.b.spawn_triggered { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) { continue; }
             if self.trig.touch_follow_y.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
@@ -772,6 +801,7 @@ impl Game {
 
     // ---- follow ----
     fn start_follow(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.follows[ti].b) { return; }
         let (tg, fg) = { let t = &self.trig.l.follows[ti]; (t.target, t.follow_group) };
         if tg <= 0 || fg <= 0 { return; }
         let base = self.trig.offsets.get(&fg).copied().unwrap_or((0.0, 0.0));
@@ -793,7 +823,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.follows.len() {
             let t = &self.trig.l.follows[ti];
-            if !t.touch || t.b.spawn_triggered { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) { continue; }
             if self.trig.touch_follow.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
@@ -867,7 +897,7 @@ impl Game {
         let mut fired: Vec<usize> = Vec::new();
         for ti in 0..self.trig.l.colors.len() {
             let t = &self.trig.l.colors[ti];
-            if !t.touch || t.b.spawn_triggered { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) { continue; }
             if self.trig.touch_color.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX { fired.push(ti); }
         }
@@ -877,6 +907,7 @@ impl Game {
     pub fn reset_color(&mut self) { self.trig.color_idx = 0; self.trig.touch_color.clear(); self.fx.color_dirty = true; }
 
     fn start_pulse(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.pulses[ti].b) { return; }
         if self.ldm { return; }
         let t = self.trig.l.pulses[ti].clone();
         if t.target_type == 0.0 && t.target_channel > 0.0 {
@@ -930,6 +961,7 @@ impl Game {
 
     // ---- shake, player visibility, animation and enter-effect triggers ----
     fn execute_shake(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.shakes[ti].b) { return; }
         let t = &self.trig.l.shakes[ti];
         let dur = js_max(0.0, or0(t.duration));
         let st = js_max(0.0, or0(t.strength));
@@ -973,7 +1005,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.shakes.len() {
             let t = &self.trig.l.shakes[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.touch_shake.contains(&t.b.uid) { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) || self.trig.touch_shake.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
                 self.trig.touch_shake.insert(uid);
@@ -982,48 +1014,8 @@ impl Game {
         }
     }
 
-    // ---- time warp triggers ----
-    fn execute_time_warp(&mut self, ti: usize) {
-        let t = &self.trig.l.time_warps[ti];
-        if self.trig.trigger_toggled_off(&t.b.groups) { return; }
-        if t.value.is_finite() { self.trig.time_warp = js_max(0.1, js_min(2.0, t.value)); }
-    }
-
-    /// `checkTimeWarpTriggers(playerX, playerY, secondaryY)`
-    pub fn check_time_warp(&mut self, px: f64, py: Option<f64>, py2: Option<f64>) {
-        while self.trig.time_warp_idx < self.trig.l.time_warps.len() {
-            let ti = self.trig.time_warp_idx;
-            let t = &self.trig.l.time_warps[ti];
-            if t.x > px { break; }
-            let run = !t.b.spawn_triggered && !t.touch;
-            self.trig.time_warp_idx += 1;
-            if run { self.execute_time_warp(ti); }
-        }
-        let Some(py) = py else { return };
-        let half = 30.0 + if self.p.is_mini { 18.0 } else { 30.0 };
-        let half2 = 30.0 + if self.p2.is_mini { 18.0 } else { 30.0 };
-        for ti in 0..self.trig.l.time_warps.len() {
-            let t = &self.trig.l.time_warps[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.time_warp_touched.contains(&t.b.uid) || self.trig.trigger_toggled_off(&t.b.groups) { continue; }
-            let hit = ((t.x - px).abs() <= half && (t.y - py).abs() <= half)
-                || py2.map_or(false, |y2| (t.x - px).abs() <= half2 && (t.y - y2).abs() <= half2);
-            if hit {
-                let uid = t.b.uid;
-                self.trig.time_warp_touched.insert(uid);
-                self.execute_time_warp(ti);
-            }
-        }
-    }
-
-    pub fn reset_time_warp(&mut self) { self.trig.time_warp = 1.0; self.trig.time_warp_idx = 0; self.trig.time_warp_touched.clear(); }
-    pub fn save_time_warp(&self) -> (f64, usize, Vec<i64>) { (self.trig.time_warp, self.trig.time_warp_idx, self.trig.time_warp_touched.iter().copied().collect()) }
-    /// `restoreTimeWarpState(saved, playerX)`
-    pub fn restore_time_warp(&mut self, saved: Option<&(f64, usize, Vec<i64>)>, px: f64) {
-        match saved {
-            None => self.check_time_warp(px, None, None),
-            Some((v, i, t)) => { self.trig.time_warp = *v; self.trig.time_warp_idx = *i; self.trig.time_warp_touched = t.iter().copied().collect(); }
-        }
-    }
+    pub fn save_time_warp(&self) -> (f64, usize, Vec<i64>) { (1.0, 0, Vec::new()) }
+    pub fn restore_time_warp(&mut self, _saved: Option<&(f64, usize, Vec<i64>)>, _px: f64) {}
 
     pub fn reset_shake(&mut self) { self.trig.shake_idx = 0; self.trig.touch_shake.clear(); self.trig.shake_state = None; self.trig.shake_off = (0.0, 0.0); }
 
@@ -1040,7 +1032,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.player_vis.len() {
             let t = &self.trig.l.player_vis[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.touch_vis.contains(&t.b.uid) { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) || self.trig.touch_vis.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let (uid, hide) = (t.b.uid, t.hide);
                 self.trig.touch_vis.insert(uid);
@@ -1053,6 +1045,7 @@ impl Game {
 
     /// `_executeAnimationTrigger`: the group's animated objects get the command (the renderer drains `anim_events`).
     fn execute_animation(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.animations[ti].b) { return; }
         let t = &self.trig.l.animations[ti];
         if !(t.target.is_finite() && t.target > 0.0) { return; }
         let g = t.target as i64;
@@ -1076,7 +1069,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.animations.len() {
             let t = &self.trig.l.animations[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.touch_anim.contains(&t.b.uid) { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) || self.trig.touch_anim.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
                 self.trig.touch_anim.insert(uid);
@@ -1100,6 +1093,7 @@ impl Game {
 
     // ---- alpha (group opacity) triggers ----
     fn start_alpha(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.alphas[ti].b) { return; }
         let g = self.trig.l.alphas[ti].target_group;
         let start = self.trig.group_opacity.get(&g).copied().unwrap_or(1.0);
         self.trig.active_alpha.push(AlphaTween { trig: ti, elapsed: 0.0, start });
@@ -1119,7 +1113,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.alphas.len() {
             let t = &self.trig.l.alphas[ti];
-            if !t.touch || t.b.spawn_triggered { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) { continue; }
             if self.trig.touch_alpha.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
@@ -1180,12 +1174,20 @@ impl Game {
         self.sprite_toggle_group(tg);
     }
 
+    /// `_toggleGroupTriggered`
+    fn toggle_group_triggered(&mut self, tg: i64, activate: bool) {
+        self.toggle_group(tg, activate);
+        if activate { self.activate_spawned_group(tg); }
+    }
+
     // ---- on death ----
-    fn arm_on_death(&mut self, ti: usize) { if !self.trig.armed_on_death.contains(&ti) { self.trig.armed_on_death.push(ti); } }
+    fn arm_on_death(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.on_deaths[ti].b) { return; } if !self.trig.armed_on_death.contains(&ti) { self.trig.armed_on_death.push(ti); } }
 
     fn execute_on_death(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.on_deaths[ti].b) { return; }
         let (tg, activate) = { let t = &self.trig.l.on_deaths[ti]; (t.target, t.activate) };
-        if activate { self.activate_spawned_group(tg); self.toggle_group(tg, true); } else { self.toggle_group(tg, false); }
+        if activate { self.toggle_group_triggered(tg, true); } else { self.toggle_group(tg, false); }
     }
 
     /// `triggerOnDeath`
@@ -1208,7 +1210,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.on_deaths.len() {
             let t = &self.trig.l.on_deaths[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.touch_on_death.contains(&t.b.uid) { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) || self.trig.touch_on_death.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
                 self.trig.touch_on_death.insert(uid);
@@ -1220,7 +1222,8 @@ impl Game {
     pub fn reset_on_death(&mut self) { self.trig.on_death_idx = 0; self.trig.armed_on_death.clear(); self.trig.touch_on_death.clear(); }
 
     // ---- touch (player input) triggers ----
-    fn arm_touch(&mut self, ti: usize) { if !self.trig.active_touch.contains(&ti) { self.trig.active_touch.push(ti); } }
+    fn arm_touch(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.touches[ti].b) { return; } if !self.trig.active_touch.contains(&ti) { self.trig.active_touch.push(ti); } }
 
     pub fn check_touch_triggers(&mut self, px: f64) {
         while self.trig.touch_idx < self.trig.l.touches.len() {
@@ -1236,7 +1239,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.touches.len() {
             let t = &self.trig.l.touches[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.touch_touch.contains(&t.b.uid) { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) || self.trig.touch_touch.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
                 self.trig.touch_touch.insert(uid);
@@ -1250,23 +1253,23 @@ impl Game {
         while i < self.trig.active_touch.len() {
             let ti = self.trig.active_touch[i];
             i += 1;
-            let (hold_mode, toggle_type, tg) = { let t = &self.trig.l.touches[ti]; (t.hold_mode, t.toggle_type, t.target) };
-            let holding = p1_hold || p2_hold;
-            let pressed = p1_press || p2_press;
+            if self.trig.dead(&self.trig.l.touches[ti].b) { continue; }
+            let (hold_mode, toggle_type, tg, filter) = { let t = &self.trig.l.touches[ti]; (t.hold_mode, t.toggle_type, t.target, t.player_filter) };
+            let use_p1 = filter != 2.0;
+            let use_p2 = filter != 1.0;
+            let holding = (use_p1 && p1_hold) || (use_p2 && p2_hold);
+            let pressed = (use_p1 && p1_press) || (use_p2 && p2_press);
+            let off = self.trig.toggled_off.contains(&tg);
+            let mut activate: Option<bool> = None;
             if hold_mode {
-                if holding && !self.trig.touch_holding[ti] {
-                    self.trig.touch_holding[ti] = true;
-                    if toggle_type == 2.0 { self.toggle_group(tg, false); } else { self.activate_spawned_group(tg); self.toggle_group(tg, true); }
-                } else if !holding && self.trig.touch_holding[ti] {
-                    self.trig.touch_holding[ti] = false;
-                    if toggle_type == 2.0 { self.activate_spawned_group(tg); self.toggle_group(tg, true); } else { self.toggle_group(tg, false); }
+                if holding != self.trig.touch_holding[ti] {
+                    self.trig.touch_holding[ti] = holding;
+                    activate = Some(if toggle_type == 0.0 { off } else { (toggle_type == 1.0) == holding });
                 }
             } else if pressed {
-                if toggle_type == 1.0 { self.activate_spawned_group(tg); self.toggle_group(tg, true); }
-                else if toggle_type == 2.0 { self.toggle_group(tg, false); }
-                else if self.trig.toggled_off.contains(&tg) { self.activate_spawned_group(tg); self.toggle_group(tg, true); }
-                else { self.toggle_group(tg, false); }
+                activate = Some(if toggle_type == 0.0 { off } else { toggle_type == 1.0 });
             }
+            if let Some(a) = activate { self.toggle_group_triggered(tg, a); }
         }
     }
 
@@ -1281,6 +1284,7 @@ impl Game {
 
     // ---- item counts ----
     fn execute_pickup(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.pickups[ti].b) { return; }
         let (item, count) = { let t = &self.trig.l.pickups[ti]; (t.item_id, t.count) };
         if item == 0.0 || item.is_nan() { return; }
         let id = item as i64;
@@ -1303,7 +1307,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.pickups.len() {
             let t = &self.trig.l.pickups[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.touch_pickup.contains(&t.b.uid) { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) || self.trig.touch_pickup.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
                 self.trig.touch_pickup.insert(uid);
@@ -1312,7 +1316,12 @@ impl Game {
         }
     }
 
-    pub fn reset_pickup(&mut self) { self.trig.pickup_idx = 0; self.trig.touch_pickup.clear(); self.trig.item_counts.clear(); }
+    pub fn reset_pickup(&mut self) {
+        self.trig.pickup_idx = 0;
+        self.trig.touch_pickup.clear();
+        let persistent = &self.trig.persistent_items;
+        self.trig.item_counts.retain(|k, _| persistent.contains(k));
+    }
 
     fn item_count(&self, item: f64) -> f64 {
         if item.is_nan() { return 0.0; }
@@ -1320,20 +1329,27 @@ impl Game {
     }
 
     fn arm_count(&mut self, ti: usize) {
-        if !self.trig.active_count.contains(&ti) { self.trig.active_count.push(ti); }
-        self.evaluate_count(ti);
-    }
-
-    fn evaluate_count(&mut self, ti: usize) {
-        let (item, target_count, activate, multi, tg) = { let t = &self.trig.l.counts[ti]; (t.item_id, t.target_count, t.activate, t.multi_activate, t.target) };
-        let current = self.item_count(item);
-        if current >= target_count {
-            if activate { self.activate_spawned_group(tg); self.toggle_group(tg, true); } else { self.toggle_group(tg, false); }
-            if !multi { if let Some(p) = self.trig.active_count.iter().position(|&c| c == ti) { self.trig.active_count.remove(p); } }
+        if self.trig.dead(&self.trig.l.counts[ti].b) { return; }
+        if !self.trig.active_count.contains(&ti) {
+            self.trig.active_count.push(ti);
+            let item = self.trig.l.counts[ti].item_id;
+            self.trig.count_prev[ti] = self.item_count(item);
         }
     }
 
-    fn check_count_triggers_for(&mut self, item: f64) {
+    fn evaluate_count(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.counts[ti].b) { return; }
+        let (item, target, activate, multi, tg) = { let t = &self.trig.l.counts[ti]; (t.item_id, t.target_count, t.activate, t.multi_activate, t.target) };
+        let current = self.item_count(item);
+        let previous = self.trig.count_prev[ti];
+        if current == previous { return; }
+        self.trig.count_prev[ti] = current;
+        if !((previous < target && current >= target) || (previous > target && current <= target)) { return; }
+        if !multi { if let Some(p) = self.trig.active_count.iter().position(|&c| c == ti) { self.trig.active_count.remove(p); } }
+        self.toggle_group_triggered(tg, activate);
+    }
+
+    pub(crate) fn check_count_triggers_for(&mut self, item: f64) {
         let mut i = self.trig.active_count.len() as isize - 1;
         while i >= 0 {
             if let Some(&ti) = self.trig.active_count.get(i as usize) {
@@ -1357,7 +1373,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.counts.len() {
             let t = &self.trig.l.counts[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.touch_count.contains(&t.b.uid) { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) || self.trig.touch_count.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
                 self.trig.touch_count.insert(uid);
@@ -1369,11 +1385,12 @@ impl Game {
     pub fn reset_count(&mut self) { self.trig.count_idx = 0; self.trig.active_count.clear(); self.trig.touch_count.clear(); }
 
     fn execute_instant_count(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.instant_counts[ti].b) { return; }
         let (item, target_count, activate, cmp, tg) = { let t = &self.trig.l.instant_counts[ti]; (t.item_id, t.target_count, t.activate, t.comparison, t.target) };
         let current = self.item_count(item);
         let matched = if cmp == 1.0 { current > target_count } else if cmp == 2.0 { current < target_count } else { current == target_count };
         if matched {
-            if activate { self.activate_spawned_group(tg); self.toggle_group(tg, true); } else { self.toggle_group(tg, false); }
+            if activate { self.toggle_group_triggered(tg, true); } else { self.toggle_group(tg, false); }
         }
     }
 
@@ -1391,7 +1408,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.instant_counts.len() {
             let t = &self.trig.l.instant_counts[ti];
-            if !t.touch || t.b.spawn_triggered || self.trig.touch_instant.contains(&t.b.uid) { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) || self.trig.touch_instant.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
                 self.trig.touch_instant.insert(uid);
@@ -1404,6 +1421,7 @@ impl Game {
 
     // ---- collision triggers ----
     fn arm_collision(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.collisions[ti].b) { return; }
         let t = &self.trig.l.collisions[ti];
         if t.block_a == 0.0 || t.block_b == 0.0 || !(t.target > 0) { return; }
         if self.trig.active_collision.iter().any(|e| e.0 == ti) { return; }
@@ -1420,6 +1438,9 @@ impl Game {
         }
     }
 
+    pub(crate) fn block_enabled_pub(&self, b: &Block) -> bool { self.block_enabled(b) }
+    pub(crate) fn blocks_touch_pub(&self, a: f64, b: f64) -> bool { self.blocks_touch(a, b) }
+    pub(crate) fn apply_group_transforms_pub(&mut self, g: &[i64]) { self.apply_group_transforms(g); }
     fn block_enabled(&self, b: &Block) -> bool { !b.groups.iter().any(|g| self.trig.toggled_off.contains(g)) }
 
     fn blocks_touch(&self, id_a: f64, id_b: f64) -> bool {
@@ -1448,7 +1469,7 @@ impl Game {
             let touching = self.blocks_touch(t.block_a, t.block_b);
             if touching == colliding { continue; }
             self.trig.active_collision[i - 1].1 = touching;
-            if touching != t.on_exit { self.toggle_group(t.target, t.activate); }
+            if touching != t.on_exit { self.toggle_group_triggered(t.target, t.activate); }
         }
     }
 
@@ -1458,6 +1479,7 @@ impl Game {
     pub fn execute_toggle_pub(&mut self, ti: usize) { self.execute_toggle(ti); }
 
     fn execute_toggle(&mut self, ti: usize) {
+        if self.trig.dead(&self.trig.l.toggles[ti].b) { return; }
         let (tg, activate) = { let t = &self.trig.l.toggles[ti]; (t.target, t.activate) };
         self.toggle_group(tg, activate);
     }
@@ -1476,7 +1498,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.toggles.len() {
             let t = &self.trig.l.toggles[ti];
-            if !t.touch || t.b.spawn_triggered { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) { continue; }
             if self.trig.touch_toggle.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
@@ -1500,15 +1522,29 @@ impl Game {
 
     // ---- spawn ----
     fn queue_spawn(&mut self, ti: usize) {
-        let (tg, delay, rdelay) = { let t = &self.trig.l.spawns[ti]; (t.target, t.delay, t.random_delay) };
+        let remap = match &self.trig.l.spawns[ti].remap { Some(m) => RemapRef::Map(m.clone()), None => RemapRef::Null };
+        let tg = self.trig.l.spawns[ti].target;
+        self.queue_spawn_with(ti, tg, remap);
+    }
+
+    fn queue_spawn_with(&mut self, ti: usize, tg: i64, remap: RemapRef) {
+        if self.trig.dead(&self.trig.l.spawns[ti].b) { return; }
+        let (delay, rdelay) = { let t = &self.trig.l.spawns[ti]; (t.delay, t.random_delay) };
         if tg <= 0 { return; }
         let base = js_max(0.0, or0(delay));
         let random = js_max(0.0, or0(rdelay));
         let randomized = if random > 0.0 { js_max(0.0, base + ((m::random() * 2.0) - 1.0) * random) } else { base };
         for p in &self.trig.active_spawn {
-            if p.target == tg && ((p.delay - p.elapsed) - randomized).abs() < 1e-6 { return; }
+            if p.target == tg && p.remap == remap && ((p.delay - p.elapsed) - randomized).abs() < 1e-6 { return; }
         }
-        self.trig.active_spawn.push(SpawnDelay { target: tg, delay: randomized, elapsed: 0.0 });
+        self.trig.active_spawn.push(SpawnDelay { target: tg, delay: randomized, elapsed: 0.0, remap });
+    }
+
+    /// `_spawnGroupNow`
+    pub fn spawn_group_now(&mut self, g: i64) {
+        if g <= 0 { return; }
+        for p in &self.trig.active_spawn { if p.target == g && p.delay == 0.0 && p.elapsed == 0.0 { return; } }
+        self.trig.active_spawn.push(SpawnDelay { target: g, delay: 0.0, elapsed: 0.0, remap: RemapRef::Undef });
     }
 
     pub fn check_spawn(&mut self, px: f64) {
@@ -1525,7 +1561,7 @@ impl Game {
         let (px, py) = (or0(px), or0(py));
         for ti in 0..self.trig.l.spawns.len() {
             let t = &self.trig.l.spawns[ti];
-            if !t.touch || t.b.spawn_triggered { continue; }
+            if !t.touch || t.b.spawn_triggered || self.trig.dead(&t.b) { continue; }
             if self.trig.touch_spawn.contains(&t.b.uid) { continue; }
             if (px - t.x).abs() <= TOUCH_HALF_HITBOX && (py - t.y).abs() <= TOUCH_HALF_HITBOX {
                 let uid = t.b.uid;
@@ -1535,12 +1571,27 @@ impl Game {
         }
     }
 
-    /// `_activateSpawnedGroup` for the trigger kinds that are ported.
-    fn activate_spawned_group(&mut self, gid: i64) {
+    pub fn activate_spawned_group(&mut self, gid: i64) { self.activate_spawned_group_r(gid, None); }
+
+    /// `_activateSpawnedGroup(groupId, colorManager, remap)` for the legacy trigger kinds.
+    pub fn activate_spawned_group_r(&mut self, gid: i64, remap: Option<Remap>) {
         if gid <= 0 { return; }
+        let mut fired_now: BTreeSet<i64> = BTreeSet::new();
         macro_rules! matches { ($list:ident) => {{
-            let tr = &self.trig;
-            (0..tr.l.$list.len()).filter(|&i| { let t = &tr.l.$list[i]; t.b.spawn_triggered && t.b.groups.contains(&gid) && !tr.trigger_toggled_off(&t.b.groups) }).collect::<Vec<usize>>()
+            let mut out: Vec<usize> = Vec::new();
+            for i in 0..self.trig.l.$list.len() {
+                let t = &self.trig.l.$list[i];
+                if !(t.b.spawn_triggered && t.b.groups.contains(&gid)) { continue; }
+                if self.trig.dead(&t.b) { continue; }
+                if !t.b.multi {
+                    let uid = t.b.uid;
+                    if self.trig.spawn_fired.contains(&uid) && !fired_now.contains(&uid) { continue; }
+                    self.trig.spawn_fired.insert(uid);
+                    fired_now.insert(uid);
+                }
+                out.push(i);
+            }
+            out
         }}; }
         for i in matches!(colors) { self.apply_color_trigger(i, true); }
         for i in matches!(enter_effects) { let e = self.trig.l.enter_effects[i].effect; self.trig.active_enter = e; self.trig.active_exit = e; }
@@ -1555,14 +1606,25 @@ impl Game {
         for i in matches!(shakes) { self.execute_shake(i); }
         for i in matches!(player_vis) { self.trig.player_hidden = self.trig.l.player_vis[i].hide; }
         for i in matches!(pulses) { self.start_pulse(i); }
-        for i in matches!(time_warps) { self.execute_time_warp(i); }
-        for i in matches!(spawns) { self.queue_spawn(i); }
+        for i in matches!(spawns) {
+            match &remap {
+                None => self.queue_spawn(i),
+                Some(r) => {
+                    let (tg, own) = { let t = &self.trig.l.spawns[i]; (t.target, t.remap.clone()) };
+                    let tg = r.get(&tg).copied().unwrap_or(tg);
+                    let mut merged: BTreeMap<i64, i64> = (**r).clone();
+                    if let Some(o) = own { for (a, b) in o.iter() { merged.insert(*a, *b); } }
+                    self.queue_spawn_with(i, tg, RemapRef::Map(std::sync::Arc::new(merged)));
+                }
+            }
+        }
         for i in matches!(on_deaths) { self.arm_on_death(i); }
         for i in matches!(touches) { self.arm_touch(i); }
         for i in matches!(pickups) { self.execute_pickup(i); }
         for i in matches!(counts) { self.arm_count(i); }
         for i in matches!(instant_counts) { self.execute_instant_count(i); }
         for i in matches!(collisions) { self.arm_collision(i); }
+        self.activate_spawned_generic(gid, remap);
     }
 
     pub fn step_spawn(&mut self, dt: f64) {
@@ -1571,10 +1633,10 @@ impl Game {
         while i < self.trig.active_spawn.len() && guard < 256 {
             guard += 1;
             self.trig.active_spawn[i].elapsed += dt;
-            let (elapsed, delay, tg) = { let it = &self.trig.active_spawn[i]; (it.elapsed, it.delay, it.target) };
+            let (elapsed, delay, tg, remap) = { let it = &self.trig.active_spawn[i]; (it.elapsed, it.delay, it.target, match &it.remap { RemapRef::Map(m) => Some(m.clone()), _ => None }) };
             if elapsed >= delay {
                 self.trig.active_spawn.remove(i);
-                self.activate_spawned_group(tg);
+                self.activate_spawned_group_r(tg, remap);
             } else {
                 i += 1;
             }
@@ -1586,7 +1648,7 @@ impl Game {
         }
     }
 
-    pub fn reset_spawn(&mut self) { self.trig.spawn_idx = 0; self.trig.active_spawn.clear(); self.trig.touch_spawn.clear(); }
+    pub fn reset_spawn(&mut self) { self.trig.spawn_fired.clear(); self.trig.spawn_idx = 0; self.trig.active_spawn.clear(); self.trig.touch_spawn.clear(); }
 
     /// The trigger part of game-scene.js `update`, in its order. `dual_y` is the second player's Y when it is alive in dual mode.
     pub fn trigger_frame(&mut self, pos: Pos, dual_y: Option<f64>, dt: f64, input: Input) {
@@ -1602,7 +1664,7 @@ impl Game {
         if self.trig.phase_limit >= 5 { self.check_touch_move(px, pos.player_y); }
         if self.trig.phase_limit >= 6 { if let Some(y2) = dual_y { self.check_touch_move(px, y2); } }
         if self.trig.phase_limit >= 7 { self.begin_group_transform_batch(); }
-        if self.trig.phase_limit >= 8 { self.step_move(dt); }
+        if self.trig.phase_limit >= 8 { self.step_move(dt); self.update_generic(px, Some(pos.player_y), dual_y, dt); }
         if self.trig.phase_limit >= 9 { self.step_spawn(dt); }
         if self.trig.phase_limit >= 9 {
             self.check_alpha(px);
@@ -1659,7 +1721,6 @@ impl Game {
         self.step_pulse(dt);
         self.cm.step(dt);
         self.check_enter_effect(px);
-        self.check_time_warp(px, Some(pos.player_y), dual_y);
         self.apply_shake(0.0);
     }
 
@@ -1676,7 +1737,7 @@ impl Game {
         o.field("followY", format!("[{}]", hist.join(",")));
         let fol: Vec<String> = t.active_follow.iter().map(|a| format!("[{},{},{}]", num(a.elapsed), num(a.last_x), num(a.last_y))).collect();
         o.field("follow", format!("[{}]", fol.join(",")));
-        let sp: Vec<String> = t.active_spawn.iter().map(|s| format!("[{},{},{}]", s.target, num(s.delay), num(s.elapsed))).collect();
+        let sp: Vec<String> = t.active_spawn.iter().map(|s| format!("[{},{},{},{},[{}]]", s.target, num(s.delay), num(s.elapsed), match &s.remap { RemapRef::Undef => 0, RemapRef::Null => 1, RemapRef::Map(_) => 2 }, match &s.remap { RemapRef::Map(m) => m.iter().map(|(a, b)| format!("[{},{}]", a, b)).collect::<Vec<_>>().join(","), _ => String::new() })).collect();
         o.field("spawnDelays", format!("[{}]", sp.join(",")));
         o.field("idx", format!("[{},{},{},{},{},{},{},{},{},{},{},{},{}]", t.move_idx, t.rotate_idx, t.spawn_idx, t.stop_idx, t.toggle_idx, t.follow_y_idx, t.follow_idx, t.on_death_idx, t.touch_idx, t.pickup_idx, t.count_idx, t.instant_idx, t.collision_idx));
         let ints = |v: &[usize]| format!("[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
@@ -1696,22 +1757,22 @@ impl Game {
         o.field("groupOpacity", format!("{{{}}}", t.group_opacity.iter().map(|(k, v)| format!("{}:{}", str_lit(&gkey(*k)), num(*v))).collect::<Vec<_>>().join(",")));
         o.field("alpha", format!("[{}]", std::iter::once(t.alpha_idx.to_string()).chain(t.active_alpha.iter().map(|a| format!("[{},{},{}]", a.trig, num(a.elapsed), num(a.start)))).collect::<Vec<_>>().join(",")));
         o.field("itemCounts", format!("{{{}}}", t.item_counts.iter().map(|(k, v)| format!("\"{}\":{}", k, num(*v))).collect::<Vec<_>>().join(",")));
-        o.field("timeWarp", format!("[{},{},{}]", num(t.time_warp), t.time_warp_idx, t.time_warp_touched.len()));
         let off: Vec<String> = t.toggled_off.iter().map(|g| g.to_string()).collect();
         o.field("toggledOff", format!("[{}]", off.join(",")));
+        o.field("generic", self.generic_state_json());
         o.finish()
     }
 
     pub fn trigger_lists_json(&self) -> String {
         let l = &self.trig.l;
-        let b = |b: &Base| format!("\"uid\":{},\"spawnTriggered\":{},\"groups\":[{}]", b.uid, b.spawn_triggered, b.groups.iter().map(|g| g.to_string()).collect::<Vec<_>>().join(","));
+        let b = |b: &Base| format!("\"uid\":{},\"spawnTriggered\":{},\"multiTrigger\":{},\"triggerChannel\":{},\"ord\":{},\"groups\":[{}]", b.uid, b.spawn_triggered, b.multi, b.channel, b.ord, b.groups.iter().map(|g| g.to_string()).collect::<Vec<_>>().join(","));
         let k = |g: i64| if g == NAN_KEY { "null".to_string() } else { g.to_string() };
         let moves: Vec<String> = l.moves.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"duration\":{},\"easingType\":{},\"easingRate\":{},\"targetGroup\":{},\"offsetX\":{},\"offsetY\":{},\"lockX\":{},\"lockY\":{},\"lockCameraX\":{},\"lockCameraY\":{}}}",
             b(&t.b), num(t.x), num(t.y), t.touch, num(t.duration), num(t.easing_type), num(t.easing_rate), k(t.target), num(t.offset_x), num(t.offset_y), t.lock_x, t.lock_y, t.lock_cam_x, t.lock_cam_y)).collect();
         let rotates: Vec<String> = l.rotates.iter().map(|t| format!("{{{},\"x\":{},\"targetGroup\":{},\"degrees\":{},\"duration\":{},\"easingType\":{},\"easingRate\":{},\"lockRotation\":{},\"times360\":{},\"centerGroup\":{}}}",
             b(&t.b), num(t.x), t.target, num(t.degrees), num(t.duration), num(t.easing_type), num(t.easing_rate), t.lock_rotation, num(t.times360), t.center)).collect();
-        let spawns: Vec<String> = l.spawns.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"delay\":{},\"randomDelay\":{}}}",
-            b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), num(t.delay), num(t.random_delay))).collect();
+        let spawns: Vec<String> = l.spawns.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"delay\":{},\"randomDelay\":{},\"remap\":{}}}",
+            b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), num(t.delay), num(t.random_delay), t.remap.as_ref().map_or("null".to_string(), |m| format!("{{{}}}", m.iter().map(|(a, b)| format!("\"{}\":{}", a, b)).collect::<Vec<_>>().join(","))))).collect();
         let stops: Vec<String> = l.stops.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, k(t.target))).collect();
         let toggles: Vec<String> = l.toggles.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"activate\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), t.activate)).collect();
         let fys: Vec<String> = l.follow_ys.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"speed\":{},\"delay\":{},\"offset\":{},\"maxSpeed\":{},\"duration\":{}}}",
@@ -1719,7 +1780,7 @@ impl Game {
         let fols: Vec<String> = l.follows.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"followGroup\":{},\"xMod\":{},\"yMod\":{},\"duration\":{}}}",
             b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), k(t.follow_group), num(t.x_mod), num(t.y_mod), num(t.duration))).collect();
         let ods: Vec<String> = l.on_deaths.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"activate\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), t.activate)).collect();
-        let tts: Vec<String> = l.touches.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"toggleType\":{},\"dualTouch\":{},\"holdMode\":{},\"dualAction\":{},\"specialMode\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), num(t.toggle_type), t.dual_touch, t.hold_mode, num(t.dual_action), num(t.special_mode))).collect();
+        let tts: Vec<String> = l.touches.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"toggleType\":{},\"dualTouch\":{},\"holdMode\":{},\"playerFilter\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), num(t.toggle_type), t.dual_touch, t.hold_mode, num(t.player_filter))).collect();
         let pks: Vec<String> = l.pickups.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"itemId\":{},\"count\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, num(t.item_id), num(t.count))).collect();
         let cts: Vec<String> = l.counts.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"itemId\":{},\"targetCount\":{},\"activate\":{},\"multiActivate\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), num(t.item_id), num(t.target_count), t.activate, t.multi_activate)).collect();
         let ics: Vec<String> = l.instant_counts.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"itemId\":{},\"targetCount\":{},\"activate\":{},\"comparison\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, k(t.target), num(t.item_id), num(t.target_count), t.activate, num(t.comparison))).collect();
@@ -1742,9 +1803,9 @@ impl Game {
         let ans: Vec<String> = l.animations.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"targetGroup\":{},\"animateId\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, num(t.target), num(t.animate_id))).collect();
         let ees: Vec<String> = l.enter_effects.iter().map(|t| format!("{{{},\"x\":{},\"effect\":{}}}", b(&t.b), num(t.x), t.effect)).collect();
         let als: Vec<String> = l.alphas.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"duration\":{},\"targetGroup\":{},\"targetOpacity\":{}}}", b(&t.b), num(t.x), num(t.y), num(t.duration), k(t.target_group), num(t.target_opacity))).collect();
-        let tws: Vec<String> = l.time_warps.iter().map(|t| format!("{{{},\"x\":{},\"y\":{},\"touchTriggered\":{},\"value\":{}}}", b(&t.b), num(t.x), num(t.y), t.touch, num(t.value))).collect();
-        format!("{{\"timeWarp\":[{}],\"move\":[{}],\"rotate\":[{}],\"spawn\":[{}],\"stop\":[{}],\"toggle\":[{}],\"followY\":[{}],\"follow\":[{}],\"onDeath\":[{}],\"touch\":[{}],\"pickup\":[{}],\"count\":[{}],\"instantCount\":[{}],\"collision\":[{}],\"blocks\":[{}],\"color\":[{}],\"pulse\":[{}],\"alpha\":[{}],\"shake\":[{}],\"playerVis\":[{}],\"animation\":[{}],\"enterEffect\":[{}]}}",
-            tws.join(","), moves.join(","), rotates.join(","), spawns.join(","), stops.join(","), toggles.join(","), fys.join(","), fols.join(","), ods.join(","), tts.join(","), pks.join(","), cts.join(","), ics.join(","), cls.join(","), bls.join(","), cols.join(","), pls.join(","), als.join(","), shs.join(","), pvs.join(","), ans.join(","), ees.join(","))
+        let gens = crate::generic::gen_list_json(&self.trig.l.generics);
+        format!("{{\"generic\":{},\"timeWarp\":[],\"move\":[{}],\"rotate\":[{}],\"spawn\":[{}],\"stop\":[{}],\"toggle\":[{}],\"followY\":[{}],\"follow\":[{}],\"onDeath\":[{}],\"touch\":[{}],\"pickup\":[{}],\"count\":[{}],\"instantCount\":[{}],\"collision\":[{}],\"blocks\":[{}],\"color\":[{}],\"pulse\":[{}],\"alpha\":[{}],\"shake\":[{}],\"playerVis\":[{}],\"animation\":[{}],\"enterEffect\":[{}]}}",
+            gens, moves.join(","), rotates.join(","), spawns.join(","), stops.join(","), toggles.join(","), fys.join(","), fols.join(","), ods.join(","), tts.join(","), pks.join(","), cts.join(","), ics.join(","), cls.join(","), bls.join(","), cols.join(","), pls.join(","), als.join(","), shs.join(","), pvs.join(","), ans.join(","), ees.join(","))
     }
 }
 
