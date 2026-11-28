@@ -1203,7 +1203,7 @@ pub extern "C" fn wd_gar_close() { with_ui(|u| { u.gar_action("GarageClose", 0);
 pub extern "C" fn wd_gar_is_open() -> u32 { with_ui(|u| u.gar.open as u32) }
 /// JSON list of the icon bases the grid is waiting for
 #[no_mangle]
-pub extern "C" fn wd_gar_need() -> usize { out_str(with_ui(|u| format!("[{}]", u.gar.need.iter().map(|b| json::str_lit(b)).collect::<Vec<_>>().join(",")))) }
+pub extern "C" fn wd_gar_need() -> usize { out_str(with_ui(|u| { let need = std::mem::take(&mut u.gar.need); format!("[{}]", need.iter().map(|b| json::str_lit(b)).collect::<Vec<_>>().join(",")) })) }
 #[no_mangle]
 pub unsafe extern "C" fn wd_gar_ready(p: *const u8, l: usize, ok: u32) {
     let b = String::from_utf8_lossy(std::slice::from_raw_parts(p, l)).into_owned();

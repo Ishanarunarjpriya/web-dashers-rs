@@ -42,7 +42,11 @@
     setKV(wd, "iconCurrentPlayer", LS.get("iconCurrentPlayer", "player_01")); setKV(wd, "iconCurrentShip", LS.get("iconCurrentShip", "ship_01"));
     setKV(wd, "iconCurrentBall", LS.get("iconCurrentBall", "player_ball_01")); setKV(wd, "iconCurrentWave", LS.get("iconCurrentWave", "dart_01"));
     setKV(wd, "iconCurrentBird", LS.get("iconCurrentBird", "bird_01")); setKV(wd, "iconCurrentSpider", LS.get("iconCurrentSpider", "spider_01"));
-    setKV(wd, "iconCurrentRobot", LS.get("iconCurrentRobot", "robot_01"));
+    setKV(wd, "iconCurrentRobot", LS.get("iconCurrentRobot", "robot_01")); setKV(wd, "iconCurrentSwing", LS.get("iconCurrentSwing", "swing_01"));
+    setKV(wd, "iconGlowColor", LS.get("iconGlowColor", "7DFF00")); setKV(wd, "iconGlowEnabled", LS.get("iconGlowEnabled", "false"));
+    setKV(wd, "iconCurrentTrail", LS.get("iconCurrentTrail", "1")); setKV(wd, "iconCurrentShipFire", LS.get("iconCurrentShipFire", "1")); setKV(wd, "iconCurrentDeathEffect", LS.get("iconCurrentDeathEffect", "1"));
+    setKV(wd, "iconExplode", LS.get("iconExplode", "true")); setKV(wd, "iconSlowRobotRun", LS.get("iconSlowRobotRun", "false")); setKV(wd, "iconFastRobotRun", LS.get("iconFastRobotRun", "false")); setKV(wd, "iconFastSpiderRun", LS.get("iconFastSpiderRun", "false"));
+    setKV(wd, "secretCoins", parseInt(LS.get("gd_totalsecretcoins", "0"), 10) || 0); setKV(wd, "userCoins", parseInt(LS.get("gd_totalusercoins", "0"), 10) || 0);
     let name = String(LS.get("playerName", "Player")).replace(/\r|\n/g, "").slice(0, 20); if (!name.trim()) name = "Player";
     setKV(wd, "playerName", name);
     setKV(wd, "customCubeIcon", window.__pv && window.__pv.hasCustomCube() ? "1" : "0");

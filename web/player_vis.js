@@ -204,7 +204,7 @@
         this.spiderTimer = 0; this.spiderFlash = 0; this.robotTimer = 0; this.robotState = "run";
         this.ufoLast = null; this.ufoTilt = 0; this.ufoRot = NaN;
         this.circles = []; this.dashFx = null;
-        this.pieces = null; this.burst = null; this.flash = null; this.ended = null;
+        this.pieces = null; this.burst = null; this.flash = null; this.deathFx = null; this.fireTime = 0; this.ended = null;
         this.lastCamY = 0; this.landIdx = false; this.wasDead = false; this.wasActive = false;
         this.streak = newStreak(); this.boost = false; this.lastMode = -1; this.wave = { pts: [], pos: null, active: false, pool: [] };
         this.em = {
@@ -266,7 +266,7 @@
           const playerOffset = (gf ? -10 : 10) * mini;
           const cubeDX = playerOffset * sn * (mir ? -1 : 1), cubeDY = -playerOffset * cs;
           const ufoMode = p.ufo && !p.ship;
-          if (ship) emit("ship", this.layerFrames(cfg.ship, "ship"), X + shipX, Y + shipY + (gf ? -20 * mini : 0), mrot, sxs * mini, sys * mini, false);
+          if (ship) { emit("ship", this.layerFrames(cfg.ship, "ship"), X + shipX, Y + shipY + (gf ? -20 * mini : 0), mrot, sxs * mini, sys * mini, false); this.fireLayout(p, X + shipX, Y + shipY + (gf ? -20 * mini : 0), mrot, mini, dt); }
           let birdX = 0, birdY = 0, cubeX, cubeY, cubeRot = mrot, birdRot = mrot;
           if (p.ufo) { birdX = X + shipX; birdY = Y + shipY + (gf ? -5 : 5) * mini; }
           if (ship) { const cubeSide = gf ? -1 : 1; cubeX = X + shipX + cubeSide * 20 * mini * sn * (mir ? -1 : 1); cubeY = Y + shipY + (gf ? -20 * mini : 0) - cubeSide * 20 * mini * cs; }
@@ -351,6 +351,22 @@
         if (sp >= one) return 1.75 + clamp((sp - one) / Math.max(1e-6, four - one), 0, 1) * 0.35;
         return 1.75 - clamp((one - sp) / Math.max(1e-6, one - half), 0, 1) * 0.15;
       }
+      // `_syncShipFire`: the animated flame behind the ship (fire styles 2..6; style 1 is the particle fire)
+      fireLayout(p, sx, sy, angle, mini, dt) {
+        const id = cfg.fire, count = [0, 0, 9, 10, 6, 16, 5][id] || 0;
+        if (id === 1 || !count || cfg.ldm || p.dead) { this.fireTime = 0; return; }
+        const recs = Array.from({ length: count }, (_, i) => loadEffectImage(`shipfire${String(id).padStart(2, "0")}_${String(i + 1).padStart(3, "0")}.png`));
+        if (!recs.every((r) => r && r.img)) return;
+        this.fireTime += Math.max(0, dt);
+        const rec = recs[Math.floor(this.fireTime * 24) % count], img = rec.img, maxH = Math.max(1, ...recs.map((r) => r.img.height));
+        const mirror = p.mir ? -1 : 1, gravity = p.gf ? -1 : 1, ox = -24 * mini * mirror, oy = 8 * mini * gravity;
+        const px = sx + ox * Math.cos(angle) - oy * Math.sin(angle), py = sy + ox * Math.sin(angle) + oy * Math.cos(angle), rot = angle - Math.PI / 2 * mirror;
+        const base = 63 * mini / maxH, speedRatio = Math.min(1, Math.abs(Number(p.yVel) || 0) / (16 * (p.mini ? 1.176470588 : 1)));
+        const scx = base * (gravity < 0 ? -1 : 1), scy = base * 0.8 * (1 + 0.5 * speedRatio);
+        const cx = px + (img.height * scy / 2) * Math.sin(rot), cy = py - (img.height * scy / 2) * Math.cos(rot);
+        const d = { frame: { x: 0, y: 0, w: img.width, h: img.height }, rotated: false, trimmed: false, sourceSize: { w: img.width, h: img.height }, spriteSourceSize: { x: 0, y: 0, w: img.width, h: img.height } };
+        this.items.push({ group: "ship", kind: "fx", fr: { img, d }, depth: 12.1, order: this.items.length, x: cx, y: cy, rot, sx: scx, sy: scy, tint: -1, alpha: 1 });
+      }
       // the swing copter: cube-like layers that never flip vertically, plus three fire flames (`_syncSwingFlames`)
       swingLayout(p, X, Y, dt, mini, mrot, sxs) {
         const parts = [["glow", "_glow_001.png", 9], ["overlay", "_2_001.png", 8], ["base", "_001.png", 10], ["extra", "_extra_001.png", 12]];
@@ -383,7 +399,8 @@
         const a = anim.spider; if (!a) return;
         const g = a.groups;
         this.spiderTimer += Math.max(0, dt) * this.speedFactor(p);
-        let group = !p.onGround && !p.onCeiling ? g.fall : g.run;
+        const fastRun = cfg.fastSpider && p.speed >= 17.3333393414 - 0.001 && g.run2 && g.run2.length;
+        let group = !p.onGround && !p.onCeiling ? g.fall : (fastRun ? g.run2 : g.run);
         if (!group || !group.length) group = g.walk;
         if (!group || !group.length) group = g.idle;
         let key = null;
@@ -408,7 +425,7 @@
         };
         let key = null;
         if (p.dashing) { const gr = g.fallLoop; key = gr.length ? gr[Math.floor(t * 16) % gr.length] : null; }
-        else if (next === "run") { const gr = g.run.length ? g.run : (g.idle1.length ? g.idle1 : g.idle); if (gr && gr.length) key = gr[Math.floor(t * 16) % gr.length]; }
+        else if (next === "run") { const half = 9.30222544655, three = 17.3333393414, alt = cfg.slowRobot && p.speed <= half + 0.001 ? g.skip : cfg.fastRobot && p.speed >= three - 0.001 ? g.run2 : null; const gr = alt && alt.length ? alt : g.run.length ? g.run : (g.idle1.length ? g.idle1 : g.idle); if (gr && gr.length) key = gr[Math.floor(t * 16) % gr.length]; }
         else if (next === "jump") key = startLoop(g.jumpStart, g.jumpLoop, 15);
         else key = startLoop(g.fallStart, g.fallLoop, 15);
         if (!key && a.desc.animationContainer["Robot_idle_001.png"]) key = "Robot_idle_001.png";
@@ -694,14 +711,41 @@
       slope: a[20], speed: a[21], dual: !!a[25], swing: !!a[26],
     });
 
+    // the death effects (`PlayerExplosion_NN` atlases, style 2..20): a frame animation at 20 fps where the icon died
+    const deathAtlases = new Map();
+    const deathAtlasFor = (id) => {
+      if (!(id >= 2 && id <= 20)) return null;
+      if (deathAtlases.has(id)) return deathAtlases.get(id);
+      const rec = { ready: false, failed: false }; deathAtlases.set(id, rec);
+      (async () => {
+        const base = `../ref/assets/icon-effects/PlayerExplosion_${String(id - 1).padStart(2, "0")}-hd`;
+        try {
+          const [xml, img] = await Promise.all([loadText(base + ".plist"), loadImage(base + ".png")]);
+          const frames = plistFrames(plistNode(new DOMParser().parseFromString(xml, "text/xml").documentElement.firstElementChild)).filter((f) => /\.png$/i.test(f.name));
+          if (!frames.length) throw new Error("no frames");
+          const size = packFrames(frames, img.width), cv = document.createElement("canvas"); cv.width = size.w; cv.height = size.h;
+          const g = cv.getContext("2d");
+          for (const f of frames) {
+            if (f.rotated) { g.save(); g.translate(f.dx, f.dy + f.h); g.rotate(-Math.PI / 2); g.drawImage(img, f.x, f.y, f.h, f.w, 0, 0, f.h, f.w); g.restore(); }
+            else g.drawImage(img, f.x, f.y, f.w, f.h, f.dx, f.dy, f.w, f.h);
+          }
+          cv.src = "death:" + id;
+          const fr = {}; for (const f of frames) fr[f.name] = { frame: { x: f.dx, y: f.dy, w: f.w, h: f.h }, rotated: false, trimmed: !(f.w === f.srcW && f.h === f.srcH && !f.sx && !f.sy), spriteSourceSize: { x: f.sx, y: f.sy, w: f.w, h: f.h }, sourceSize: { w: f.srcW, h: f.srcH } };
+          rec.img = cv; rec.frames = fr; rec.names = frames.map((f) => f.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); rec.res = 2; rec.ready = true;
+        } catch (e) { rec.failed = true; }
+      })();
+      return rec;
+    };
     const killEffects = (v, p, ox, oy, camY) => {
       // killPlayer(): burst of 100 squares, a flash circle and the player split into flying pieces
       const cxw = p.x, cyw = T - p.y;
       const sx = cxw + ox, sy = cyw + oy;
       const col = v.primary();
+      const atlas = deathAtlasFor(cfg.death);
+      if (atlas && atlas.ready) v.deathFx = { atlas, x: sx, y: sy, size: p.mini ? 0.6 : 1, t: 0 };
       const burst = []; for (let i = 0; i < 100; i++) { const a = rnd(0, 360) * Math.PI / 180, sp = rnd(200, 800); burst.push({ x: sx + rnd(-20, 20), y: sy + rnd(-20, 20), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, age: 0, life: rnd(50, 800) }); }
-      v.burst = { parts: burst, tint: col, paused: false };
-      v.flash = { t: 0, x: sx, y: sy };
+      if (!v.deathFx) { v.burst = { parts: burst, tint: col, paused: false }; v.flash = { t: 0, x: sx, y: sy }; }
+      if (!cfg.explode) return;
       // pieces from the last drawn layers
       const size = Math.round(0.9 * 40 * 2);
       const cv = document.createElement("canvas"); cv.width = cv.height = size;
@@ -740,6 +784,7 @@
         if (!v.burst.parts.length) v.burst = null;
       }
       if (v.flash) { v.flash.t += dtMs / 300; if (v.flash.t >= 1) v.flash = null; }
+      if (v.deathFx) { v.deathFx.t += dtMs; if (v.deathFx.t >= v.deathFx.atlas.names.length * 50) v.deathFx = null; }
       const P = v.pieces; if (!P) return;
       const sec = dtMs / 1000, k = Math.min(sec * 60 * 0.9, 2), grav = k * 0.5 * 2;
       for (let i = 0; i < P.list.length;) {
@@ -761,6 +806,10 @@
       if (!P.list.length) v.pieces = null;
     };
     const drawDeath = (v) => {
+      if (v.deathFx) {
+        const D = v.deathFx, A = D.atlas, name = A.names[Math.min(A.names.length - 1, Math.floor(D.t / 50))], k = D.size * (40 / 30) / A.res * 1.5;
+        drawFrame({ img: A.img, d: A.frames[name] }, D.x, D.y, 0, k, k, 1, -1, 0, 0);
+      }
       if (v.burst) for (const q of v.burst.parts) { const t = q.age / q.life; drawSquare("square.png", q.x, q.y, lerp(18 / 32, 0, t), 1 - t, v.burst.tint, true); }
       if (v.flash) {
         const t = v.flash.t, radius = 14 + t * 76, alpha = Math.max(0, 1 - t * t);
@@ -836,13 +885,14 @@
           v.rotation = p.rot;
           v.items = [];
           const camX = o.camX, camY = o.camY, ox = o.ox, oy = o.oy;
+          if (cfg.death >= 2) deathAtlasFor(cfg.death);
           v.lastCamY = camY;
           // events (shared log, applied to the primary player except the explicit second-player tags)
           // death / respawn edges
-          if (!active) { v.wasActive = false; v.em.ground.stop(); v.em.fly.stop(); v.em.fly2.stop(); v.em.drag.stop(); streakStop(v.streak); streakReset(v.streak); v.wave.active = false; v.wave.pts.length = 0; v.pieces = v.burst = v.flash = null; v.prevItems = []; continue; }
+          if (!active) { v.wasActive = false; v.em.ground.stop(); v.em.fly.stop(); v.em.fly2.stop(); v.em.drag.stop(); streakStop(v.streak); streakReset(v.streak); v.wave.active = false; v.wave.pts.length = 0; v.pieces = v.burst = v.flash = v.deathFx = null; v.prevItems = []; continue; }
           if (p.dead && !was && !o.menu && !v.ended) { killEffects(v, p, ox, oy, camY); streakStop(v.streak); streakReset(v.streak); v.wave.active = false; v.wave.pts.length = 0; for (const e of Object.values(v.em)) { if (e !== v.em.land1 && e !== v.em.land2) { e.stop(); e.clear(); } } }
-          if (!p.dead && was) { v.pieces = v.burst = v.flash = null; v.ended = null; v.circles.length = 0; v.dashFx = null; }
-          if (o.restart) { v.pieces = v.burst = v.flash = null; v.ended = null; streakReset(v.streak); v.boost = false; v.wave.pts.length = 0; v.circles.length = 0; v.dashFx = null; v.fx.length = 0; }
+          if (!p.dead && was) { v.pieces = v.burst = v.flash = v.deathFx = null; v.ended = null; v.circles.length = 0; v.dashFx = null; }
+          if (o.restart) { v.pieces = v.burst = v.flash = v.deathFx = null; v.ended = null; streakReset(v.streak); v.boost = false; v.wave.pts.length = 0; v.circles.length = 0; v.dashFx = null; v.fx.length = 0; }
           // level end fly-out
           if (!o.won && v.ended) v.ended = null;
           if (o.won && !v.ended && !p.dead && v.prevItems.length) v.startEnd(p, o);
