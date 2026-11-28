@@ -562,6 +562,8 @@ impl Game {
     /// `_pushButton`
     pub fn push_button(&mut self) {
         if self.p.is_dead { return; }
+        self.p.press_count = Some(self.p.press_count.unwrap_or(0.0) + 1.0);
+        self.p2.press_count = Some(self.p2.press_count.unwrap_or(0.0) + 1.0);
         self.p.up_key_down = true;
         self.p.up_key_pressed = true;
         self.p.queued_hold = true;
